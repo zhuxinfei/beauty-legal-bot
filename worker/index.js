@@ -18,6 +18,14 @@ import sourceCatalog from './sources.json' with { type: 'json' };
 // ---------------------------------------------------------------------------
 const DEEPSEEK_API = "https://api.deepseek.com/chat/completions";
 
+const RELEVANT_KEYWORDS = [
+  '化妆品', '美妆', '护肤', '彩妆', '香水', '防晒', '洗护', '功效宣称', '备案', '注册',
+  '标签', '广告', '虚假宣传', '处罚', '召回', '禁用', '限用', '进出口', '跨境', '清真',
+  'cosmetic', 'cosmetics', 'beauty', 'skincare', 'sunscreen', 'MoCRA', 'BPOM', 'AICIS',
+];
+
+const NOISE_KEYWORDS = ['融资', '发布会', '新品上市', '代言', '财报', '招聘'];
+
 const SYSTEM_PROMPT = `你是一位资深美妆/化妆品电商法务总监，就职于一家跨境电商美妆企业。
 公司业务覆盖三大市场：中国、东南亚、欧美。你需要**调研并撰写**一份今日美妆行业法规资讯日报，三个市场均等关注。
 
@@ -343,6 +351,74 @@ export function getSourceStats(sources = sourceCatalog.sources) {
     byCountry[source.country] = (byCountry[source.country] || 0) + 1;
   }
   return { total: sources.length, byModule, byCountry };
+}
+
+export function isRelevantTitle(title) {
+  const text = String(title || '').toLowerCase();
+  if (!text) return false;
+  if (NOISE_KEYWORDS.some(keyword => text.includes(keyword.toLowerCase()))) return false;
+  return RELEVANT_KEYWORDS.some(keyword => text.includes(keyword.toLowerCase()));
+}
+
+export function makeCandidate(source, item) {
+  return {
+    title: item.title,
+    url: item.url,
+    snippet: item.snippet || '',
+    source_name: source.name,
+    module: source.module,
+    region: source.region,
+    country: source.country,
+    source_type: source.source_type,
+    authority_type: source.authority_type,
+    priority: source.priority,
+    topics: source.topics || [],
+    fetched_at: new Date().toISOString(),
+  };
+}
+
+async function fetchSourceCandidates(source) {
+  if (source.source_type === 'wechat_public_account') return [];
+  if (!source.url || !source.url.startsWith('http')) return [];
+
+  try {
+    const response = await fetch(source.url, {
+      headers: {
+        'User-Agent': 'beauty-legal-bot/1.0 (+legal intelligence monitor)',
+        'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8',
+      },
+    });
+    if (!response.ok) return [];
+
+    const html = await response.text();
+    const links = extractLinks(html, source.url).filter(link => isRelevantTitle(link.title)).slice(0, 8);
+    const pageText = htmlToText(html).slice(0, 500);
+    return links.map(link => makeCandidate(source, { ...link, snippet: pageText }));
+  } catch (error) {
+    console.warn(`fetch failed: ${source.name} ${error.message}`);
+    return [];
+  }
+}
+
+async function collectCandidates(sources = sourceCatalog.sources) {
+  const candidates = [];
+  const failures = [];
+  for (const source of sources) {
+    const items = await fetchSourceCandidates(source);
+    if (!items.length && source.source_type !== 'wechat_public_account') failures.push(source.name);
+    candidates.push(...items);
+  }
+
+  const seen = new Set();
+  const unique = [];
+  for (const item of candidates) {
+    const key = item.url || `${item.title}:${item.source_name}`;
+    if (!seen.has(key)) {
+      seen.add(key);
+      unique.push(item);
+    }
+  }
+  return { candidates: unique, failures };
 }
 
 // ---------------------------------------------------------------------------

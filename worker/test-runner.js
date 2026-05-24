@@ -4,6 +4,8 @@ import {
   htmlToText,
   extractLinks,
   getSourceStats,
+  makeCandidate,
+  isRelevantTitle,
 } from './index.js';
 
 function testNormalizeUrl() {
@@ -38,8 +40,38 @@ function testGetSourceStats() {
   assert.equal(stats.byCountry['中国'], 2);
 }
 
+function testIsRelevantTitle() {
+  assert.equal(isRelevantTitle('化妆品安全评估技术导则征求意见'), true);
+  assert.equal(isRelevantTitle('直播带货虚假宣传处罚案例'), true);
+  assert.equal(isRelevantTitle('公司融资发布会'), false);
+}
+
+function testMakeCandidate() {
+  const source = {
+    name: '国家药品监督管理局',
+    module: '新规及案例动态',
+    region: '亚洲',
+    country: '中国',
+    source_type: 'website',
+    authority_type: 'official',
+    priority: 'high',
+    topics: ['化妆品', '备案'],
+  };
+  const candidate = makeCandidate(source, {
+    title: '化妆品安全评估技术导则征求意见',
+    url: 'https://example.com/a',
+    snippet: '正文摘要',
+  });
+  assert.equal(candidate.source_name, '国家药品监督管理局');
+  assert.equal(candidate.country, '中国');
+  assert.equal(candidate.url, 'https://example.com/a');
+  assert.equal(candidate.module, '新规及案例动态');
+}
+
 testNormalizeUrl();
 testHtmlToText();
 testExtractLinks();
 testGetSourceStats();
+testIsRelevantTitle();
+testMakeCandidate();
 console.log('worker pure function tests ok');
