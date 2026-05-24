@@ -220,10 +220,16 @@ function testRenderFeishuSummary() {
   assert.ok(summary.includes('风险提示'));
   assert.ok(summary.includes('Action Board'));
   assert.ok(summary.includes('Source Evidence'));
-  assert.ok(summary.includes('查看完整周报'));
+  assert.ok(summary.includes('阅读全文｜打开网页版情报中心'));
+  assert.ok(summary.includes('查看完整法务情报周报 →'));
   assert.ok(summary.includes('https://example.com/report/latest'));
   assert.ok(summary.includes('建议'));
   assert.ok(summary.includes('来源证据'));
+  assert.ok(summary.includes('**高风险**') || summary.includes('**中风险**') || summary.includes('**低风险**'));
+  assert.ok(summary.includes('[查看完整法务情报周报 →](https://example.com/report/latest)'));
+  assert.ok(/\[[^\]]+\]\(https?:\/\/[^)]+\)/.test(summary));
+  assert.equal(/(^|\s)https?:\/\/\S+/.test(summary.replace(/\[[^\]]+\]\(https?:\/\/[^)]+\)/g, '')), false);
+  assert.equal(summary.includes('本周报由 DeepSeek 辅助整理'), false);
 }
 
 function testBuildAnalysisPromptIncludesLeads() {
@@ -447,7 +453,7 @@ async function testScheduledPipelineSavesReportThenSendsFeishu() {
       reportExistedBeforeFeishu = store.has('report:latest');
       const body = JSON.parse(init.body);
       assert.equal(body.msg_type, 'interactive');
-      assert.ok(JSON.stringify(body.card).includes('查看完整周报'));
+      assert.ok(JSON.stringify(body.card).includes('查看完整法务情报周报'));
       return new Response(JSON.stringify({ code: 0 }), { status: 200, headers: { 'Content-Type': 'application/json' } });
     }
     return new Response('<a href="/cosmetic-rule">化妆品安全评估技术导则征求意见</a>', {

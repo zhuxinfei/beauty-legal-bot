@@ -1335,6 +1335,7 @@ export function renderReportHtml(report, { generatedAt = new Date().toISOString(
 export function renderFeishuSummary(report, reportUrl) {
   validateReport(report);
   const items = (report.sections || []).flatMap(section => section.items || []);
+  const mdLink = (label, url) => `[${String(label || '查看原文').replace(/[\[\]\n]/g, '')}](${url})`;
   const suggest = action => {
     const text = String(action || '').trim();
     if (!text) return '建议相关团队结合业务范围判断是否需要跟进。';
@@ -1345,14 +1346,14 @@ export function renderFeishuSummary(report, reportUrl) {
   const priorityItems = items
     .filter(item => item.risk_level === 'high' || item.industry_impact === 'high')
     .slice(0, 4);
-  const guide = (report.summary || []).slice(0, 3).map((item, index) => `${index + 1}. ${item}`).join('\n') || `1. 本期共 ${items.length} 条情报，建议先看高风险和高行业影响力条目。`;
-  const risks = (report.risk_alerts || []).slice(0, 3).map(alert => `• ${riskLabel(alert.level)}：${alert.text}`).join('\n') || '本周暂无高价值风险提醒。';
+  const guide = (report.summary || []).slice(0, 3).map((item, index) => `${index + 1}. **${item}**`).join('\n') || `1. **本期共 ${items.length} 条情报，建议先看高风险和高行业影响力条目。**`;
+  const risks = (report.risk_alerts || []).slice(0, 3).map(alert => `• **${riskLabel(alert.level)}**：${alert.text}`).join('\n') || '本周暂无高价值风险提醒。';
   const actionLines = priorityItems.map(item => {
     const action = Array.isArray(item.recommended_actions) ? item.recommended_actions[0] : '';
-    return `• ${item.country}｜${riskLabel(item.risk_level)}｜${item.title}\n  ${suggest(action)}`;
+    return `• **${item.country}｜${riskLabel(item.risk_level)}**｜${item.title}\n  **建议**：${suggest(action)}`;
   }).join('\n') || '• 本周暂无需要立即处理的高风险事项。';
-  const evidence = priorityItems.slice(0, 3).map(item => `• ${item.source_name}：${item.source_url}`).join('\n') || '• 完整来源见网页版。';
-  return `**美妆法务周报｜${report.period.end}**\n\n**Executive Brief｜核心判断**\n${executive}\n\n**导读｜先看这三件事**\n${guide}\n\n**风险提示**\n${risks}\n\n**Action Board｜建议优先动作**\n${actionLines}\n\n**Source Evidence｜来源证据**\n${evidence}\n\n**完整版网页**\n[查看完整周报](${reportUrl})\n\n_本周报由 DeepSeek 辅助整理，仅作信息初筛，不构成正式法律意见。_`;
+  const evidence = priorityItems.slice(0, 3).map(item => `• ${mdLink(item.source_name, item.source_url)}｜${item.country}｜${riskLabel(item.risk_level)}`).join('\n') || '• 完整来源见网页版。';
+  return `**美妆法务周报｜${report.period.end}**\n\n**Executive Brief｜核心判断**\n**${executive}**\n\n**导读｜先看这三件事**\n${guide}\n\n**风险提示**\n${risks}\n\n**Action Board｜建议优先动作**\n${actionLines}\n\n**Source Evidence｜来源证据**\n${evidence}\n\n**阅读全文｜打开网页版情报中心**\n${mdLink('查看完整法务情报周报 →', reportUrl)}`;
 }
 
 export function reportKeyForDate(date) {
