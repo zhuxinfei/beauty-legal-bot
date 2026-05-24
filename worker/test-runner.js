@@ -22,6 +22,7 @@ import {
   limitReportSections,
   buildAnalysisPrompt,
   fetchWithTimeout,
+  mapWithConcurrency,
 } from './index.js';
 
 function testNormalizeUrl() {
@@ -191,6 +192,21 @@ async function testManualTestRouteAwaitsPipeline() {
   assert.ok(text.includes('/report/latest'));
 }
 
+async function testMapWithConcurrencyLimitsParallelWork() {
+  let active = 0;
+  let maxActive = 0;
+  const results = await mapWithConcurrency([1, 2, 3, 4, 5], 2, async value => {
+    active += 1;
+    maxActive = Math.max(maxActive, active);
+    await new Promise(resolve => setTimeout(resolve, 5));
+    active -= 1;
+    return value * 2;
+  });
+
+  assert.deepEqual(results, [2, 4, 6, 8, 10]);
+  assert.equal(maxActive, 2);
+}
+
 function testReportKeys() {
   assert.equal(reportKeyForDate('2026-05-24'), 'report:2026-05-24');
   assert.equal(latestReportKey(), 'report:latest');
@@ -227,6 +243,7 @@ function testSplitSourcesSeparatesWechatLeads() {
 
 await testFetchWithTimeoutAbortsSlowFetch();
 await testManualTestRouteAwaitsPipeline();
+await testMapWithConcurrencyLimitsParallelWork();
 testNormalizeUrl();
 testHtmlToText();
 testExtractLinks();

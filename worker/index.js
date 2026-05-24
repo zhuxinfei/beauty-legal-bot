@@ -35,6 +35,7 @@ const REPORT_MODULES = [
 ];
 const ACTION_NOISE = ['建议关注', '持续关注', '企业应留意', '可能产生影响', '需持续观察'];
 const SOURCE_FETCH_TIMEOUT_MS = 8000;
+const SOURCE_FETCH_CONCURRENCY = 6;
 const TYPE_REQUIRED_FIELDS = {
   '法规': ['status', 'what_changed', 'legal_obligation', 'affected_business', 'recommended_actions', 'owner_teams', 'risk_level', 'why_it_matters', 'confidence'],
   '案例': ['case_type', 'facts', 'violation_logic', 'penalty_or_result', 'risk_pattern', 'business_lessons', 'recommended_actions', 'owner_teams', 'risk_level', 'why_it_matters', 'confidence'],
@@ -261,6 +262,22 @@ export async function fetchWithTimeout(url, init = {}, timeoutMs = SOURCE_FETCH_
   } finally {
     clearTimeout(timer);
   }
+}
+
+export async function mapWithConcurrency(items, limit, mapper) {
+  const results = new Array(items.length);
+  let nextIndex = 0;
+  const workerCount = Math.min(Math.max(1, limit), items.length);
+
+  await Promise.all(Array.from({ length: workerCount }, async () => {
+    while (nextIndex < items.length) {
+      const currentIndex = nextIndex;
+      nextIndex += 1;
+      results[currentIndex] = await mapper(items[currentIndex], currentIndex);
+    }
+  }));
+
+  return results;
 }
 
 export function normalizeUrl(href, baseUrl) {
@@ -783,16 +800,16 @@ async function fetchSourceCandidates(source) {
 
 async function collectCandidates(sources = sourceCatalog.sources, onProgress = async () => {}) {
   const { fetchableSources, leadSources } = splitSources(sources);
-  const candidates = [];
-  const failures = [];
   const leads = leadSources.map(makeLead);
 
-  for (const [index, source] of fetchableSources.entries()) {
+  const results = await mapWithConcurrency(fetchableSources, SOURCE_FETCH_CONCURRENCY, async (source, index) => {
     await onProgress({ index: index + 1, total: fetchableSources.length, source: source.name });
     const items = await fetchSourceCandidates(source);
-    if (!items.length) failures.push(source.name);
-    candidates.push(...items);
-  }
+    return { source, items };
+  });
+
+  const failures = results.filter(result => !result.items.length).map(result => result.source.name);
+  const candidates = results.flatMap(result => result.items);
 
   const seen = new Set();
   const unique = [];
