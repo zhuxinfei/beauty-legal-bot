@@ -164,6 +164,7 @@ async function testFetchWithTimeoutAbortsSlowFetch() {
 
 async function testManualTestRouteAwaitsPipeline() {
   let waitUntilCalled = false;
+  let pipelineStarted = false;
   const response = await worker.fetch(
     new Request('https://example.com/test'),
     {
@@ -173,19 +174,20 @@ async function testManualTestRouteAwaitsPipeline() {
         async get() { return null; },
         async put() {},
       },
-      __TEST_RUN_PIPELINE__: async () => ({ stage: 'feishu', status: 'done' }),
+      __TEST_RUN_PIPELINE__: async () => { pipelineStarted = true; },
     },
     {
-      waitUntil() {
+      waitUntil(promise) {
         waitUntilCalled = true;
+        return promise;
       },
     }
   );
 
   const text = await response.text();
-  assert.equal(waitUntilCalled, false);
-  assert.ok(text.includes('weekly pipeline finished'));
-  assert.ok(text.includes('status: done'));
+  assert.equal(waitUntilCalled, true);
+  assert.equal(pipelineStarted, true);
+  assert.ok(text.includes('weekly pipeline triggered'));
   assert.ok(text.includes('/report/latest'));
 }
 

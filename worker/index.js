@@ -823,12 +823,8 @@ export default {
     const url = new URL(request.url);
     if (url.pathname === "/test") {
       const pipeline = env.__TEST_RUN_PIPELINE__ || runPipeline;
-      try {
-        const result = await pipeline(env, request.url);
-        return new Response(`OK — weekly pipeline finished\nstatus: ${result?.status || 'done'}\nlatest_report: ${url.origin}/report/latest`, { status: 200, headers: { "Content-Type": "text/plain; charset=utf-8" } });
-      } catch (error) {
-        return new Response(`FAILED — weekly pipeline error\n${error.stack || error.message}`, { status: 500, headers: { "Content-Type": "text/plain; charset=utf-8" } });
-      }
+      ctx.waitUntil(pipeline(env, request.url));
+      return new Response(`OK — weekly pipeline triggered\nlatest_report: ${url.origin}/report/latest`, { status: 200, headers: { "Content-Type": "text/plain; charset=utf-8" } });
     }
 
     if (url.pathname === "/report") {
