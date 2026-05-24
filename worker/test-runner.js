@@ -1,6 +1,7 @@
 import assert from 'node:assert/strict';
 import sampleReport from './sample-report.json' with { type: 'json' };
 import {
+  default as worker,
   normalizeUrl,
   htmlToText,
   extractLinks,
@@ -20,8 +21,6 @@ import {
   filterReportQuality,
   limitReportSections,
   buildAnalysisPrompt,
-  runStatusKey,
-  buildRunStartedResponse,
   fetchWithTimeout,
 } from './index.js';
 
@@ -152,13 +151,6 @@ function testBuildAnalysisPromptIncludesLeads() {
   assert.ok(prompt.includes('不要输出未加工新闻'));
 }
 
-function testRunStatusHelpers() {
-  assert.equal(runStatusKey('abc123'), 'run:abc123');
-  const response = buildRunStartedResponse('abc123', 'https://beauty-legal-bot.ai-cf.workers.dev');
-  assert.ok(response.includes('/status/abc123'));
-  assert.ok(response.includes('/report/latest'));
-}
-
 async function testFetchWithTimeoutAbortsSlowFetch() {
   const slowFetch = (_url, init) => new Promise((resolve, reject) => {
     init.signal.addEventListener('abort', () => reject(new DOMException('Aborted', 'AbortError')));
@@ -168,6 +160,33 @@ async function testFetchWithTimeoutAbortsSlowFetch() {
     () => fetchWithTimeout('https://example.com', {}, 1, slowFetch),
     /timed out|Abort/
   );
+}
+
+async function testManualTestRouteAwaitsPipeline() {
+  let waitUntilCalled = false;
+  const response = await worker.fetch(
+    new Request('https://example.com/test'),
+    {
+      DEEPSEEK_API_KEY: 'test-key',
+      FEISHU_WEBHOOK_URL: 'https://example.com/webhook',
+      SEEN_NEWS: {
+        async get() { return null; },
+        async put() {},
+      },
+      __TEST_RUN_PIPELINE__: async () => ({ stage: 'feishu', status: 'done' }),
+    },
+    {
+      waitUntil() {
+        waitUntilCalled = true;
+      },
+    }
+  );
+
+  const text = await response.text();
+  assert.equal(waitUntilCalled, false);
+  assert.ok(text.includes('weekly pipeline finished'));
+  assert.ok(text.includes('status: done'));
+  assert.ok(text.includes('/report/latest'));
 }
 
 function testReportKeys() {
@@ -205,6 +224,7 @@ function testSplitSourcesSeparatesWechatLeads() {
 }
 
 await testFetchWithTimeoutAbortsSlowFetch();
+await testManualTestRouteAwaitsPipeline();
 testNormalizeUrl();
 testHtmlToText();
 testExtractLinks();
@@ -219,7 +239,6 @@ testLimitReportSectionsCapsNonRegulatoryModules();
 testRenderReportHtml();
 testRenderFeishuSummary();
 testBuildAnalysisPromptIncludesLeads();
-testRunStatusHelpers();
 testReportKeys();
 testDedupeReportRemovesRepeatedItems();
 testExtractReportFingerprintsUsesItems();
