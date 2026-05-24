@@ -840,8 +840,8 @@ export default {
     const url = new URL(request.url);
     if (url.pathname === "/test") {
       const pipeline = env.__TEST_RUN_PIPELINE__ || runPipeline;
-      ctx.waitUntil(pipeline(env, request.url));
-      return new Response(`OK — weekly pipeline triggered\nlatest_report: ${url.origin}/report/latest`, { status: 200, headers: { "Content-Type": "text/plain; charset=utf-8" } });
+      const result = await pipeline(env, request.url);
+      return new Response(`OK — weekly pipeline finished\nstatus: ${result?.status || 'done'}\nlatest_report: ${url.origin}/report/latest`, { status: 200, headers: { "Content-Type": "text/plain; charset=utf-8" } });
     }
 
     if (url.pathname === "/report") {

@@ -186,9 +186,10 @@ async function testManualTestRouteAwaitsPipeline() {
   );
 
   const text = await response.text();
-  assert.equal(waitUntilCalled, true);
+  assert.equal(waitUntilCalled, false);
   assert.equal(pipelineStarted, true);
-  assert.ok(text.includes('weekly pipeline triggered'));
+  assert.ok(text.includes('weekly pipeline finished'));
+  assert.ok(text.includes('status: done'));
   assert.ok(text.includes('/report/latest'));
 }
 
