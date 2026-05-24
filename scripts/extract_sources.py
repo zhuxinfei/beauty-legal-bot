@@ -13,20 +13,46 @@ NS = {
     "pkg_rel": "http://schemas.openxmlformats.org/package/2006/relationships",
 }
 
+REPORT_MODULES = {
+    "新规/修订/废止/生效提醒",
+    "广告合规及处罚案例",
+    "美妆行业动态",
+    "知识产权动态",
+    "进出口/跨境电商动态",
+}
+
 MODULE_RULES = [
     ("广告", "广告合规及处罚案例"),
+    ("虚假宣传", "广告合规及处罚案例"),
+    ("处罚", "广告合规及处罚案例"),
     ("市监", "广告合规及处罚案例"),
     ("市场监督", "广告合规及处罚案例"),
-    ("药品监督", "新规及案例动态"),
-    ("药监", "新规及案例动态"),
-    ("NMPA", "新规及案例动态"),
-    ("海关", "进出口动态"),
     ("知识产权", "知识产权动态"),
-    ("检察", "新规及案例动态"),
-    ("法院", "新规及案例动态"),
-    ("化妆品", "美妆动态"),
-    ("美妆", "美妆动态"),
+    ("商标", "知识产权动态"),
+    ("专利", "知识产权动态"),
+    ("海关", "进出口/跨境电商动态"),
+    ("进出口", "进出口/跨境电商动态"),
+    ("跨境", "进出口/跨境电商动态"),
+    ("进口", "进出口/跨境电商动态"),
+    ("药品监督", "新规/修订/废止/生效提醒"),
+    ("药监", "新规/修订/废止/生效提醒"),
+    ("NMPA", "新规/修订/废止/生效提醒"),
+    ("法规", "新规/修订/废止/生效提醒"),
+    ("监管", "新规/修订/废止/生效提醒"),
+    ("检察", "广告合规及处罚案例"),
+    ("法院", "广告合规及处罚案例"),
+    ("化妆品", "美妆行业动态"),
+    ("美妆", "美妆行业动态"),
 ]
+
+CATEGORY_MODULE_MAP = {
+    "新规及案例动态": "新规/修订/废止/生效提醒",
+    "新规/修订/废止": "新规/修订/废止/生效提醒",
+    "法规": "新规/修订/废止/生效提醒",
+    "案例": "广告合规及处罚案例",
+    "美妆动态": "美妆行业动态",
+    "进出口动态": "进出口/跨境电商动态",
+}
 
 REGION_RULES = [
     ("中国", "亚洲", "中国"),
@@ -79,13 +105,18 @@ TOPIC_RULES = [
 
 OFFICIAL_KEYWORDS = [
     "gov", "政府", "国家", "药监", "药品监督", "市场监督", "海关", "法院", "检察",
-    "FDA", "BPOM", "AICIS", "ECHA", "SCCS", "欧盟", "commission", "europa",
+    "FDA", "BPOM", "AICIS", "ECHA", "SCCS", "欧盟", "commission", "europa", "official",
 ]
 
 URL_SOURCE_TYPES = [
+    ("微信公众号", "wechat_public_account"),
+    ("公众号", "wechat_public_account"),
+    ("微信", "wechat_public_account"),
     ("mp.weixin.qq.com", "wechat_public_account"),
     ("weixin.qq.com", "wechat_public_account"),
     ("rss", "rss"),
+    ("atom", "rss"),
+    ("feed", "rss"),
 ]
 
 
@@ -169,15 +200,29 @@ def normalize_text(*parts):
     return " ".join(str(part or "") for part in parts).upper()
 
 
+def normalize_module(module):
+    text = str(module or "").strip()
+    if not text:
+        return ""
+    if text in REPORT_MODULES:
+        return text
+    if text in CATEGORY_MODULE_MAP:
+        return CATEGORY_MODULE_MAP[text]
+    for keyword, mapped in MODULE_RULES:
+        if keyword.upper() in text.upper():
+            return mapped
+    return ""
+
+
 def classify_module(name, url, raw_category):
-    category = str(raw_category or "").strip()
-    if category:
-        return category
+    category_module = normalize_module(raw_category)
+    if category_module:
+        return category_module
     text = normalize_text(name, url)
     for keyword, module in MODULE_RULES:
         if keyword.upper() in text:
             return module
-    return "uncategorized"
+    return "美妆行业动态"
 
 
 def classify_region(name, url):
@@ -204,23 +249,29 @@ def classify_region(name, url):
     return "全球", "未分类"
 
 
-def classify_source_type(url):
-    lower = str(url or "").lower()
+def classify_source_type(name, url):
+    text = f"{name or ''} {url or ''}"
+    lower = text.lower()
     for keyword, source_type in URL_SOURCE_TYPES:
-        if keyword in lower:
+        if keyword.lower() in lower:
             return source_type
-    return "website"
+    if str(url or "").startswith("http"):
+        authority_type = classify_authority(name, url)
+        return "official_site" if authority_type == "regulator" else "industry_site"
+    return "manual_link" if str(url or "").strip() else "industry_site"
 
 
 def classify_authority(name, url):
     text = normalize_text(name, url)
-    return "official" if any(keyword.upper() in text for keyword in OFFICIAL_KEYWORDS) else "industry"
+    return "regulator" if any(keyword.upper() in text for keyword in OFFICIAL_KEYWORDS) else "industry"
 
 
-def classify_priority(authority_type, module):
-    if authority_type == "official":
+def classify_priority(authority_type, module, source_type):
+    if authority_type == "regulator" or source_type == "official_site":
         return "high"
-    if module in {"新规及案例动态", "广告合规及处罚案例", "进出口动态"}:
+    if source_type == "wechat_public_account":
+        return "low"
+    if module in {"新规/修订/废止/生效提醒", "广告合规及处罚案例", "进出口/跨境电商动态"}:
         return "medium"
     return "low"
 
@@ -251,9 +302,9 @@ def source_from_row(row, index):
     raw_category = row.get("D", "")
     module = classify_module(name, url, raw_category)
     region, country = classify_region(name, url)
-    source_type = classify_source_type(url)
+    source_type = classify_source_type(name, url)
     authority_type = classify_authority(name, url)
-    priority = classify_priority(authority_type, module)
+    priority = classify_priority(authority_type, module, source_type)
     return {
         "id": slugify(url or name, index),
         "name": name,
