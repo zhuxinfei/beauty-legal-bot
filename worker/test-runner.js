@@ -6,6 +6,7 @@ import {
   normalizeUrl,
   htmlToText,
   extractLinks,
+  extractImageUrl,
   getSourceStats,
   makeCandidate,
   isRelevantTitle,
@@ -26,6 +27,7 @@ import {
   normalizeModuleReport,
   enrichReportWithSourceSignals,
   filterReportToObservedSources,
+  attachReportImages,
   fetchWithTimeout,
   mapWithConcurrency,
   extractPublishedDate,
@@ -51,6 +53,12 @@ function testExtractLinks() {
     { title: '法规通知', url: 'https://site.test/a' },
     { title: '案例通报', url: 'https://b.test/x' },
   ]);
+}
+
+function testExtractImageUrl() {
+  const html = '<meta property="og:image" content="/cover.jpg"><img src="/fallback.jpg">';
+  assert.equal(extractImageUrl(html, 'https://site.test/news/a'), 'https://site.test/cover.jpg');
+  assert.equal(extractImageUrl('<img src="/fallback.jpg">', 'https://site.test/news/a'), 'https://site.test/fallback.jpg');
 }
 
 function testGetSourceStats() {
@@ -172,10 +180,20 @@ function testRenderReportHtml() {
   assert.ok(html.includes('Intelligence Command Center'));
   assert.ok(html.includes('class="layout"'));
   assert.ok(html.includes('class="side-rail"'));
-  assert.ok(html.includes('class="brief-grid"'));
-  assert.ok(html.includes('class="risk-board"'));
-  assert.ok(html.includes('class="intel-card"'));
-  assert.ok(html.includes('class="item-number"'));
+  assert.ok(html.includes('Executive Brief'));
+  assert.ok(html.includes('Strategic Themes'));
+  assert.ok(html.includes('Market Risk Map'));
+  assert.ok(html.includes('Action Board'));
+  assert.ok(html.includes('Source Evidence'));
+  assert.ok(html.includes('class="theme-card"'));
+  assert.ok(html.includes('class="evidence-link"'));
+  assert.ok(html.includes('severity-high'));
+  assert.ok(html.includes('severity-medium'));
+  assert.ok(html.includes('relevance-direct'));
+  assert.ok(html.includes('confidence-high'));
+  assert.ok(html.includes('Source Evidence'));
+  assert.ok(html.includes('查看原文'));
+  assert.ok(html.includes('核心结论'));
   assert.ok(html.includes('建议动作'));
   assert.ok(html.includes('https://www.pom.go.id/'));
   assert.ok(html.includes('变化点'));
@@ -184,15 +202,28 @@ function testRenderReportHtml() {
   assert.ok(html.includes('合规动作'));
 }
 
+function testRenderReportHtmlShowsEvidenceImageWhenAvailable() {
+  const report = structuredClone(sampleReport);
+  report.sections[0].items[0].image_url = 'https://example.com/evidence.jpg';
+  const html = renderReportHtml(report, { generatedAt: '2026-05-24T00:00:00.000Z', failures: [] });
+  assert.ok(html.includes('class="evidence-image"'));
+  assert.ok(html.includes('https://example.com/evidence.jpg'));
+}
+
 function testRenderFeishuSummary() {
   const summary = renderFeishuSummary(sampleReport, 'https://example.com/report/latest');
-  assert.ok(summary.includes('本周概览'));
+  assert.ok(summary.includes('Executive Brief'));
+  assert.ok(summary.includes('导读'));
+  assert.ok(summary.includes('核心判断'));
+  assert.ok(summary.includes('Action Board'));
+  assert.ok(summary.includes('Source Evidence'));
   assert.ok(summary.includes('风险提示'));
-  assert.ok(summary.includes('建议优先查看'));
+  assert.ok(summary.includes('Action Board'));
+  assert.ok(summary.includes('Source Evidence'));
   assert.ok(summary.includes('查看完整周报'));
   assert.ok(summary.includes('https://example.com/report/latest'));
-  assert.ok(summary.includes('建议：'));
-  assert.ok(summary.includes('行业影响力'));
+  assert.ok(summary.includes('建议'));
+  assert.ok(summary.includes('来源证据'));
 }
 
 function testBuildAnalysisPromptIncludesLeads() {
@@ -294,6 +325,15 @@ function testFilterReportToObservedSourcesDropsFabricatedUrls() {
 
   assert.equal(filtered.sections[0].items.length, 1);
   assert.equal(filtered.sections[0].items[0].title, sampleReport.sections[0].items[0].title);
+}
+
+function testAttachReportImagesUsesObservedCandidateImages() {
+  const report = structuredClone(sampleReport);
+  const sourceUrl = report.sections[0].items[0].source_url;
+  const withImages = attachReportImages(report, {
+    candidates: [{ url: sourceUrl, image_url: 'https://example.com/source.jpg' }],
+  });
+  assert.equal(withImages.sections[0].items[0].image_url, 'https://example.com/source.jpg');
 }
 
 function testEnterprisePromptRequiresGlobalLegalIntelligence() {
@@ -549,6 +589,7 @@ await testManualTestRouteRecordsFailure();
 testNormalizeUrl();
 testHtmlToText();
 testExtractLinks();
+testExtractImageUrl();
 testGetSourceStats();
 testIsRelevantTitle();
 testMakeCandidate();
@@ -559,12 +600,14 @@ testFilterReportQualityDropsItemsWithoutSourceUrl();
 testFilterReportQualityKeepsLeadBasedBeautyAndImportSignals();
 testLimitReportSectionsKeepsEnterpriseModuleDepth();
 testRenderReportHtml();
+testRenderReportHtmlShowsEvidenceImageWhenAvailable();
 testRenderFeishuSummary();
 testBuildAnalysisPromptIncludesLeads();
 testBuildAnalysisPromptUsesModuleTarget();
 testNormalizeModuleReportForcesTargetWorkbookModule();
 testEnrichReportWithSourceSignalsFillsSparseWorkbookModules();
 testFilterReportToObservedSourcesDropsFabricatedUrls();
+testAttachReportImagesUsesObservedCandidateImages();
 testEnterprisePromptRequiresGlobalLegalIntelligence();
 testCandidateFreshnessAndInfluenceRanking();
 testReportKeys();

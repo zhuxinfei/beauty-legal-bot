@@ -235,7 +235,8 @@ export async function runPipeline(env, requestUrl = 'https://beauty-legal-bot.wo
     const period = getPeriod();
     const rawReport = await deepseekAnalyzeByModule({ apiKey: deepseekKey, model, candidates, leads, sources: sourceCatalog.sources, period });
     const sourceCheckedReport = filterReportToObservedSources(rawReport, { candidates, sources: sourceCatalog.sources });
-    const report = limitReportSections(filterReportQuality(dedupeReport(enrichReportWithSourceSignals(sourceCheckedReport, { candidates, sources: sourceCatalog.sources }))));
+    const imageAwareReport = attachReportImages(sourceCheckedReport, { candidates });
+    const report = limitReportSections(filterReportQuality(dedupeReport(enrichReportWithSourceSignals(imageAwareReport, { candidates, sources: sourceCatalog.sources }))));
     validateReport(report);
     const itemCount = (report.sections || []).flatMap(section => section.items || []).length;
     console.log(`[stage 2/5] 完成，模块 ${report.sections.length} 个，去重后 ${itemCount} 条`);
@@ -327,6 +328,22 @@ export function extractLinks(html, baseUrl) {
     .filter(link => link.title && link.url);
 }
 
+export function extractImageUrl(html, baseUrl) {
+  const text = String(html || '');
+  const metaPatterns = [
+    /<meta\s+[^>]*(?:property|name)=["']og:image["'][^>]*content=["']([^"']+)["'][^>]*>/i,
+    /<meta\s+[^>]*content=["']([^"']+)["'][^>]*(?:property|name)=["']og:image["'][^>]*>/i,
+    /<meta\s+[^>]*(?:property|name)=["']twitter:image["'][^>]*content=["']([^"']+)["'][^>]*>/i,
+    /<meta\s+[^>]*content=["']([^"']+)["'][^>]*(?:property|name)=["']twitter:image["'][^>]*>/i,
+  ];
+  for (const pattern of metaPatterns) {
+    const match = text.match(pattern);
+    if (match?.[1]) return normalizeUrl(match[1], baseUrl);
+  }
+  const img = text.match(/<img\s+[^>]*src=["']([^"']+)["'][^>]*>/i);
+  return img?.[1] ? normalizeUrl(img[1], baseUrl) : '';
+}
+
 export function getSourceStats(sources = sourceCatalog.sources) {
   const byModule = {};
   const byCountry = {};
@@ -372,6 +389,7 @@ export function makeCandidate(source, item) {
     title: item.title,
     url: item.url,
     snippet: item.snippet || '',
+    image_url: item.image_url || '',
     source_name: source.name,
     module: source.module,
     region: source.region,
@@ -827,6 +845,24 @@ export function filterReportToObservedSources(report, { candidates = [], sources
   };
 }
 
+export function attachReportImages(report, { candidates = [] } = {}) {
+  const imagesByUrl = new Map(
+    candidates
+      .filter(candidate => candidate.url && candidate.image_url)
+      .map(candidate => [normalizeSourceUrl(candidate.url), candidate.image_url])
+  );
+  return {
+    ...report,
+    sections: (report.sections || []).map(section => ({
+      ...section,
+      items: (section.items || []).map(item => ({
+        ...item,
+        image_url: item.image_url || imagesByUrl.get(normalizeSourceUrl(item.source_url)) || '',
+      })),
+    })),
+  };
+}
+
 async function deepseekAnalyzeByModule({ apiKey, model, candidates, leads = [], sources = sourceCatalog.sources, period = getPeriod() }) {
   const reports = [];
   for (const module of REPORT_MODULES) {
@@ -924,8 +960,18 @@ function impactLabel(level) {
   return labels[level] || level || '待判断';
 }
 
+function levelClass(prefix, value, fallback = 'medium') {
+  const safe = ['high', 'medium', 'low', 'direct', 'indirect'].includes(value) ? value : fallback;
+  return `${prefix}-${safe}`;
+}
+
 function moduleId(module) {
   return `module-${hashStr(module)}`;
+}
+
+function renderEvidenceImage(item) {
+  if (!item.image_url) return '';
+  return `<figure class="evidence-image"><img src="${escapeHtml(item.image_url)}" alt="${escapeHtml(item.source_name)} 来源图片" loading="lazy"></figure>`;
 }
 
 export function renderReportHtml(report, { generatedAt = new Date().toISOString(), failures = [] } = {}) {
@@ -955,7 +1001,7 @@ export function renderReportHtml(report, { generatedAt = new Date().toISOString(
         <div class="item-topline">
           <span class="item-number">${String(sectionIndex + 1).padStart(2, '0')}.${String(itemIndex + 1).padStart(2, '0')}</span>
           <div class="item-meta">
-            <span class="tag ${escapeHtml(item.risk_level || 'medium')}">${escapeHtml(item.type)}</span>
+            <span class="tag ${escapeHtml(item.risk_level || 'medium')} ${levelClass('severity', item.risk_level)}">${escapeHtml(item.type)}</span>
             <span>${escapeHtml(item.country || item.region)}</span>
             <span>${escapeHtml(item.region || '全球')}</span>
             <span>${escapeHtml(item.published_at || '未知日期')}</span>
@@ -963,31 +1009,39 @@ export function renderReportHtml(report, { generatedAt = new Date().toISOString(
           </div>
         </div>
         <h3>${escapeHtml(item.title)}</h3>
+        <section class="source-evidence">
+          ${renderEvidenceImage(item)}
+          <div class="evidence-body">
+            <p class="evidence-label">Source Evidence</p>
+            <a class="evidence-link" href="${escapeHtml(item.source_url)}" target="_blank" rel="noopener noreferrer">查看原文：${escapeHtml(item.source_name)}</a>
+            <div class="evidence-meta">
+              <span>${escapeHtml(item.source_type || 'source')}</span>
+              <span class="${levelClass('confidence', item.confidence)}">${escapeHtml(item.confidence || 'medium')} confidence</span>
+              <span>${escapeHtml(item.published_at || '未知日期')}</span>
+            </div>
+          </div>
+        </section>
+        <section class="conclusion-strip">
+          <h4>核心结论</h4>
+          <p>${escapeHtml(item.why_it_matters || '该条信息需要相关团队结合业务覆盖范围判断影响。')}</p>
+        </section>
         <div class="intel-grid">
-          <div><b>相关性</b><span>${item.relevance === 'direct' ? '直接相关' : '间接相关'}</span></div>
-          <div><b>行业影响力</b><span>${escapeHtml(impactLabel(item.industry_impact))}</span></div>
+          <div class="${levelClass('relevance', item.relevance, 'indirect')}"><b>相关性</b><span>${item.relevance === 'direct' ? '直接相关' : '间接相关'}</span></div>
+          <div class="${levelClass('severity', item.industry_impact)}"><b>行业影响力</b><span>${escapeHtml(impactLabel(item.industry_impact))}</span></div>
           <div><b>市场覆盖</b><span>${escapeHtml((item.market_scope || []).join('、') || item.country || '待判断')}</span></div>
         </div>
-        <div class="source-row">
-          <a class="source-link" href="${escapeHtml(item.source_url)}" target="_blank" rel="noopener noreferrer">原文：${escapeHtml(item.source_name)}</a>
-          <span class="confidence">${escapeHtml(item.confidence || 'medium')} confidence</span>
-        </div>
         <div class="analysis-grid">
-          <section class="analysis-panel why-panel">
-            <h4>为什么重要</h4>
-            <p>${escapeHtml(item.why_it_matters || '该条信息需要相关团队结合业务覆盖范围判断影响。')}</p>
-          </section>
           <section class="analysis-panel">
             <h4>业务影响</h4>
             ${renderList(item.business_impact, 'impact-list')}
           </section>
-          <section class="analysis-panel detail-panel">
-            <h4>法律 / 案例拆解</h4>
-            ${renderItemAnalysis(item)}
-          </section>
           <section class="analysis-panel action-panel">
             <h4>建议动作</h4>
             ${renderList(item.recommended_actions, 'compact-list')}
+          </section>
+          <section class="analysis-panel detail-panel">
+            <h4>法律 / 案例拆解</h4>
+            ${renderItemAnalysis(item)}
           </section>
         </div>
       </article>
@@ -1012,6 +1066,64 @@ export function renderReportHtml(report, { generatedAt = new Date().toISOString(
       <span>${escapeHtml(item.title)}</span>
     </li>
   `).join('') : '<li><strong>暂无</strong><span>本期无高风险优先项</span></li>';
+
+  const executiveConclusion = report.summary?.[0] || `本期共筛选 ${allItems.length} 条美妆法务情报，建议集团法务按市场和业务线优先处理高风险事项。`;
+  const executiveBullets = (report.summary || []).slice(0, 3).map(item => `<li>${escapeHtml(item)}</li>`).join('');
+  const marketRiskHtml = countries.map(country => {
+    const countryItems = allItems.filter(item => item.country === country);
+    const high = countryItems.filter(item => item.risk_level === 'high').length;
+    const medium = countryItems.filter(item => item.risk_level === 'medium').length;
+    const level = high ? 'high' : (medium ? 'medium' : 'low');
+    return `<div class="market-tile ${level}"><strong>${escapeHtml(country)}</strong><span>${countryItems.length} 条情报 · ${high} 高风险 · ${medium} 中风险</span></div>`;
+  }).join('');
+
+  const actionTeams = ['法务', '注册备案', '注册', '市场', '电商', '供应链', '品牌/IP', '客服'];
+  const actionBoardHtml = actionTeams.map(team => {
+    const actions = allItems
+      .filter(item => (item.owner_teams || []).some(owner => String(owner).includes(team.replace('/IP', ''))))
+      .flatMap(item => item.recommended_actions || [])
+      .slice(0, 3);
+    if (!actions.length) return '';
+    return `<section class="action-column"><h3>${escapeHtml(team)}</h3>${renderList(actions, 'compact-list')}</section>`;
+  }).filter(Boolean).join('');
+
+  const moduleThesis = {
+    '广告合规及处罚案例': '广告、直播和功效宣称仍是本周最需要前置审核的高频风险。',
+    '美妆动态': '行业动态应作为监管风向和渠道规则变化的早期信号，而不是新闻浏览。',
+    '知识产权动态': '品牌资产管理需要从被动维权转为商标组合、使用证据和平台治理的常态化管理。',
+    '新规及案例动态': '成分、注册备案、标签和案例执法共同指向更高的上市前合规要求。',
+    '进出口动态': '跨境链路的核心关注点是准入、清关文件、口岸抽检和美国/中国口岸监管信号。',
+  };
+  const strategicThemeHtml = sections.map(section => {
+    const items = section.items || [];
+    if (!items.length) return '';
+    const evidence = items.slice(0, 3).map(item => `
+      <li>
+        <a href="${escapeHtml(item.source_url)}" target="_blank" rel="noopener noreferrer">${escapeHtml(item.title)}</a>
+        <span>${escapeHtml(item.country)} · ${escapeHtml(item.source_name)} · ${escapeHtml(riskLabel(item.risk_level))}</span>
+      </li>
+    `).join('');
+    const actions = items.flatMap(item => item.recommended_actions || []).slice(0, 2);
+    return `
+      <article class="theme-card">
+        <div class="theme-head">
+          <p>Strategic Theme</p>
+          <h3>${escapeHtml(section.module)}</h3>
+        </div>
+        <p class="theme-thesis">${escapeHtml(moduleThesis[section.module] || '该模块体现本周需要集团法务判断的业务风险主题。')}</p>
+        <div class="theme-body">
+          <section>
+            <h4>支撑证据</h4>
+            <ul class="evidence-list">${evidence}</ul>
+          </section>
+          <section>
+            <h4>建议动作</h4>
+            ${renderList(actions, 'compact-list') || '<p class="empty">建议相关团队结合业务范围判断是否需要跟进。</p>'}
+          </section>
+        </div>
+      </article>
+    `;
+  }).join('');
 
   return `<!doctype html>
 <html lang="zh-CN">
@@ -1049,15 +1161,35 @@ export function renderReportHtml(report, { generatedAt = new Date().toISOString(
     .priority-list strong { display: block; color: var(--gold); font-size: 12px; }
     .priority-list span { display: block; color: var(--ink); font-size: 13px; line-height: 1.45; }
     .content { min-width: 0; }
-    .brief-grid { display: grid; grid-template-columns: minmax(0, 1.1fr) minmax(320px, .9fr); gap: 16px; }
-    .brief-panel, .risk-board, .market-board { background: var(--panel); border: 1px solid var(--line); border-radius: 8px; padding: 18px; box-shadow: 0 8px 24px rgba(16,24,40,.05); }
-    .brief-panel h2, .risk-board h2, .market-board h2 { margin: 0 0 12px; color: var(--ink); font-size: 20px; letter-spacing: 0; }
+    .brief-grid { display: grid; grid-template-columns: minmax(0, 1.05fr) minmax(320px, .95fr); gap: 16px; }
+    .brief-panel, .risk-board, .market-board, .action-board, .theme-card { background: var(--panel); border: 1px solid var(--line); border-radius: 8px; padding: 18px; box-shadow: 0 8px 24px rgba(16,24,40,.05); }
+    .brief-panel h2, .risk-board h2, .market-board h2, .action-board h2, .theme-section h2 { margin: 0 0 12px; color: var(--ink); font-size: 20px; letter-spacing: 0; }
+    .executive-conclusion { margin: 0 0 14px; padding: 14px 16px; border-left: 4px solid var(--gold); background: var(--soft-gold); border-radius: 8px; color: var(--navy); font-size: 17px; font-weight: 800; line-height: 1.65; }
     .summary-list { margin: 0; padding-left: 20px; display: grid; gap: 8px; }
     .risk-list { display: grid; gap: 10px; }
     .risk { display: grid; grid-template-columns: 66px minmax(0,1fr); gap: 10px; align-items: start; padding: 11px 12px; background: var(--soft-gold); border: 1px solid #EDD6B3; border-radius: 8px; }
     .risk-badge { text-align: center; border-radius: 6px; padding: 3px 8px; background: var(--gold); color: #fff; font-size: 12px; font-weight: 800; }
     .country-strip { display: flex; gap: 8px; flex-wrap: wrap; }
     .country { border: 1px solid #B8C7E6; background: var(--soft-blue); color: var(--blue); border-radius: 999px; padding: 6px 11px; font-size: 13px; font-weight: 800; }
+    .market-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 10px; }
+    .market-tile { border: 1px solid var(--line); border-radius: 8px; padding: 12px; background: #FBFCFE; }
+    .market-tile.high { border-color: #F2B8B5; background: var(--soft-red); }
+    .market-tile.medium { border-color: #EDD6B3; background: var(--soft-gold); }
+    .market-tile strong { display: block; font-size: 16px; color: var(--navy); }
+    .market-tile span { display: block; margin-top: 4px; color: var(--muted); font-size: 12px; font-weight: 800; }
+    .theme-section, .action-board { margin-top: 16px; }
+    .theme-stack { display: grid; gap: 14px; }
+    .theme-head p { margin: 0 0 4px; color: var(--gold); font-size: 12px; font-weight: 900; text-transform: uppercase; }
+    .theme-head h3 { margin: 0; font-size: 22px; }
+    .theme-thesis { margin: 10px 0 14px; color: var(--navy); font-size: 16px; font-weight: 800; line-height: 1.65; }
+    .theme-body { display: grid; grid-template-columns: minmax(0, 1.1fr) minmax(300px, .9fr); gap: 14px; }
+    .theme-body h4, .action-column h3 { margin: 0 0 8px; color: var(--blue); font-size: 13px; font-weight: 900; }
+    .evidence-list { margin: 0; padding: 0; list-style: none; display: grid; gap: 10px; }
+    .evidence-list li { padding: 10px 12px; border: 1px solid var(--line); border-radius: 8px; background: #FBFCFE; }
+    .evidence-list a { display: inline-flex; min-height: 32px; align-items: center; color: var(--navy); font-weight: 900; }
+    .evidence-list span { display: block; color: var(--muted); font-size: 12px; font-weight: 800; }
+    .action-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 12px; }
+    .action-column { border: 1px solid var(--line); border-radius: 8px; padding: 12px; background: #F9FBFA; }
     .report-section { margin-top: 24px; scroll-margin-top: 20px; }
     .section-heading { display: flex; justify-content: space-between; gap: 12px; align-items: end; padding-bottom: 10px; border-bottom: 1px solid var(--line-strong); margin-bottom: 12px; }
     .section-heading p { margin: 0 0 3px; color: var(--muted); font-size: 12px; font-weight: 700; }
@@ -1071,14 +1203,36 @@ export function renderReportHtml(report, { generatedAt = new Date().toISOString(
     .tag.high { background: var(--red); }
     .tag.medium { background: var(--gold); }
     .tag.low { background: var(--green); }
+    .severity-high { border-color: #F2B8B5 !important; background: #FEF3F2 !important; color: #8A1F16 !important; }
+    .severity-medium { border-color: #E7C98A !important; background: #FFF5E5 !important; color: #7A4B12 !important; }
+    .severity-low { border-color: #BFD9C7 !important; background: #F0FAF3 !important; color: #1F6B35 !important; }
+    .tag.severity-high, .tag.severity-medium, .tag.severity-low { color: #fff !important; }
+    .tag.severity-high { background: #B42318 !important; }
+    .tag.severity-medium { background: #A86E1D !important; }
+    .tag.severity-low { background: #287D3C !important; }
     h3 { margin: 12px 0 10px; font-size: 20px; line-height: 1.38; letter-spacing: 0; }
     .intel-grid { display: grid; grid-template-columns: .8fr .8fr 1.4fr; gap: 10px; margin: 10px 0; }
     .intel-grid div { border: 1px solid var(--line); border-radius: 8px; padding: 10px; background: #FBFCFE; min-width: 0; }
+    .intel-grid .relevance-direct { border-color: #B7C9EA; background: #EAF1FB; }
+    .intel-grid .relevance-indirect { border-color: #D9D2C5; background: #FBF7F0; }
     .intel-grid b { display: block; color: var(--muted); font-size: 12px; margin-bottom: 4px; }
     .intel-grid span { display: block; color: var(--ink); font-size: 13px; font-weight: 800; overflow-wrap: anywhere; }
     .source-row { display: flex; flex-wrap: wrap; gap: 12px; align-items: center; color: var(--muted); }
     .source-link { display: inline-flex; min-height: 44px; align-items: center; font-weight: 700; }
     .confidence { color: var(--muted); font-size: 12px; font-weight: 800; text-transform: uppercase; }
+    .source-evidence { display: grid; grid-template-columns: minmax(0, 1fr); gap: 12px; margin: 12px 0; padding: 13px; border: 1px solid #D8C7B2; background: linear-gradient(180deg, #FFFDF9 0%, #FFF8EE 100%); border-radius: 8px; }
+    .evidence-label { margin: 0 0 5px; color: var(--gold); font-size: 12px; font-weight: 900; text-transform: uppercase; letter-spacing: 0; }
+    .evidence-link { display: inline-flex; align-items: center; min-height: 44px; color: var(--navy); font-size: 15px; font-weight: 900; text-decoration-thickness: 0.08em; }
+    .evidence-meta { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 6px; color: var(--muted); font-size: 12px; font-weight: 800; text-transform: uppercase; }
+    .evidence-meta span { border: 1px solid #E5D4BE; background: rgba(255,255,255,.72); border-radius: 999px; padding: 3px 8px; }
+    .evidence-meta .confidence-high { border-color: #BFD9C7; background: #F0FAF3; color: #1F6B35; }
+    .evidence-meta .confidence-medium { border-color: #E7C98A; background: #FFF5E5; color: #7A4B12; }
+    .evidence-meta .confidence-low { border-color: #F2B8B5; background: #FEF3F2; color: #8A1F16; }
+    .evidence-image { margin: 0; border: 1px solid #E6D8C5; border-radius: 8px; overflow: hidden; background: #fff; aspect-ratio: 16 / 9; }
+    .evidence-image img { width: 100%; height: 100%; object-fit: cover; display: block; }
+    .conclusion-strip { margin: 12px 0; border-left: 4px solid var(--blue); background: var(--soft-blue); border-radius: 8px; padding: 12px 14px; }
+    .conclusion-strip h4 { margin: 0 0 5px; color: var(--blue); font-size: 13px; font-weight: 900; }
+    .conclusion-strip p { margin: 0; color: var(--ink); font-size: 15px; line-height: 1.7; }
     .analysis-grid { display: grid; grid-template-columns: minmax(0, .95fr) minmax(0, 1.05fr); gap: 12px; margin-top: 12px; }
     .analysis-panel { border: 1px solid var(--line); border-radius: 8px; background: #fff; padding: 13px; }
     .analysis-panel h4 { margin: 0 0 8px; color: var(--blue); font-size: 13px; font-weight: 900; }
@@ -1094,7 +1248,8 @@ export function renderReportHtml(report, { generatedAt = new Date().toISOString(
     .analysis-block:first-child { margin-top: 0; }
     .analysis-block h4 { margin: 0 0 6px; color: var(--muted); font-size: 12px; font-weight: 900; }
     .footer { max-width: 1320px; margin: 0 auto; padding: 0 28px 34px; color: var(--muted); font-size: 13px; }
-    @media (max-width: 1080px) { .layout { grid-template-columns: 1fr; } .side-rail { position: static; } .module-nav { grid-template-columns: repeat(2, minmax(0, 1fr)); } .brief-grid { grid-template-columns: 1fr; } }
+    @media (max-width: 1080px) { .layout { grid-template-columns: 1fr; } .side-rail { position: static; } .module-nav { grid-template-columns: repeat(2, minmax(0, 1fr)); } .brief-grid, .theme-body, .action-grid { grid-template-columns: 1fr; } }
+    @media (min-width: 900px) { .source-evidence:has(.evidence-image) { grid-template-columns: minmax(180px, 260px) minmax(0, 1fr); align-items: center; } }
     @media (max-width: 720px) { .top-inner, .layout, .footer { padding-left: 14px; padding-right: 14px; } h1 { font-size: 28px; } .metric-grid, .module-nav, .intel-grid, .analysis-grid { grid-template-columns: 1fr; } .detail-panel { grid-column: auto; } .item-topline { align-items: flex-start; flex-direction: column; } .item-meta { justify-content: flex-start; } }
   </style>
 </head>
@@ -1130,14 +1285,36 @@ export function renderReportHtml(report, { generatedAt = new Date().toISOString(
     <div class="content">
       <div class="brief-grid">
         <section class="brief-panel" aria-labelledby="summary-title">
-          <h2 id="summary-title">执行摘要</h2>
-          ${renderList(report.summary, 'summary-list') || '<p class="empty">本周无高价值更新</p>'}
+          <h2 id="summary-title">Executive Brief</h2>
+          <p class="executive-conclusion">${escapeHtml(executiveConclusion)}</p>
+          ${executiveBullets ? `<ul class="summary-list">${executiveBullets}</ul>` : '<p class="empty">本周无高价值更新</p>'}
         </section>
         <section class="risk-board" aria-labelledby="risk-title">
-          <h2 id="risk-title">风险雷达</h2>
+          <h2 id="risk-title">Market Risk Map</h2>
+          <div class="market-grid">${marketRiskHtml}</div>
+        </section>
+      </div>
+
+      <section class="theme-section" aria-labelledby="theme-title">
+        <h2 id="theme-title">Strategic Themes</h2>
+        <div class="theme-stack">${strategicThemeHtml}</div>
+      </section>
+
+      <section class="action-board" aria-labelledby="action-title">
+        <h2 id="action-title">Action Board</h2>
+        <div class="action-grid">${actionBoardHtml || '<p class="empty">暂无明确团队动作。</p>'}</div>
+      </section>
+
+      <div class="brief-grid">
+        <section class="risk-board" aria-labelledby="risk-title-detail">
+          <h2 id="risk-title-detail">Risk Signals</h2>
           <div class="risk-list">
             ${(report.risk_alerts || []).length ? report.risk_alerts.map(alert => `<div class="risk"><span class="risk-badge">${escapeHtml(riskLabel(alert.level))}</span><span>${escapeHtml(alert.text)}</span></div>`).join('') : '<p class="empty">本周无高价值风险提醒</p>'}
           </div>
+        </section>
+        <section class="brief-panel">
+          <h2>Source Evidence</h2>
+          <p class="empty">以下为按 Excel 分类保留的证据明细。每条均保留原文链接、可信度、业务影响和建议动作。</p>
         </section>
       </div>
 
@@ -1164,12 +1341,18 @@ export function renderFeishuSummary(report, reportUrl) {
     if (/^(建议|可考虑|建议由|建议法务|建议注册|建议市场|建议电商|建议供应链)/.test(text)) return text;
     return `建议${text.replace(/^(请|需|需要|应当|必须|及时|立即)/, '')}`;
   };
-  const highlights = items.slice(0, 5).map(item => {
-    const action = Array.isArray(item.recommended_actions) ? item.recommended_actions[0] : '';
-    return `**${item.type}｜${item.country}｜行业影响力：${impactLabel(item.industry_impact)}**\n${item.title}\n建议：${suggest(action)}`;
-  }).join('\n\n') || '本周暂无需要重点提示的高价值更新。';
+  const executive = report.summary?.[0] || `本周筛选出 ${items.length} 条美妆法务情报，建议按风险等级和业务影响优先处理。`;
+  const priorityItems = items
+    .filter(item => item.risk_level === 'high' || item.industry_impact === 'high')
+    .slice(0, 4);
+  const guide = (report.summary || []).slice(0, 3).map((item, index) => `${index + 1}. ${item}`).join('\n') || `1. 本期共 ${items.length} 条情报，建议先看高风险和高行业影响力条目。`;
   const risks = (report.risk_alerts || []).slice(0, 3).map(alert => `• ${riskLabel(alert.level)}：${alert.text}`).join('\n') || '本周暂无高价值风险提醒。';
-  return `**美妆法务周报｜${report.period.end}**\n\n📌 **本周概览**\n筛选出 ${items.length} 条高价值资讯，建议法务、注册、市场、电商团队按业务相关性阅读。\n\n⚠️ **风险提示**\n${risks}\n\n📝 **建议优先查看**\n${highlights}\n\n🔎 **完整版网页**\n[查看完整周报](${reportUrl})\n\n_本周报由 DeepSeek 辅助整理，仅作信息初筛，不构成正式法律意见。_`;
+  const actionLines = priorityItems.map(item => {
+    const action = Array.isArray(item.recommended_actions) ? item.recommended_actions[0] : '';
+    return `• ${item.country}｜${riskLabel(item.risk_level)}｜${item.title}\n  ${suggest(action)}`;
+  }).join('\n') || '• 本周暂无需要立即处理的高风险事项。';
+  const evidence = priorityItems.slice(0, 3).map(item => `• ${item.source_name}：${item.source_url}`).join('\n') || '• 完整来源见网页版。';
+  return `**美妆法务周报｜${report.period.end}**\n\n**Executive Brief｜核心判断**\n${executive}\n\n**导读｜先看这三件事**\n${guide}\n\n**风险提示**\n${risks}\n\n**Action Board｜建议优先动作**\n${actionLines}\n\n**Source Evidence｜来源证据**\n${evidence}\n\n**完整版网页**\n[查看完整周报](${reportUrl})\n\n_本周报由 DeepSeek 辅助整理，仅作信息初筛，不构成正式法律意见。_`;
 }
 
 export function reportKeyForDate(date) {
@@ -1226,14 +1409,16 @@ async function fetchSourceCandidates(source) {
     const linkLimit = ['美妆动态', '进出口动态'].includes(source.module) ? 14 : 8;
     const snippetLimit = ['美妆动态', '进出口动态'].includes(source.module) ? 1500 : 800;
     const links = extractLinks(html, source.url).filter(link => isRelevantTitle(link.title)).slice(0, linkLimit);
+    const imageUrl = extractImageUrl(html, source.url);
     const pageText = htmlToText(html).slice(0, snippetLimit);
-    const linkCandidates = links.map(link => makeCandidate(source, { ...link, snippet: pageText }));
+    const linkCandidates = links.map(link => makeCandidate(source, { ...link, snippet: pageText, image_url: imageUrl }));
     const sourceText = `${source.name} ${(source.topics || []).join(' ')} ${pageText}`;
     const shouldKeepSourcePage = source.priority === 'high' || BEAUTY_KEYWORDS.some(keyword => sourceText.toLowerCase().includes(keyword.toLowerCase()));
     const sourceCandidate = shouldKeepSourcePage
       ? [makeCandidate(source, {
         title: `${source.name}：${source.module}信息源入口`,
         url: source.url,
+        image_url: imageUrl,
         snippet: pageText || `${source.name} ${source.module} ${(source.topics || []).join(' ')}`,
       })]
       : [];
