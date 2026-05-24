@@ -487,7 +487,7 @@ export function filterReportQuality(report) {
       ...section,
       items: (section.items || []).filter(item => {
         if (!hasValue(item.source_url)) return false;
-        if (item.confidence === 'low' && item.type !== '法规') return false;
+        if (item.confidence === 'low' && item.relevance !== 'direct' && item.industry_impact !== 'high') return false;
         try {
           validateReport({ ...report, sections: [{ ...section, items: [item] }] });
           return true;
@@ -545,7 +545,9 @@ export function buildAnalysisPrompt({ candidates, leads = [], sources, period })
 
 输出要求：
 - 输出合法 JSON，不要 Markdown，不要解释。
-- 至少覆盖 3 个模块；如果某模块确实无高价值信息，items 为空。
+- 目标覆盖全部 5 个模块；每个模块优先输出 2-3 条，总量控制在 10-15 条。只有确无高价值信息时才允许模块为空。
+- 美妆动态和进出口动态可以更多使用公众号/行业媒体作为线索，但必须标注 source_type 为 wechat_lead 或 industry_media，confidence 为 medium 或 low，并说明待核验点。
+- 字段要完整但表达精炼，避免超长 JSON。
 - 每条信息要有国家/大洲、直接/间接相关、行业影响力、业务影响面、建议动作。
 - 案例必须拆解事实、认定逻辑、处罚/结果、业务启发。
 - 建议动作必须是“建议...”口吻，不能是命令。
@@ -608,7 +610,7 @@ async function deepseekAnalyze({ apiKey, model, candidates, leads = [], sources 
   ];
 
   for (let attempt = 0; attempt < 2; attempt++) {
-    const content = await requestDeepSeekChat({ apiKey, model, messages, temperature: 0.2, maxTokens: 4000 });
+    const content = await requestDeepSeekChat({ apiKey, model, messages, temperature: 0.2, maxTokens: 8000 });
     try {
       const report = filterReportQuality(parseAnalysisJson(content));
       validateReport(report);
