@@ -335,6 +335,24 @@ export function isRelevantTitle(title) {
   return RELEVANT_KEYWORDS.some(keyword => text.includes(keyword.toLowerCase()));
 }
 
+export function extractPublishedDate(...values) {
+  const text = values.map(value => String(value || '')).join(' ');
+  const patterns = [
+    /((?:20)\d{2})[-/.年](\d{1,2})[-/.月](\d{1,2})日?/,
+    /(\d{1,2})[-/.月](\d{1,2})日?[-/.年]((?:20)\d{2})/,
+  ];
+  for (const pattern of patterns) {
+    const match = text.match(pattern);
+    if (!match) continue;
+    const [, a, b, c] = match;
+    const year = a.length === 4 ? a : c;
+    const month = a.length === 4 ? b : a;
+    const day = a.length === 4 ? c : b;
+    return `${year}-${month.padStart(2, '0')}-${day.padStart(2, '0')}`;
+  }
+  return '';
+}
+
 export function makeCandidate(source, item) {
   return {
     title: item.title,
@@ -348,6 +366,7 @@ export function makeCandidate(source, item) {
     authority_type: source.authority_type,
     priority: source.priority,
     topics: source.topics || [],
+    published_at: item.published_at || extractPublishedDate(item.title, item.url, item.snippet),
     fetched_at: new Date().toISOString(),
   };
 }
@@ -368,6 +387,32 @@ export function splitSources(sources = sourceCatalog.sources) {
   const leadSources = sources.filter(source => source.source_type === 'wechat_public_account');
   const fetchableSources = sources.filter(source => source.source_type !== 'wechat_public_account');
   return { fetchableSources, leadSources };
+}
+
+function scoreCandidate(candidate, now = new Date()) {
+  let score = 0;
+  if (candidate.priority === 'high') score += 30;
+  if (candidate.priority === 'medium') score += 15;
+  if (candidate.authority_type === 'regulator') score += 25;
+  if (candidate.authority_type === 'court' || candidate.authority_type === 'official') score += 20;
+  if (candidate.source_type === 'official_site') score += 10;
+
+  if (candidate.published_at) {
+    const ageDays = Math.floor((now - new Date(`${candidate.published_at}T00:00:00Z`)) / (24 * 60 * 60 * 1000));
+    if (ageDays >= 0 && ageDays <= 7) score += 80;
+    else if (ageDays > 7 && ageDays <= 14) score += 35;
+    else if (ageDays > 14 && ageDays <= 30) score += 10;
+  }
+
+  return score;
+}
+
+export function sortCandidatesForAnalysis(candidates, now = new Date()) {
+  return [...(candidates || [])].sort((a, b) => {
+    const scoreDiff = scoreCandidate(b, now) - scoreCandidate(a, now);
+    if (scoreDiff) return scoreDiff;
+    return String(a.title || '').localeCompare(String(b.title || ''), 'zh-Hans-CN');
+  });
 }
 
 export function parseAnalysisJson(text) {
@@ -465,12 +510,15 @@ export function buildAnalysisPrompt({ candidates, leads = [], sources, period })
 - 每条最终资讯必须包含公开原文 source_url，不能编造 URL。
 
 时间窗口：
-- 法规：过去 14 天发布，或未来 90 天进入生效/反馈/认证/过渡期节点。
-- 案例：过去 30 天公开；高代表性案例可放宽到 60 天，但必须解释原因。
+- 这是周报，优先选择过去 7 天发布或更新的信息。
+- 7 天之外的信息只有在行业影响力明显较高时才保留，例如国家级监管规则、重点处罚、召回、跨境准入变化、知识产权代表性案例。
+- 法规：优先过去 7 天发布；未来 90 天进入生效/反馈/认证/过渡期节点的高影响事项也可保留。
+- 案例：优先过去 7 天公开；高代表性案例可放宽到 30-60 天，但必须解释行业影响力。
 - 行业媒体：只作为线索，最终尽量回到官方或公开网页链接。
 
 筛选规则：
 - 宁缺毋滥，低价值内容丢弃。
+- 先按信息时效性筛选，再按行业影响力排序；同等条件下优先官方监管源和高优先级来源。
 - 每条最终资讯必须包含候选里的原文 URL，字段名 source_url。
 - 同一事项保留官方源或信息最完整来源。
 - 输出必须是合法 JSON，不要 Markdown。
@@ -518,7 +566,7 @@ export function buildAnalysisPrompt({ candidates, leads = [], sources, period })
 }
 
 信息源统计：${JSON.stringify(getSourceStats(sources))}
-候选信息 candidates：${JSON.stringify(candidates.slice(0, 80))}
+候选信息 candidates（已按7天新鲜度和来源影响力预排序）：${JSON.stringify(sortCandidatesForAnalysis(candidates).slice(0, 80))}
 线索 leads（只作选题方向，不是事实来源）：${JSON.stringify(leads.slice(0, 80))}`;
 }
 

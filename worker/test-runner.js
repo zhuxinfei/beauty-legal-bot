@@ -23,6 +23,8 @@ import {
   buildAnalysisPrompt,
   fetchWithTimeout,
   mapWithConcurrency,
+  extractPublishedDate,
+  sortCandidatesForAnalysis,
 } from './index.js';
 
 function testNormalizeUrl() {
@@ -150,6 +152,22 @@ function testBuildAnalysisPromptIncludesLeads() {
   assert.ok(prompt.includes('leads'));
   assert.ok(prompt.includes('公众号线索不是事实来源'));
   assert.ok(prompt.includes('不要输出未加工新闻'));
+  assert.ok(prompt.includes('过去 7 天'));
+  assert.ok(prompt.includes('行业影响力'));
+}
+
+function testCandidateFreshnessAndInfluenceRanking() {
+  assert.equal(extractPublishedDate('2026年5月23日 化妆品通知'), '2026-05-23');
+  assert.equal(extractPublishedDate('https://example.com/2026/05/20/a.html'), '2026-05-20');
+
+  const ranked = sortCandidatesForAnalysis([
+    { title: '旧普通信息', published_at: '2026-04-01', priority: 'low', authority_type: 'media', source_type: 'media' },
+    { title: '近期监管信息', published_at: '2026-05-22', priority: 'high', authority_type: 'regulator', source_type: 'official_site' },
+    { title: '旧高影响规则', published_at: '2026-05-01', priority: 'high', authority_type: 'regulator', source_type: 'official_site' },
+  ], new Date('2026-05-24T00:00:00Z'));
+
+  assert.equal(ranked[0].title, '近期监管信息');
+  assert.equal(ranked[1].title, '旧高影响规则');
 }
 
 async function testFetchWithTimeoutAbortsSlowFetch() {
@@ -339,6 +357,7 @@ testLimitReportSectionsCapsNonRegulatoryModules();
 testRenderReportHtml();
 testRenderFeishuSummary();
 testBuildAnalysisPromptIncludesLeads();
+testCandidateFreshnessAndInfluenceRanking();
 testReportKeys();
 testDedupeReportRemovesRepeatedItems();
 testExtractReportFingerprintsUsesItems();
