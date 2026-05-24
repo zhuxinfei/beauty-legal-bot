@@ -207,6 +207,59 @@ async function testMapWithConcurrencyLimitsParallelWork() {
   assert.equal(maxActive, 2);
 }
 
+async function testScheduledPipelineSavesReportThenSendsFeishu() {
+  const originalFetch = globalThis.fetch;
+  const store = new Map();
+  const kv = {
+    async get(key) {
+      return store.get(key) || null;
+    },
+    async put(key, value) {
+      store.set(key, value);
+    },
+  };
+  let feishuSent = false;
+  let reportExistedBeforeFeishu = false;
+
+  globalThis.fetch = async (url, init = {}) => {
+    const href = String(url);
+    if (href.includes('api.deepseek.com')) {
+      return new Response(JSON.stringify({
+        choices: [{ message: { content: JSON.stringify(sampleReport) } }],
+      }), { status: 200, headers: { 'Content-Type': 'application/json' } });
+    }
+    if (href === 'https://example.com/webhook') {
+      feishuSent = true;
+      reportExistedBeforeFeishu = store.has('report:latest');
+      const body = JSON.parse(init.body);
+      assert.equal(body.msg_type, 'interactive');
+      assert.ok(JSON.stringify(body.card).includes('打开完整周报'));
+      return new Response(JSON.stringify({ code: 0 }), { status: 200, headers: { 'Content-Type': 'application/json' } });
+    }
+    return new Response('<a href="/cosmetic-rule">化妆品安全评估技术导则征求意见</a>', {
+      status: 200,
+      headers: { 'Content-Type': 'text/html' },
+    });
+  };
+
+  try {
+    await worker.scheduled({}, {
+      DEEPSEEK_API_KEY: 'test-key',
+      FEISHU_WEBHOOK_URL: 'https://example.com/webhook',
+      DEEPSEEK_MODEL: 'deepseek-chat',
+      SEEN_NEWS: kv,
+    }, {});
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+
+  assert.ok(store.has('report:latest'));
+  assert.ok(store.has(`report:${sampleReport.period.end}`));
+  assert.ok(store.get('report:latest').includes('美妆法务周报'));
+  assert.equal(feishuSent, true);
+  assert.equal(reportExistedBeforeFeishu, true);
+}
+
 function testReportKeys() {
   assert.equal(reportKeyForDate('2026-05-24'), 'report:2026-05-24');
   assert.equal(latestReportKey(), 'report:latest');
@@ -244,6 +297,7 @@ function testSplitSourcesSeparatesWechatLeads() {
 await testFetchWithTimeoutAbortsSlowFetch();
 await testManualTestRouteAwaitsPipeline();
 await testMapWithConcurrencyLimitsParallelWork();
+await testScheduledPipelineSavesReportThenSendsFeishu();
 testNormalizeUrl();
 testHtmlToText();
 testExtractLinks();
