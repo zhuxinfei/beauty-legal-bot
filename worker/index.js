@@ -206,7 +206,7 @@ async function recordLastRun(kv, patch) {
 // ---------------------------------------------------------------------------
 // 管道入口
 // ---------------------------------------------------------------------------
-async function runPipeline(env, requestUrl = 'https://beauty-legal-bot.workers.dev/') {
+export async function runPipeline(env, requestUrl = 'https://beauty-legal-bot.workers.dev/') {
   const deepseekKey = env.DEEPSEEK_API_KEY;
   const feishuUrl = env.FEISHU_WEBHOOK_URL;
   const model = env.DEEPSEEK_MODEL || "deepseek-chat";
@@ -531,7 +531,7 @@ async function deepseekAnalyze({ apiKey, model, candidates, leads = [], sources 
   for (let attempt = 0; attempt < 2; attempt++) {
     const content = await requestDeepSeekChat({ apiKey, model, messages, temperature: 0.2, maxTokens: 4000 });
     try {
-      const report = parseAnalysisJson(content);
+      const report = filterReportQuality(parseAnalysisJson(content));
       validateReport(report);
       return report;
     } catch (error) {
