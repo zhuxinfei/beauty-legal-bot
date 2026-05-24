@@ -1,27 +1,64 @@
-# 美妆电商法务资讯每日推送机器人
+# 美妆法务资讯周报机器人
 
-每天自动推送美妆电商行业法规变化、执法案例和法务洞察到飞书。
+每周自动抓取美妆行业法规、处罚案例、知识产权和跨境进出口信息源，用 DeepSeek 结构化筛选后：
 
-### 信息源：DeepSeek
+- 推送一张飞书摘要卡片
+- 生成完整 HTML 周报页面
+- 通过 Cloudflare Workers KV 保存最新与往期周报
 
-由 DeepSeek 调研全球美妆法规动态，无需 NewsAPI。覆盖：
-- 国家药监局 (NMPA) 化妆品备案/功效宣称/安全评估新规
-- 各地市场监管部门行政处罚案例（直播带货/跨境电商）
-- FDA MoCRA / EU 1223/2009 / 东盟化妆品指令
-- 美妆品牌知识产权纠纷
+## 核心能力
 
-### 日报内容
-
-| 模块 | 说明 |
+| 能力 | 说明 |
 |------|------|
-| 📌 今日重点关注 | ≤3 条最重大动态 |
-| 📋 法规变化 | 新规 + 影响 + 行动建议 + 来源 |
-| ⚖️ 案例警示 | 处罚 + 合规启示，电商标 🔥 |
-| 💡 法务洞察 | 2-3 条可操作的合规建议 |
+| 信息源目录 | `worker/sources.json` 由 Excel 转换生成，可人工维护 |
+| 模型引擎 | 当前只实现 DeepSeek API；调用集中在 Worker 的模型边界函数，后续可替换 |
+| 飞书摘要 | 只展示本周重点、风险提醒和完整周报链接 |
+| 完整页面 | Worker 动态渲染 HTML 模板，数据来自每次生成的报告 |
+| 往期查看 | `/report/latest` 查看最新，`/report/YYYY-MM-DD` 查看指定日期，`/report` 查看索引 |
+| 调度 | Cloudflare Cron 每周一北京时间 08:00 执行 |
+
+## 信息源工作流
+
+从用户维护的 Excel 生成结构化源目录：
+
+```bash
+python3 scripts/extract_sources.py "/Users/zhuxinfei/Downloads/美妆行业新法律法规、违法案例公众号_网站收录 +2026.5.24.xlsx" worker/sources.json
+```
+
+生成结果包含：
+
+- `name`：来源名称
+- `url`：来源地址
+- `module`：法规、案例、美妆动态、IP、进出口等模块
+- `region` / `country`：区域与国家
+- `source_type`：website / wechat_public_account / rss
+- `authority_type`：official / industry
+- `priority`：high / medium / low
+- `topics`：检索和筛选主题
+
+公众号来源只作为线索，不直接抓取；最终报告要求尽量回到官方或公开网页链接。
+
+## 报告页面
+
+部署后可访问：
+
+```text
+/report/latest
+/report/YYYY-MM-DD
+/report
+```
+
+页面是模板化动态渲染，不写死数据。每次周报生成后会写入：
+
+- `report:latest`
+- `report:YYYY-MM-DD`
+- `report:index`
+
+HTML 主题采用 `Trust & Authority`：权威海军蓝 + 信任金，移动端单列卡片，无外部字体或 CDN 依赖，适合飞书跳转阅读。
 
 ## 部署（Cloudflare Workers）
 
-### 1. 准备
+### 1. 安装并登录 Wrangler
 
 ```bash
 npm install -g wrangler
@@ -36,49 +73,70 @@ npx wrangler secret put DEEPSEEK_API_KEY
 npx wrangler secret put FEISHU_WEBHOOK_URL
 ```
 
-### 3. 部署
+可选模型配置在 `worker/wrangler.toml`：
+
+```toml
+[vars]
+DEEPSEEK_MODEL = "deepseek-chat"
+```
+
+### 3. KV 绑定
+
+`worker/wrangler.toml` 已绑定 `SEEN_NEWS`，用于去重、报告页面和往期索引。
+
+### 4. 部署
 
 ```bash
+cd worker
 npx wrangler deploy
 ```
 
-部署后每天 UTC 00:00（北京时间 08:00）自动推送。
+部署后每周一 UTC 00:00（北京时间 08:00）自动执行。
 
-### 4. 修改推送时间
-
-编辑 `worker/wrangler.toml`，修改 cron 表达式（UTC 时间）：
-
-```toml
-[triggers]
-crons = ["0 0 * * *"]   # UTC 00:00 = 北京时间 08:00
-```
-
-## 本地测试
+## 本地验证
 
 ```bash
-pip install requests
-python beauty_legal_bot.py --test   # 预览日报（不推送）
-python beauty_legal_bot.py --push   # 推送到飞书
+python3 scripts/extract_sources.py "/Users/zhuxinfei/Downloads/美妆行业新法律法规、违法案例公众号_网站收录 +2026.5.24.xlsx" worker/sources.json
+node worker/test-runner.js
+node --check worker/index.js
 ```
+
+预期输出包含：
+
+```text
+Wrote 69 sources to worker/sources.json
+worker pure function tests ok
+```
+
+## 手动触发
+
+部署后访问：
+
+```text
+/test
+```
+
+Worker 会异步运行周报管道，完成后推送飞书摘要，并更新 `/report/latest`。
 
 ## 文件结构
 
-```
+```text
 beauty-legal-bot/
+├── scripts/
+│   └── extract_sources.py      # Excel → worker/sources.json
 ├── worker/
-│   ├── index.js          # CF Worker（线上 24/7）
-│   └── wrangler.toml     # Cron + KV 配置
-├── beauty_legal_bot.py   # 本地测试脚本
+│   ├── index.js                # Cloudflare Worker 主逻辑
+│   ├── sample-report.json      # HTML/飞书渲染测试 fixture
+│   ├── sources.json            # 结构化信息源目录
+│   ├── test-runner.js          # Node 纯函数测试
+│   └── wrangler.toml           # Cron + KV + vars
+├── beauty_legal_bot.py         # 旧本地预览脚本，线上不依赖
 └── requirements.txt
 ```
 
-## 去重
+## 注意事项
 
-CF Worker 通过 KV 存储每日指纹，7 天内相同内容不重复推送。
-
-## API Key
-
-| 服务 | 地址 |
-|------|------|
-| DeepSeek | https://platform.deepseek.com/api_keys |
-| 飞书机器人 | 群设置 → 群机器人 → 自定义机器人 |
+- 当前程序只依赖 DeepSeek API 作为模型引擎。
+- 不引入 NewsAPI、搜索 API 或其他付费模型服务。
+- 报告内容必须带原文链接；没有原文链接的候选不得进入最终推送。
+- AI 输出仅供法务信息初筛，不构成正式法律意见。

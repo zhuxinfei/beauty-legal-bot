@@ -11,6 +11,8 @@ import {
   validateReport,
   renderReportHtml,
   renderFeishuSummary,
+  reportKeyForDate,
+  latestReportKey,
 } from './index.js';
 
 function testNormalizeUrl() {
@@ -101,6 +103,11 @@ function testRenderFeishuSummary() {
   assert.ok(summary.includes('https://example.com/report/latest'));
 }
 
+function testReportKeys() {
+  assert.equal(reportKeyForDate('2026-05-24'), 'report:2026-05-24');
+  assert.equal(latestReportKey(), 'report:latest');
+}
+
 testNormalizeUrl();
 testHtmlToText();
 testExtractLinks();
@@ -109,4 +116,7 @@ testIsRelevantTitle();
 testMakeCandidate();
 testParseAnalysisJson();
 testValidateReport();
+testRenderReportHtml();
+testRenderFeishuSummary();
+testReportKeys();
 console.log('worker pure function tests ok');
