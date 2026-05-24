@@ -13,6 +13,8 @@ import {
   renderFeishuSummary,
   reportKeyForDate,
   latestReportKey,
+  dedupeReport,
+  extractReportFingerprints,
 } from './index.js';
 
 function testNormalizeUrl() {
@@ -108,6 +110,21 @@ function testReportKeys() {
   assert.equal(latestReportKey(), 'report:latest');
 }
 
+function testDedupeReportRemovesRepeatedItems() {
+  const duplicate = structuredClone(sampleReport);
+  duplicate.sections[0].items = [
+    sampleReport.sections[0].items[0],
+    { ...sampleReport.sections[0].items[0], source_name: '转载来源' },
+  ];
+  const deduped = dedupeReport(duplicate);
+  assert.equal(deduped.sections[0].items.length, 1);
+}
+
+function testExtractReportFingerprintsUsesItems() {
+  const fingerprints = extractReportFingerprints(sampleReport);
+  assert.deepEqual(fingerprints, ['法规|亚洲|印尼|BPOM 更新化妆品清真认证要求|https://www.pom.go.id/']);
+}
+
 testNormalizeUrl();
 testHtmlToText();
 testExtractLinks();
@@ -119,4 +136,6 @@ testValidateReport();
 testRenderReportHtml();
 testRenderFeishuSummary();
 testReportKeys();
+testDedupeReportRemovesRepeatedItems();
+testExtractReportFingerprintsUsesItems();
 console.log('worker pure function tests ok');

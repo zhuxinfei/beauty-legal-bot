@@ -65,27 +65,38 @@ function hashStr(str) {
 }
 
 // 从报告中提取关键短语作为去重指纹（取 ## 标题行）
-function extractFingerprints(report) {
-  const fingerprints = [];
-  const lines = report.split("\n");
-  for (const line of lines) {
-    const trimmed = line.trim();
-    if (trimmed.startsWith("**") && !trimmed.startsWith("**📌") &&
-        !trimmed.startsWith("**📋") && !trimmed.startsWith("**⚖️") &&
-        !trimmed.startsWith("**💡")) {
-      fingerprints.push(trimmed.slice(0, 120));
-    }
-  }
-  return fingerprints;
+export function extractReportFingerprints(report) {
+  return (report.sections || [])
+    .flatMap(section => section.items || [])
+    .map(item => [item.type, item.region, item.country, item.title, item.source_url].map(value => String(value || '').trim()).join('|'))
+    .filter(Boolean);
 }
 
-async function isDuplicate(report, kv) {
-  if (!kv) return false;
-  const fps = extractFingerprints(report);
-  if (!fps.length) return false;
+export function dedupeReport(report) {
+  const seen = new Set();
+  return {
+    ...report,
+    sections: (report.sections || []).map(section => ({
+      ...section,
+      items: (section.items || []).filter(item => {
+        const sourceUrl = String(item.source_url || '').trim().toLowerCase();
+        const titleKey = String(item.title || '').replace(/\s+/g, '').toLowerCase();
+        const key = sourceUrl || `${item.type || ''}:${item.country || ''}:${titleKey}`;
+        if (seen.has(key)) return false;
+        seen.add(key);
+        return true;
+      }),
+    })),
+  };
+}
+
+async function isDuplicateFingerprints(fingerprints, kv) {
+  if (!kv) return { isDup: false, seen: [], fps: fingerprints || [] };
+  const fps = fingerprints || [];
+  if (!fps.length) return { isDup: false, seen: [], fps };
 
   try {
-    const seenKey = "seen_v2";
+    const seenKey = "seen_v3_report_items";
     const raw = await kv.get(seenKey);
     let seen = raw ? JSON.parse(raw) : [];
 
@@ -96,9 +107,7 @@ async function isDuplicate(report, kv) {
     const seenSet = new Set(seen.map(e => e.h));
     const newFps = fps.filter(f => !seenSet.has(hashStr(f)));
 
-    // 如果超过 60% 的指纹已存在，视为重复
-    const dupRatio = 1 - newFps.length / fps.length;
-    return { isDup: dupRatio > 0.6, seen, fps };
+    return { isDup: newFps.length === 0, seen, fps };
   } catch (e) {
     return { isDup: false, seen: [], fps };
   }
@@ -113,7 +122,7 @@ async function markSeen(fps, seen, kv) {
     }
     // 只保留最近 7 天
     seen = seen.filter(e => now - e.ts < 30 * 24 * 60 * 60 * 1000);
-    await kv.put("seen_v2", JSON.stringify(seen));
+    await kv.put("seen_v3_report_items", JSON.stringify(seen));
   } catch (e) {
     console.warn(`去重标记失败: ${e.message}`);
   }
@@ -189,21 +198,23 @@ async function runPipeline(env, requestUrl = 'https://beauty-legal-bot.workers.d
 
   console.log("[stage 2/5] DeepSeek 结构化分析...");
   const period = getPeriod();
-  const report = await deepseekAnalyze({ apiKey: deepseekKey, model, candidates, sources: sourceCatalog.sources, period });
-  console.log(`[stage 2/5] 完成，模块 ${report.sections.length} 个`);
+  const rawReport = await deepseekAnalyze({ apiKey: deepseekKey, model, candidates, sources: sourceCatalog.sources, period });
+  const report = dedupeReport(rawReport);
+  const itemCount = (report.sections || []).flatMap(section => section.items || []).length;
+  console.log(`[stage 2/5] 完成，模块 ${report.sections.length} 个，去重后 ${itemCount} 条`);
 
   console.log("[stage 3/5] 生成并保存 HTML 周报...");
   const generatedAt = new Date().toISOString();
   const html = renderReportHtml(report, { generatedAt, failures });
   const reportDate = report.period.end;
-  await saveReport(kv, reportDate, html, { period: report.period, generatedAt, itemCount: (report.sections || []).flatMap(section => section.items || []).length });
+  await saveReport(kv, reportDate, html, { period: report.period, generatedAt, itemCount });
   console.log(`[stage 3/5] 已保存 /report/${reportDate} 和 /report/latest`);
 
   console.log("[stage 4/5] 内容去重检查...");
   const summaryText = renderFeishuSummary(report, reportUrl(requestUrl, '/report/latest'));
-  const { isDup, seen, fps } = await isDuplicate(summaryText, kv);
+  const { isDup, seen, fps } = await isDuplicateFingerprints(extractReportFingerprints(report), kv);
   if (isDup) {
-    console.log("[stage 4/5] 与近期周报高度重复，保留页面但跳过飞书推送");
+    console.log("[stage 4/5] 报告条目 30 天内已全部推送过，保留页面但跳过飞书推送");
     return;
   }
 
