@@ -739,12 +739,18 @@ export function renderReportHtml(report, { generatedAt = new Date().toISOString(
 export function renderFeishuSummary(report, reportUrl) {
   validateReport(report);
   const items = (report.sections || []).flatMap(section => section.items || []);
+  const suggest = action => {
+    const text = String(action || '').trim();
+    if (!text) return '建议相关团队结合业务范围判断是否需要跟进。';
+    if (/^(建议|可考虑|建议由|建议法务|建议注册|建议市场|建议电商|建议供应链)/.test(text)) return text;
+    return `建议${text.replace(/^(请|需|需要|应当|必须|及时|立即)/, '')}`;
+  };
   const highlights = items.slice(0, 5).map(item => {
     const action = Array.isArray(item.recommended_actions) ? item.recommended_actions[0] : '';
-    return `- [${item.type}][${item.country}] ${item.title}\n  动作：${action}`;
-  }).join('\n') || '- 本周无高价值更新';
-  const risks = (report.risk_alerts || []).slice(0, 3).map(alert => `- ${riskLabel(alert.level)}：${alert.text}`).join('\n') || '- 本周无高价值风险提醒';
-  return `**⚖️ 美妆法务周报 · ${report.period.end}**\n\n本周筛选 ${items.length} 条高价值资讯。\n\n**本周重点风险与动作**\n${highlights}\n\n**风险提醒**\n${risks}\n\n[打开完整周报](${reportUrl})`;
+    return `**${item.type}｜${item.country}**\n${item.title}\n建议：${suggest(action)}`;
+  }).join('\n\n') || '本周暂无需要重点提示的高价值更新。';
+  const risks = (report.risk_alerts || []).slice(0, 3).map(alert => `• ${riskLabel(alert.level)}：${alert.text}`).join('\n') || '本周暂无高价值风险提醒。';
+  return `**美妆法务周报｜${report.period.end}**\n\n📌 **本周概览**\n筛选出 ${items.length} 条高价值资讯，建议法务、注册、市场、电商团队按业务相关性阅读。\n\n⚠️ **风险提示**\n${risks}\n\n📝 **建议优先查看**\n${highlights}\n\n🔎 **完整版网页**\n[查看完整周报](${reportUrl})\n\n_本周报由 DeepSeek 辅助整理，仅作信息初筛，不构成正式法律意见。_`;
 }
 
 export function reportKeyForDate(date) {

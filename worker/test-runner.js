@@ -135,9 +135,9 @@ function testRenderReportHtml() {
 
 function testRenderFeishuSummary() {
   const summary = renderFeishuSummary(sampleReport, 'https://example.com/report/latest');
-  assert.ok(summary.includes('打开完整周报'));
+  assert.ok(summary.includes('查看完整周报'));
   assert.ok(summary.includes('https://example.com/report/latest'));
-  assert.ok(summary.includes('动作：'));
+  assert.ok(summary.includes('建议：'));
 }
 
 function testBuildAnalysisPromptIncludesLeads() {
@@ -234,7 +234,7 @@ async function testScheduledPipelineSavesReportThenSendsFeishu() {
       reportExistedBeforeFeishu = store.has('report:latest');
       const body = JSON.parse(init.body);
       assert.equal(body.msg_type, 'interactive');
-      assert.ok(JSON.stringify(body.card).includes('打开完整周报'));
+      assert.ok(JSON.stringify(body.card).includes('查看完整周报'));
       return new Response(JSON.stringify({ code: 0 }), { status: 200, headers: { 'Content-Type': 'application/json' } });
     }
     return new Response('<a href="/cosmetic-rule">化妆品安全评估技术导则征求意见</a>', {
