@@ -328,6 +328,15 @@ export function extractLinks(html, baseUrl) {
     .filter(link => link.title && link.url);
 }
 
+export function isLikelyContentImage(url) {
+  const text = String(url || '').toLowerCase();
+  if (!/^https?:\/\//.test(text)) return false;
+  if (/\.(svg|ico)(\?|$)/.test(text)) return false;
+  if (/(logo|favicon|avatar|icon|qrcode|qr-code|wechat|wxlogo|sprite|placeholder|blank|default|loading|banner-logo)/i.test(text)) return false;
+  if (/[?&](?:w|width|h|height)=([1-9][0-9]?|1[0-4][0-9])(?:&|$)/i.test(text)) return false;
+  return /\.(jpe?g|png|webp)(\?|$)/.test(text) || /(image|upload|media|news|cover|article|content|cms|files)/i.test(text);
+}
+
 export function extractImageUrl(html, baseUrl) {
   const text = String(html || '');
   const metaPatterns = [
@@ -338,10 +347,15 @@ export function extractImageUrl(html, baseUrl) {
   ];
   for (const pattern of metaPatterns) {
     const match = text.match(pattern);
-    if (match?.[1]) return normalizeUrl(match[1], baseUrl);
+    if (match?.[1]) {
+      const url = normalizeUrl(match[1], baseUrl);
+      if (isLikelyContentImage(url)) return url;
+    }
   }
-  const img = text.match(/<img\s+[^>]*src=["']([^"']+)["'][^>]*>/i);
-  return img?.[1] ? normalizeUrl(img[1], baseUrl) : '';
+  const images = Array.from(text.matchAll(/<img\s+[^>]*src=["']([^"']+)["'][^>]*>/gi))
+    .map(match => normalizeUrl(match[1], baseUrl))
+    .filter(isLikelyContentImage);
+  return images[0] || '';
 }
 
 export function getSourceStats(sources = sourceCatalog.sources) {
@@ -970,160 +984,155 @@ function moduleId(module) {
 }
 
 function renderEvidenceImage(item) {
-  if (!item.image_url) return '';
+  if (!isLikelyContentImage(item.image_url)) return '';
   return `<figure class="evidence-image"><img src="${escapeHtml(item.image_url)}" alt="${escapeHtml(item.source_name)} 来源图片" loading="lazy"></figure>`;
+}
+
+function isHttpUrl(value) {
+  return /^https?:\/\//i.test(String(value || ''));
+}
+
+function renderSourceAnchor(item) {
+  if (!isHttpUrl(item.source_url)) {
+    return `<span class="source-note">${escapeHtml(item.source_name || item.source_url || '线索来源')} · 待核验线索</span>`;
+  }
+  return `<a class="evidence-link" href="${escapeHtml(item.source_url)}" target="_blank" rel="noopener noreferrer">查看原文：${escapeHtml(item.source_name)}</a>`;
+}
+
+function isWatchlistItem(item) {
+  const text = `${item.title || ''} ${item.why_it_matters || ''}`;
+  return !isHttpUrl(item.source_url)
+    || item.source_type === 'wechat_lead'
+    || item.confidence === 'low'
+    || /待核验|信息源入口|线索/.test(text);
 }
 
 export function renderReportHtml(report, { generatedAt = new Date().toISOString(), failures = [] } = {}) {
   validateReport(report);
   const sections = report.sections || [];
   const allItems = sections.flatMap(section => section.items || []);
-  const countries = [...new Set(allItems.map(item => item.country).filter(Boolean))];
-  const directCount = allItems.filter(item => item.relevance === 'direct').length;
-  const highImpactCount = allItems.filter(item => item.industry_impact === 'high').length;
-  const highCount = (report.risk_alerts || []).filter(alert => alert.level === 'high').length;
-  const mediumCount = (report.risk_alerts || []).filter(alert => alert.level === 'medium').length;
-  const lowCount = (report.risk_alerts || []).filter(alert => alert.level === 'low').length;
-  const urgentItems = allItems
-    .filter(item => item.risk_level === 'high' || item.industry_impact === 'high')
-    .slice(0, 4);
+  const verifiedItems = allItems.filter(item => !isWatchlistItem(item));
+  const watchlistItems = allItems.filter(isWatchlistItem);
+  const displaySections = sections.map(section => ({
+    ...section,
+    items: (section.items || []).filter(item => !isWatchlistItem(item)),
+  }));
+  const countries = [...new Set(verifiedItems.map(item => item.country).filter(Boolean))];
+  const directCount = verifiedItems.filter(item => item.relevance === 'direct').length;
+  const highImpactCount = verifiedItems.filter(item => item.industry_impact === 'high').length;
+  const sourceCount = new Set(verifiedItems.map(item => item.source_url).filter(isHttpUrl)).size;
+  const topItems = verifiedItems
+    .filter(item => item.risk_level === 'high' || item.industry_impact === 'high' || item.relevance === 'direct')
+    .slice(0, 3);
 
-  const moduleNav = sections.map(section => {
-    const items = section.items || [];
-    const high = items.filter(item => item.risk_level === 'high').length;
-    return `<a href="#${moduleId(section.module)}"><span>${escapeHtml(section.module)}</span><strong>${items.length}</strong><em>${high ? `${high} 高风险` : '常规监测'}</em></a>`;
-  }).join('');
+  const moduleNav = displaySections.map(section => `<a href="#${moduleId(section.module)}">${escapeHtml(section.module)}<span>${(section.items || []).length}</span></a>`).join('');
+  const elevatorNav = [
+    '<a href="#top">Top</a>',
+    '<a href="#decision">三件事</a>',
+    '<a href="#actions">行动板</a>',
+    ...displaySections.map(section => `<a href="#${moduleId(section.module)}">${escapeHtml(section.module.replace(/动态|案例/g, ''))}</a>`),
+    '<a href="#sources">证据</a>',
+  ].join('');
 
-  const sectionHtml = sections.map((section, sectionIndex) => {
+  const sectionHtml = displaySections.map((section, sectionIndex) => {
     const items = section.items || [];
     const itemHtml = items.length ? items.map((item, itemIndex) => `
-      <article class="intel-card">
-        <div class="item-topline">
-          <span class="item-number">${String(sectionIndex + 1).padStart(2, '0')}.${String(itemIndex + 1).padStart(2, '0')}</span>
-          <div class="item-meta">
-            <span class="tag ${escapeHtml(item.risk_level || 'medium')} ${levelClass('severity', item.risk_level)}">${escapeHtml(item.type)}</span>
-            <span>${escapeHtml(item.country || item.region)}</span>
-            <span>${escapeHtml(item.region || '全球')}</span>
-            <span>${escapeHtml(item.published_at || '未知日期')}</span>
-            <span>${escapeHtml(riskLabel(item.risk_level))}</span>
+      <article class="intel-row">
+        <div class="row-index">${String(sectionIndex + 1).padStart(2, '0')}.${String(itemIndex + 1).padStart(2, '0')}</div>
+        <div class="row-main">
+          <div class="row-meta">
+            <span class="pill ${levelClass('severity', item.risk_level)}">${escapeHtml(riskLabel(item.risk_level))}</span>
+            <span class="pill ${levelClass('relevance', item.relevance, 'indirect')}">${item.relevance === 'direct' ? '直接相关' : '间接相关'}</span>
+            <span class="pill impact-${escapeHtml(item.industry_impact || 'medium')}">行业影响力${escapeHtml(impactLabel(item.industry_impact))}</span>
+            <span>${escapeHtml(item.country || item.region)} · ${escapeHtml(item.published_at || '未知日期')}</span>
           </div>
-        </div>
-        <h3>${escapeHtml(item.title)}</h3>
-        <section class="source-evidence">
+          <h3>${escapeHtml(item.title)}</h3>
+          <p class="lead">${escapeHtml(item.why_it_matters || '该条信息需要相关团队结合业务覆盖范围判断影响。')}</p>
           ${renderEvidenceImage(item)}
-          <div class="evidence-body">
-            <p class="evidence-label">Source Evidence</p>
-            <a class="evidence-link" href="${escapeHtml(item.source_url)}" target="_blank" rel="noopener noreferrer">查看原文：${escapeHtml(item.source_name)}</a>
-            <div class="evidence-meta">
-              <span>${escapeHtml(item.source_type || 'source')}</span>
-              <span class="${levelClass('confidence', item.confidence)}">${escapeHtml(item.confidence || 'medium')} confidence</span>
-              <span>${escapeHtml(item.published_at || '未知日期')}</span>
-            </div>
+          <div class="answer-grid">
+            <section>
+              <h4>业务影响</h4>
+              ${renderList(item.business_impact, 'plain-list')}
+            </section>
+            <section>
+              <h4>建议动作</h4>
+              ${renderList(item.recommended_actions, 'plain-list')}
+            </section>
           </div>
-        </section>
-        <section class="conclusion-strip">
-          <h4>核心结论</h4>
-          <p>${escapeHtml(item.why_it_matters || '该条信息需要相关团队结合业务覆盖范围判断影响。')}</p>
-        </section>
-        <div class="intel-grid">
-          <div class="${levelClass('relevance', item.relevance, 'indirect')}"><b>相关性</b><span>${item.relevance === 'direct' ? '直接相关' : '间接相关'}</span></div>
-          <div class="${levelClass('severity', item.industry_impact)}"><b>行业影响力</b><span>${escapeHtml(impactLabel(item.industry_impact))}</span></div>
-          <div><b>市场覆盖</b><span>${escapeHtml((item.market_scope || []).join('、') || item.country || '待判断')}</span></div>
-        </div>
-        <div class="analysis-grid">
-          <section class="analysis-panel">
-            <h4>业务影响</h4>
-            ${renderList(item.business_impact, 'impact-list')}
-          </section>
-          <section class="analysis-panel action-panel">
-            <h4>建议动作</h4>
-            ${renderList(item.recommended_actions, 'compact-list')}
-          </section>
-          <section class="analysis-panel detail-panel">
-            <h4>法律 / 案例拆解</h4>
+          <details class="deep-dive" open>
+            <summary>法务拆解</summary>
             ${renderItemAnalysis(item)}
-          </section>
+          </details>
+          <div class="source-line">
+            <span>Source Evidence</span>
+            ${renderSourceAnchor(item)}
+            <em class="${levelClass('confidence', item.confidence)}">${escapeHtml(item.confidence || 'medium')} confidence</em>
+          </div>
         </div>
       </article>
     `).join('') : '<p class="empty">本周无高价值更新</p>';
     return `
-      <section class="report-section" id="${moduleId(section.module)}">
-        <div class="section-heading">
-          <div>
-            <p>${escapeHtml(report.period.start)} - ${escapeHtml(report.period.end)}</p>
-            <h2>${escapeHtml(section.module)}</h2>
-          </div>
-          <span>${items.length} 条入选</span>
-        </div>
+      <section class="theme-section" id="${moduleId(section.module)}">
+        <header class="section-heading">
+          <p>分类情报 ${String(sectionIndex + 1).padStart(2, '0')}</p>
+          <h2>${escapeHtml(section.module)}</h2>
+          <span>${items.length} 条入选 · 按时效性、权威性、行业影响力筛选</span>
+        </header>
         ${itemHtml}
       </section>
     `;
   }).join('');
 
-  const urgentHtml = urgentItems.length ? urgentItems.map(item => `
-    <li>
-      <strong>${escapeHtml(item.country)} · ${escapeHtml(riskLabel(item.risk_level))}</strong>
-      <span>${escapeHtml(item.title)}</span>
-    </li>
-  `).join('') : '<li><strong>暂无</strong><span>本期无高风险优先项</span></li>';
-
-  const executiveConclusion = report.summary?.[0] || `本期共筛选 ${allItems.length} 条美妆法务情报，建议集团法务按市场和业务线优先处理高风险事项。`;
-  const executiveBullets = (report.summary || []).slice(0, 3).map(item => `<li>${escapeHtml(item)}</li>`).join('');
+  const executiveConclusion = report.summary?.[0] || `本期共筛选 ${verifiedItems.length} 条可核验美妆法务情报，建议集团法务按市场和业务线优先处理高风险事项。`;
+  const executiveBullets = (report.summary || []).slice(0, 4).map(item => `<li>${escapeHtml(item)}</li>`).join('');
   const marketRiskHtml = countries.map(country => {
-    const countryItems = allItems.filter(item => item.country === country);
+    const countryItems = verifiedItems.filter(item => item.country === country);
     const high = countryItems.filter(item => item.risk_level === 'high').length;
     const medium = countryItems.filter(item => item.risk_level === 'medium').length;
     const level = high ? 'high' : (medium ? 'medium' : 'low');
-    return `<div class="market-tile ${level}"><strong>${escapeHtml(country)}</strong><span>${countryItems.length} 条情报 · ${high} 高风险 · ${medium} 中风险</span></div>`;
+    return `<div class="market-chip severity-${level}"><strong>${escapeHtml(country)}</strong><span>${countryItems.length} 条 · ${high} 高风险 · ${medium} 中风险</span></div>`;
   }).join('');
 
-  const actionTeams = ['法务', '注册备案', '注册', '市场', '电商', '供应链', '品牌/IP', '客服'];
+  const actionTeams = ['法务', '注册', '市场', '电商', '供应链', '品牌/IP', '客服'];
   const actionBoardHtml = actionTeams.map(team => {
-    const actions = allItems
+    const actions = verifiedItems
       .filter(item => (item.owner_teams || []).some(owner => String(owner).includes(team.replace('/IP', ''))))
       .flatMap(item => item.recommended_actions || [])
-      .slice(0, 3);
+      .slice(0, 2);
     if (!actions.length) return '';
-    return `<section class="action-column"><h3>${escapeHtml(team)}</h3>${renderList(actions, 'compact-list')}</section>`;
+    return `<section class="action-block"><h3>${escapeHtml(team)}</h3>${renderList(actions, 'plain-list')}</section>`;
   }).filter(Boolean).join('');
 
-  const moduleThesis = {
-    '广告合规及处罚案例': '广告、直播和功效宣称仍是本周最需要前置审核的高频风险。',
-    '美妆动态': '行业动态应作为监管风向和渠道规则变化的早期信号，而不是新闻浏览。',
-    '知识产权动态': '品牌资产管理需要从被动维权转为商标组合、使用证据和平台治理的常态化管理。',
-    '新规及案例动态': '成分、注册备案、标签和案例执法共同指向更高的上市前合规要求。',
-    '进出口动态': '跨境链路的核心关注点是准入、清关文件、口岸抽检和美国/中国口岸监管信号。',
-  };
-  const strategicThemeHtml = sections.map(section => {
-    const items = section.items || [];
-    if (!items.length) return '';
-    const evidence = items.slice(0, 3).map(item => `
-      <li>
-        <a href="${escapeHtml(item.source_url)}" target="_blank" rel="noopener noreferrer">${escapeHtml(item.title)}</a>
-        <span>${escapeHtml(item.country)} · ${escapeHtml(item.source_name)} · ${escapeHtml(riskLabel(item.risk_level))}</span>
-      </li>
-    `).join('');
-    const actions = items.flatMap(item => item.recommended_actions || []).slice(0, 2);
-    return `
-      <article class="theme-card">
-        <div class="theme-head">
-          <p>Strategic Theme</p>
-          <h3>${escapeHtml(section.module)}</h3>
-        </div>
-        <p class="theme-thesis">${escapeHtml(moduleThesis[section.module] || '该模块体现本周需要集团法务判断的业务风险主题。')}</p>
-        <div class="theme-body">
-          <section>
-            <h4>支撑证据</h4>
-            <ul class="evidence-list">${evidence}</ul>
-          </section>
-          <section>
-            <h4>建议动作</h4>
-            ${renderList(actions, 'compact-list') || '<p class="empty">建议相关团队结合业务范围判断是否需要跟进。</p>'}
-          </section>
-        </div>
-      </article>
-    `;
-  }).join('');
+  const topThreeHtml = topItems.length ? topItems.map((item, index) => `
+    <article class="decision-item">
+      <span>${index + 1}</span>
+      <div>
+        <h3>${escapeHtml(item.country)}｜${escapeHtml(item.title)}</h3>
+        <p>${escapeHtml(item.why_it_matters)}</p>
+        ${renderSourceAnchor(item)}
+      </div>
+    </article>
+  `).join('') : '<p class="empty">本周无需要优先处理的高风险事项。</p>';
+
+  const evidenceRows = verifiedItems.map((item, index) => `
+    <tr>
+      <td>${String(index + 1).padStart(2, '0')}</td>
+      <td>${renderSourceAnchor(item)}</td>
+      <td>${escapeHtml(item.title)}</td>
+      <td>${escapeHtml(item.country || item.region)}</td>
+      <td><span class="${levelClass('confidence', item.confidence)}">${escapeHtml(item.confidence || 'medium')}</span></td>
+    </tr>
+  `).join('');
+
+  const watchlistRows = watchlistItems.map((item, index) => `
+    <tr>
+      <td>${String(index + 1).padStart(2, '0')}</td>
+      <td>${escapeHtml(item.source_name || '线索来源')}</td>
+      <td>${escapeHtml(item.title)}</td>
+      <td>${escapeHtml(item.country || item.region)}</td>
+      <td>${escapeHtml(item.confidence || 'low')}</td>
+    </tr>
+  `).join('');
 
   return `<!doctype html>
 <html lang="zh-CN">
@@ -1132,202 +1141,164 @@ export function renderReportHtml(report, { generatedAt = new Date().toISOString(
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>Global Beauty Legal Intelligence</title>
   <style>
-    :root { color-scheme: light; --bg: #F3F5F8; --panel: #FFFFFF; --ink: #111827; --muted: #667085; --line: #D7DCE5; --line-strong: #B8C0CC; --navy: #101828; --blue: #1D4E89; --cyan: #087E8B; --gold: #A86E1D; --red: #B42318; --green: #287D3C; --soft-blue: #EAF1FB; --soft-gold: #FFF5E5; --soft-red: #FEF3F2; }
+    :root { color-scheme: light; --paper: #f7f4ef; --surface: #fffdfa; --ink: #161412; --muted: #6d6860; --line: #e2d8ca; --line-strong: #b9aa96; --rose: #9f5964; --rose-soft: #f5e9e8; --gold: #8a642d; --green: #286c58; --blue: #2b5878; --red: #9c3934; --amber: #94651f; --shadow: 0 22px 60px rgba(54, 42, 29, .09); }
     * { box-sizing: border-box; }
     html { scroll-behavior: smooth; }
-    body { margin: 0; background: var(--bg); color: var(--ink); font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", "PingFang SC", "Hiragino Sans GB", "Microsoft YaHei", sans-serif; font-size: 15px; line-height: 1.68; }
-    a { color: var(--blue); text-decoration-thickness: 0.08em; text-underline-offset: 0.18em; }
-    a:focus-visible { outline: 3px solid rgba(37, 87, 167, 0.28); outline-offset: 3px; border-radius: 6px; }
-    .page-top { background: #0E1726; color: #fff; border-bottom: 1px solid #263448; }
-    .top-inner { max-width: 1320px; margin: 0 auto; padding: 28px 28px 24px; }
-    .eyebrow { margin: 0 0 10px; color: #A9BFE8; font-size: 12px; font-weight: 800; letter-spacing: 0; text-transform: uppercase; }
-    h1 { margin: 0; font-size: 34px; line-height: 1.18; letter-spacing: 0; }
-    .subtitle { max-width: 900px; margin: 12px 0 0; color: #D5DFEF; font-size: 15px; }
-    .metric-grid { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 10px; margin-top: 22px; }
-    .metric { min-height: 92px; background: rgba(255,255,255,0.075); border: 1px solid rgba(255,255,255,0.18); border-radius: 8px; padding: 14px; }
-    .metric strong { display: block; font-size: 30px; line-height: 1; }
-    .metric span { display: block; margin-top: 8px; color: #C9D5E8; font-size: 13px; }
-    .layout { max-width: 1320px; margin: 0 auto; display: grid; grid-template-columns: 280px minmax(0, 1fr); gap: 22px; padding: 22px 28px 56px; align-items: start; }
-    .side-rail { position: sticky; top: 16px; display: grid; gap: 14px; }
-    .rail-card { background: var(--panel); border: 1px solid var(--line); border-radius: 8px; padding: 16px; box-shadow: 0 8px 24px rgba(16,24,40,.05); }
-    .rail-title { margin: 0 0 10px; font-size: 12px; color: var(--muted); font-weight: 800; letter-spacing: 0; text-transform: uppercase; }
-    .module-nav { display: grid; gap: 8px; }
-    .module-nav a { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 3px 10px; align-items: center; min-height: 54px; padding: 10px 12px; border: 1px solid var(--line); border-radius: 8px; background: #fff; color: var(--ink); text-decoration: none; }
-    .module-nav span { font-weight: 800; overflow-wrap: anywhere; }
-    .module-nav strong { color: var(--blue); font-size: 18px; }
-    .module-nav em { grid-column: 1 / -1; color: var(--muted); font-size: 12px; font-style: normal; }
-    .priority-list { margin: 0; padding: 0; list-style: none; display: grid; gap: 10px; }
-    .priority-list li { border-left: 3px solid var(--gold); padding-left: 10px; }
-    .priority-list strong { display: block; color: var(--gold); font-size: 12px; }
-    .priority-list span { display: block; color: var(--ink); font-size: 13px; line-height: 1.45; }
-    .content { min-width: 0; }
-    .brief-grid { display: grid; grid-template-columns: minmax(0, 1.05fr) minmax(320px, .95fr); gap: 16px; }
-    .brief-panel, .risk-board, .market-board, .action-board, .theme-card { background: var(--panel); border: 1px solid var(--line); border-radius: 8px; padding: 18px; box-shadow: 0 8px 24px rgba(16,24,40,.05); }
-    .brief-panel h2, .risk-board h2, .market-board h2, .action-board h2, .theme-section h2 { margin: 0 0 12px; color: var(--ink); font-size: 20px; letter-spacing: 0; }
-    .executive-conclusion { margin: 0 0 14px; padding: 14px 16px; border-left: 4px solid var(--gold); background: var(--soft-gold); border-radius: 8px; color: var(--navy); font-size: 17px; font-weight: 800; line-height: 1.65; }
-    .summary-list { margin: 0; padding-left: 20px; display: grid; gap: 8px; }
-    .risk-list { display: grid; gap: 10px; }
-    .risk { display: grid; grid-template-columns: 66px minmax(0,1fr); gap: 10px; align-items: start; padding: 11px 12px; background: var(--soft-gold); border: 1px solid #EDD6B3; border-radius: 8px; }
-    .risk-badge { text-align: center; border-radius: 6px; padding: 3px 8px; background: var(--gold); color: #fff; font-size: 12px; font-weight: 800; }
-    .country-strip { display: flex; gap: 8px; flex-wrap: wrap; }
-    .country { border: 1px solid #B8C7E6; background: var(--soft-blue); color: var(--blue); border-radius: 999px; padding: 6px 11px; font-size: 13px; font-weight: 800; }
-    .market-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 10px; }
-    .market-tile { border: 1px solid var(--line); border-radius: 8px; padding: 12px; background: #FBFCFE; }
-    .market-tile.high { border-color: #F2B8B5; background: var(--soft-red); }
-    .market-tile.medium { border-color: #EDD6B3; background: var(--soft-gold); }
-    .market-tile strong { display: block; font-size: 16px; color: var(--navy); }
-    .market-tile span { display: block; margin-top: 4px; color: var(--muted); font-size: 12px; font-weight: 800; }
-    .theme-section, .action-board { margin-top: 16px; }
-    .theme-stack { display: grid; gap: 14px; }
-    .theme-head p { margin: 0 0 4px; color: var(--gold); font-size: 12px; font-weight: 900; text-transform: uppercase; }
-    .theme-head h3 { margin: 0; font-size: 22px; }
-    .theme-thesis { margin: 10px 0 14px; color: var(--navy); font-size: 16px; font-weight: 800; line-height: 1.65; }
-    .theme-body { display: grid; grid-template-columns: minmax(0, 1.1fr) minmax(300px, .9fr); gap: 14px; }
-    .theme-body h4, .action-column h3 { margin: 0 0 8px; color: var(--blue); font-size: 13px; font-weight: 900; }
-    .evidence-list { margin: 0; padding: 0; list-style: none; display: grid; gap: 10px; }
-    .evidence-list li { padding: 10px 12px; border: 1px solid var(--line); border-radius: 8px; background: #FBFCFE; }
-    .evidence-list a { display: inline-flex; min-height: 32px; align-items: center; color: var(--navy); font-weight: 900; }
-    .evidence-list span { display: block; color: var(--muted); font-size: 12px; font-weight: 800; }
-    .action-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 12px; }
-    .action-column { border: 1px solid var(--line); border-radius: 8px; padding: 12px; background: #F9FBFA; }
-    .report-section { margin-top: 24px; scroll-margin-top: 20px; }
-    .section-heading { display: flex; justify-content: space-between; gap: 12px; align-items: end; padding-bottom: 10px; border-bottom: 1px solid var(--line-strong); margin-bottom: 12px; }
-    .section-heading p { margin: 0 0 3px; color: var(--muted); font-size: 12px; font-weight: 700; }
-    h2 { margin: 0; color: var(--ink); font-size: 24px; letter-spacing: 0; }
-    .section-heading span { color: var(--muted); font-size: 13px; font-weight: 800; }
-    .intel-card { background: var(--panel); border: 1px solid var(--line); border-radius: 8px; padding: 18px; margin-top: 14px; box-shadow: 0 8px 22px rgba(16,24,40,.045); }
-    .item-topline { display: flex; gap: 12px; align-items: center; justify-content: space-between; }
-    .item-number { flex: 0 0 auto; color: var(--blue); font-weight: 900; font-size: 13px; letter-spacing: 0; }
-    .item-meta { display: flex; flex-wrap: wrap; gap: 8px; justify-content: flex-end; align-items: center; color: var(--muted); font-size: 12px; }
-    .tag { background: var(--blue); color: #fff; border-radius: 6px; padding: 3px 9px; font-weight: 800; }
-    .tag.high { background: var(--red); }
-    .tag.medium { background: var(--gold); }
-    .tag.low { background: var(--green); }
-    .severity-high { border-color: #F2B8B5 !important; background: #FEF3F2 !important; color: #8A1F16 !important; }
-    .severity-medium { border-color: #E7C98A !important; background: #FFF5E5 !important; color: #7A4B12 !important; }
-    .severity-low { border-color: #BFD9C7 !important; background: #F0FAF3 !important; color: #1F6B35 !important; }
-    .tag.severity-high, .tag.severity-medium, .tag.severity-low { color: #fff !important; }
-    .tag.severity-high { background: #B42318 !important; }
-    .tag.severity-medium { background: #A86E1D !important; }
-    .tag.severity-low { background: #287D3C !important; }
-    h3 { margin: 12px 0 10px; font-size: 20px; line-height: 1.38; letter-spacing: 0; }
-    .intel-grid { display: grid; grid-template-columns: .8fr .8fr 1.4fr; gap: 10px; margin: 10px 0; }
-    .intel-grid div { border: 1px solid var(--line); border-radius: 8px; padding: 10px; background: #FBFCFE; min-width: 0; }
-    .intel-grid .relevance-direct { border-color: #B7C9EA; background: #EAF1FB; }
-    .intel-grid .relevance-indirect { border-color: #D9D2C5; background: #FBF7F0; }
-    .intel-grid b { display: block; color: var(--muted); font-size: 12px; margin-bottom: 4px; }
-    .intel-grid span { display: block; color: var(--ink); font-size: 13px; font-weight: 800; overflow-wrap: anywhere; }
-    .source-row { display: flex; flex-wrap: wrap; gap: 12px; align-items: center; color: var(--muted); }
-    .source-link { display: inline-flex; min-height: 44px; align-items: center; font-weight: 700; }
-    .confidence { color: var(--muted); font-size: 12px; font-weight: 800; text-transform: uppercase; }
-    .source-evidence { display: grid; grid-template-columns: minmax(0, 1fr); gap: 12px; margin: 12px 0; padding: 13px; border: 1px solid #D8C7B2; background: linear-gradient(180deg, #FFFDF9 0%, #FFF8EE 100%); border-radius: 8px; }
-    .evidence-label { margin: 0 0 5px; color: var(--gold); font-size: 12px; font-weight: 900; text-transform: uppercase; letter-spacing: 0; }
-    .evidence-link { display: inline-flex; align-items: center; min-height: 44px; color: var(--navy); font-size: 15px; font-weight: 900; text-decoration-thickness: 0.08em; }
-    .evidence-meta { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 6px; color: var(--muted); font-size: 12px; font-weight: 800; text-transform: uppercase; }
-    .evidence-meta span { border: 1px solid #E5D4BE; background: rgba(255,255,255,.72); border-radius: 999px; padding: 3px 8px; }
-    .evidence-meta .confidence-high { border-color: #BFD9C7; background: #F0FAF3; color: #1F6B35; }
-    .evidence-meta .confidence-medium { border-color: #E7C98A; background: #FFF5E5; color: #7A4B12; }
-    .evidence-meta .confidence-low { border-color: #F2B8B5; background: #FEF3F2; color: #8A1F16; }
-    .evidence-image { margin: 0; border: 1px solid #E6D8C5; border-radius: 8px; overflow: hidden; background: #fff; aspect-ratio: 16 / 9; }
-    .evidence-image img { width: 100%; height: 100%; object-fit: cover; display: block; }
-    .conclusion-strip { margin: 12px 0; border-left: 4px solid var(--blue); background: var(--soft-blue); border-radius: 8px; padding: 12px 14px; }
-    .conclusion-strip h4 { margin: 0 0 5px; color: var(--blue); font-size: 13px; font-weight: 900; }
-    .conclusion-strip p { margin: 0; color: var(--ink); font-size: 15px; line-height: 1.7; }
-    .analysis-grid { display: grid; grid-template-columns: minmax(0, .95fr) minmax(0, 1.05fr); gap: 12px; margin-top: 12px; }
-    .analysis-panel { border: 1px solid var(--line); border-radius: 8px; background: #fff; padding: 13px; }
-    .analysis-panel h4 { margin: 0 0 8px; color: var(--blue); font-size: 13px; font-weight: 900; }
-    .analysis-panel p { margin: 0; }
-    .why-panel { background: var(--soft-blue); border-color: #C7D7F2; }
-    .action-panel { background: #F7FAF8; border-color: #C9DDCF; }
-    .detail-panel { grid-column: 1 / -1; }
-    .compact-list, .scope-list, .impact-list { margin: 10px 0 0; padding-left: 20px; }
-    .scope-list li { color: var(--muted); }
-    .impact-list li { color: var(--ink); font-weight: 600; }
-    .empty { margin: 0; color: var(--muted); }
-    .analysis-block { margin-top: 14px; }
+    body { margin: 0; background: linear-gradient(180deg, #f8f4ed 0%, #fbfaf7 44%, #f4efe7 100%); color: var(--ink); font-family: Georgia, "Times New Roman", "Songti SC", "SimSun", serif; font-size: 16px; line-height: 1.72; }
+    a { color: var(--blue); text-decoration-thickness: 0.08em; text-underline-offset: 0.2em; }
+    a:focus-visible { outline: 3px solid rgba(181, 107, 117, .35); outline-offset: 3px; border-radius: 4px; }
+    .brief-shell { max-width: 1160px; margin: 0 auto; padding: 42px 24px 64px; }
+    .brief-hero { display: grid; grid-template-columns: minmax(0, 1fr) 330px; gap: 34px; align-items: end; padding: 38px 0 32px; border-bottom: 1px solid var(--line-strong); }
+    .eyebrow, .section-heading p, .panel-kicker { margin: 0 0 8px; color: var(--rose); font: 800 11px/1.3 -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; letter-spacing: .12em; text-transform: uppercase; }
+    h1 { margin: 0; max-width: 780px; font-size: 46px; line-height: 1.12; font-weight: 700; letter-spacing: 0; }
+    .hero-copy { margin: 14px 0 0; max-width: 760px; color: var(--muted); font: 400 16px/1.75 -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; }
+    .metric-grid { display: grid; grid-template-columns: repeat(2, minmax(0,1fr)); gap: 10px; }
+    .metric { min-height: 92px; padding: 15px; background: rgba(255,253,250,.86); border: 1px solid var(--line); border-radius: 8px; box-shadow: var(--shadow); }
+    .metric strong { display: block; font: 700 30px/1 Georgia, "Times New Roman", serif; color: var(--rose); }
+    .metric span { display: block; margin-top: 8px; color: var(--muted); font: 700 13px/1.45 -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; }
+    .module-nav { display: flex; flex-wrap: wrap; gap: 8px; margin: 18px 0 0; }
+    .module-nav a { display: inline-flex; align-items: center; gap: 8px; min-height: 44px; padding: 8px 12px; border: 1px solid var(--line); border-radius: 999px; background: rgba(255,255,255,.7); color: var(--ink); font: 700 13px/1.4 -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; text-decoration: none; }
+    .module-nav span { min-width: 22px; height: 22px; display: inline-grid; place-items: center; border-radius: 999px; background: var(--rose-soft); color: var(--rose); }
+    .elevator { position: fixed; right: 18px; top: 50%; transform: translateY(-50%); z-index: 20; display: grid; gap: 7px; width: 118px; padding: 10px; border: 1px solid rgba(185,170,150,.72); border-radius: 8px; background: rgba(255,253,250,.88); box-shadow: 0 18px 44px rgba(54,42,29,.12); backdrop-filter: blur(12px); }
+    .elevator a { min-height: 34px; display: flex; align-items: center; justify-content: center; padding: 5px 8px; border-radius: 6px; color: var(--muted); font: 800 12px/1.25 -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; text-align: center; text-decoration: none; }
+    .elevator a:hover, .elevator a:focus-visible { background: var(--rose-soft); color: var(--rose); }
+    .reading-flow { display: grid; gap: 26px; margin-top: 28px; }
+    .brief-panel, .decision-panel, .action-board, .market-panel, .source-panel, .theme-section { background: rgba(255,253,250,.95); border: 1px solid var(--line); border-radius: 8px; box-shadow: var(--shadow); }
+    .brief-panel, .decision-panel, .action-board, .market-panel, .source-panel { padding: 26px; }
+    .split { display: grid; grid-template-columns: minmax(0, 1.08fr) minmax(320px, .92fr); gap: 20px; }
+    h2 { margin: 0; font-size: 27px; line-height: 1.25; font-weight: 700; letter-spacing: 0; }
+    .subhead { margin: 16px 0 0; color: var(--rose); font: 800 13px/1.35 -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; }
+    .executive-conclusion { margin: 14px 0 14px; padding-left: 16px; border-left: 4px solid var(--rose); font-size: 20px; line-height: 1.68; font-weight: 700; }
+    .summary-list, .plain-list, .compact-list, .scope-list, .impact-list { margin: 0; padding-left: 20px; }
+    .summary-list { display: grid; gap: 8px; color: var(--muted); font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; }
+    .decision-list { display: grid; gap: 14px; margin-top: 14px; }
+    .decision-item { display: grid; grid-template-columns: 42px minmax(0,1fr); gap: 14px; padding: 16px 0; border-top: 1px solid var(--line); }
+    .decision-item > span { width: 36px; height: 36px; display: grid; place-items: center; border: 1px solid var(--rose); border-radius: 999px; color: var(--rose); font-weight: 800; }
+    .decision-item h3 { margin: 0 0 6px; font-size: 18px; line-height: 1.45; }
+    .decision-item p { margin: 0 0 8px; color: var(--muted); font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; }
+    .market-grid, .action-grid { display: grid; gap: 10px; }
+    .market-chip, .action-block { padding: 14px 15px; border: 1px solid var(--line); border-radius: 8px; background: #fff; }
+    .market-chip strong { display: block; font-size: 17px; }
+    .market-chip span { display: block; color: var(--muted); font: 700 12px/1.5 -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; }
+    .action-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); margin-top: 12px; }
+    .action-block h3 { margin: 0 0 8px; color: var(--rose); font: 800 14px/1.3 -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; }
+    .theme-section { padding: 0; overflow: hidden; scroll-margin-top: 18px; }
+    .section-heading { padding: 24px 28px 18px; border-bottom: 1px solid var(--line); background: linear-gradient(90deg, #fffdfa 0%, #fbf2ee 100%); }
+    .section-heading span { display: block; margin-top: 8px; color: var(--muted); font: 700 13px/1.5 -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; }
+    .intel-row { display: grid; grid-template-columns: 78px minmax(0,1fr); gap: 22px; padding: 28px; border-top: 1px solid var(--line); }
+    .intel-row:first-of-type { border-top: 0; }
+    .row-index { color: var(--rose); font: 700 18px/1 Georgia, "Times New Roman", serif; }
+    .row-meta { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; color: var(--muted); font: 700 12px/1.4 -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; }
+    .pill { display: inline-flex; align-items: center; min-height: 27px; padding: 4px 10px; border: 1px solid var(--line); border-radius: 999px; background: #fff; }
+    .severity-high { border-color: #e4aaa7 !important; background: #fff1f0 !important; color: var(--red) !important; }
+    .severity-medium { border-color: #e5c992 !important; background: #fff8ea !important; color: var(--amber) !important; }
+    .severity-low { border-color: #bed8cf !important; background: #f0faf6 !important; color: var(--green) !important; }
+    .relevance-direct { border-color: #b9cce0 !important; background: #f0f6fb !important; color: var(--blue) !important; }
+    .relevance-indirect { border-color: #ded2c1 !important; background: #fbf7f0 !important; color: var(--gold) !important; }
+    .impact-high { color: var(--red); } .impact-medium { color: var(--amber); } .impact-low { color: var(--green); }
+    .row-main h3 { margin: 12px 0 10px; font-size: 24px; line-height: 1.35; letter-spacing: 0; }
+    .lead { margin: 0 0 14px; max-width: 820px; color: #332f2a; font-size: 17px; line-height: 1.75; }
+    .answer-grid { display: grid; grid-template-columns: minmax(0,.9fr) minmax(0,1.1fr); gap: 14px; margin-top: 14px; }
+    .answer-grid section, .deep-dive { border: 1px solid var(--line); border-radius: 8px; background: #fff; padding: 14px; }
+    .answer-grid h4, .analysis-block h4, .deep-dive summary { margin: 0 0 8px; color: var(--rose); font: 800 13px/1.35 -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; }
+    .deep-dive { margin-top: 14px; }
+    .deep-dive summary { cursor: pointer; min-height: 32px; }
+    .analysis-block { margin-top: 13px; }
     .analysis-block:first-child { margin-top: 0; }
-    .analysis-block h4 { margin: 0 0 6px; color: var(--muted); font-size: 12px; font-weight: 900; }
-    .footer { max-width: 1320px; margin: 0 auto; padding: 0 28px 34px; color: var(--muted); font-size: 13px; }
-    @media (max-width: 1080px) { .layout { grid-template-columns: 1fr; } .side-rail { position: static; } .module-nav { grid-template-columns: repeat(2, minmax(0, 1fr)); } .brief-grid, .theme-body, .action-grid { grid-template-columns: 1fr; } }
-    @media (min-width: 900px) { .source-evidence:has(.evidence-image) { grid-template-columns: minmax(180px, 260px) minmax(0, 1fr); align-items: center; } }
-    @media (max-width: 720px) { .top-inner, .layout, .footer { padding-left: 14px; padding-right: 14px; } h1 { font-size: 28px; } .metric-grid, .module-nav, .intel-grid, .analysis-grid { grid-template-columns: 1fr; } .detail-panel { grid-column: auto; } .item-topline { align-items: flex-start; flex-direction: column; } .item-meta { justify-content: flex-start; } }
+    .source-line { display: flex; flex-wrap: wrap; gap: 10px 14px; align-items: center; margin-top: 14px; padding-top: 13px; border-top: 1px solid var(--line); color: var(--muted); font: 700 13px/1.4 -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; }
+    .source-line > span { color: var(--gold); text-transform: uppercase; letter-spacing: .04em; }
+    .source-note { color: var(--muted); font-weight: 800; }
+    .evidence-link { font-weight: 900; }
+    .confidence-high { color: var(--green); } .confidence-medium { color: var(--amber); } .confidence-low { color: var(--red); }
+    .evidence-image { width: min(360px, 100%); margin: 10px 0 0; border: 1px solid var(--line); border-radius: 8px; overflow: hidden; background: #fff; aspect-ratio: 16 / 9; }
+    .evidence-image img { width: 100%; height: 100%; object-fit: cover; display: block; }
+    .source-panel { overflow-x: auto; }
+    .watchlist-panel { background: transparent; border-style: dashed; box-shadow: none; }
+    .evidence-table { width: 100%; border-collapse: collapse; min-width: 760px; margin-top: 12px; font: 14px/1.55 -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; }
+    .evidence-table th, .evidence-table td { padding: 11px 10px; border-bottom: 1px solid var(--line); text-align: left; vertical-align: top; }
+    .evidence-table th { color: var(--muted); font-size: 12px; text-transform: uppercase; letter-spacing: .04em; }
+    .empty { margin: 0; color: var(--muted); font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; }
+    .footer { margin-top: 28px; padding-top: 18px; border-top: 1px solid var(--line); color: var(--muted); font: 13px/1.7 -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; }
+    @media (prefers-reduced-motion: reduce) { html { scroll-behavior: auto; } }
+    @media (max-width: 1280px) { .elevator { right: 8px; width: 96px; } }
+    @media (max-width: 1060px) { .elevator { position: sticky; top: 0; transform: none; width: auto; display: flex; overflow-x: auto; margin: 0 -24px 18px; padding: 10px 24px; border-left: 0; border-right: 0; border-radius: 0; } .elevator a { flex: 0 0 auto; } }
+    @media (max-width: 940px) { .brief-hero, .split, .answer-grid, .action-grid { grid-template-columns: 1fr; } .brief-hero { align-items: start; } }
+    @media (max-width: 680px) { .brief-shell { padding: 22px 14px 42px; } h1 { font-size: 32px; } .metric-grid { grid-template-columns: 1fr 1fr; } .intel-row { grid-template-columns: 1fr; gap: 8px; padding: 18px; } .section-heading { padding: 18px; } .row-main h3 { font-size: 21px; } }
   </style>
 </head>
 <body>
-  <header class="page-top">
-    <div class="top-inner">
+  <main class="brief-shell" id="top">
+    <nav class="elevator" aria-label="模块电梯导航">${elevatorNav}</nav>
+    <header class="brief-hero">
+      <div>
       <p class="eyebrow">Global Beauty Legal Intelligence</p>
       <h1>国际美妆法务情报周报</h1>
-      <p class="subtitle">Intelligence Command Center · 周期：${escapeHtml(report.period.start)} 至 ${escapeHtml(report.period.end)}。面向国际化美妆电商集团，覆盖法规、案例、知识产权、进出口和行业动态。</p>
+        <p class="hero-copy">周期：${escapeHtml(report.period.start)} 至 ${escapeHtml(report.period.end)}。本页主阅读流仅展示可核验公开来源；公众号、泛首页和低可信待核验线索统一下沉至 Watchlist，避免干扰集团决策。</p>
+        <nav class="module-nav" aria-label="报告模块">${moduleNav}</nav>
+      </div>
       <div class="metric-grid" aria-label="风险统计">
-        <div class="metric"><strong>${allItems.length}</strong><span>高价值资讯</span></div>
+        <div class="metric"><strong>${verifiedItems.length}</strong><span>Verified Intelligence</span></div>
         <div class="metric"><strong>${countries.length}</strong><span>市场覆盖</span></div>
         <div class="metric"><strong>${directCount}</strong><span>直接相关</span></div>
-        <div class="metric"><strong>${highImpactCount}</strong><span>高行业影响力</span></div>
+        <div class="metric"><strong>${sourceCount}</strong><span>Source Evidence</span></div>
       </div>
-    </div>
-  </header>
-  <main class="layout">
-    <aside class="side-rail" aria-label="情报导航">
-      <section class="rail-card">
-        <p class="rail-title">Coverage Map</p>
-        <div class="country-strip" aria-label="涉及国家和地区">${countries.map(country => `<span class="country">${escapeHtml(country)}</span>`).join('')}</div>
-      </section>
-      <section class="rail-card">
-        <p class="rail-title">Modules</p>
-        <nav class="module-nav" aria-label="模块导航">${moduleNav}</nav>
-      </section>
-      <section class="rail-card">
-        <p class="rail-title">Priority Watch</p>
-        <ul class="priority-list">${urgentHtml}</ul>
-      </section>
-    </aside>
-    <div class="content">
-      <div class="brief-grid">
+    </header>
+
+    <div class="reading-flow">
+      <div class="split">
         <section class="brief-panel" aria-labelledby="summary-title">
+          <p class="panel-kicker">Executive Brief</p>
           <h2 id="summary-title">Executive Brief</h2>
+          <h3 class="subhead">核心结论</h3>
           <p class="executive-conclusion">${escapeHtml(executiveConclusion)}</p>
           ${executiveBullets ? `<ul class="summary-list">${executiveBullets}</ul>` : '<p class="empty">本周无高价值更新</p>'}
         </section>
-        <section class="risk-board" aria-labelledby="risk-title">
-          <h2 id="risk-title">Market Risk Map</h2>
-          <div class="market-grid">${marketRiskHtml}</div>
+        <section class="decision-panel" id="decision">
+          <p class="panel-kicker">Decision First</p>
+          <h2>本周先看这三件事</h2>
+          <div class="decision-list">${topThreeHtml}</div>
         </section>
       </div>
 
-      <section class="theme-section" aria-labelledby="theme-title">
-        <h2 id="theme-title">Strategic Themes</h2>
-        <div class="theme-stack">${strategicThemeHtml}</div>
-      </section>
-
-      <section class="action-board" aria-labelledby="action-title">
-        <h2 id="action-title">Action Board</h2>
+      <section class="action-board" id="actions" aria-labelledby="action-title">
+        <p class="panel-kicker">Action Board</p>
+        <h2 id="action-title">集团行动板</h2>
         <div class="action-grid">${actionBoardHtml || '<p class="empty">暂无明确团队动作。</p>'}</div>
       </section>
 
-      <div class="brief-grid">
-        <section class="risk-board" aria-labelledby="risk-title-detail">
-          <h2 id="risk-title-detail">Risk Signals</h2>
-          <div class="risk-list">
-            ${(report.risk_alerts || []).length ? report.risk_alerts.map(alert => `<div class="risk"><span class="risk-badge">${escapeHtml(riskLabel(alert.level))}</span><span>${escapeHtml(alert.text)}</span></div>`).join('') : '<p class="empty">本周无高价值风险提醒</p>'}
-          </div>
-        </section>
-        <section class="brief-panel">
-          <h2>Source Evidence</h2>
-          <p class="empty">以下为按 Excel 分类保留的证据明细。每条均保留原文链接、可信度、业务影响和建议动作。</p>
-        </section>
-      </div>
+      <section class="market-panel">
+        <p class="panel-kicker">Market Risk Map</p>
+        <h2>市场风险地图</h2>
+        <div class="market-grid">${marketRiskHtml}</div>
+      </section>
 
       ${sectionHtml}
-    </div>
-  </main>
 
-  <footer class="footer">
+      <section class="source-panel" id="sources">
+        <p class="panel-kicker">Source Evidence</p>
+        <h2>Source Evidence｜原文证据索引</h2>
+        <table class="evidence-table">
+          <thead><tr><th>#</th><th>来源链接</th><th>主题</th><th>市场</th><th>可信度</th></tr></thead>
+          <tbody>${evidenceRows}</tbody>
+        </table>
+      </section>
+
+      ${watchlistRows ? `<section class="source-panel watchlist-panel">
+        <p class="panel-kicker">Watchlist</p>
+        <h2>待核验线索附录</h2>
+        <table class="evidence-table">
+          <thead><tr><th>#</th><th>来源</th><th>线索主题</th><th>市场</th><th>可信度</th></tr></thead>
+          <tbody>${watchlistRows}</tbody>
+        </table>
+      </section>` : ''}
+    </div>
+
+    <footer class="footer">
     <p>生成时间：${escapeHtml(generatedAt)}</p>
-    <p>信息源说明：本页面由公开网页与行业线索自动整理生成，公众号类来源仅作线索，最终以原文链接为准。</p>
+      <p>信息源说明：公开网页优先展示原文链接；公众号类来源仅作线索，最终以可核验原文为准。主题图仅在可识别为正文相关图片时展示，站点 logo、头像、二维码和低清占位图不会进入报告。</p>
     ${failures.length ? `<p>部分源抓取失败：${escapeHtml(failures.slice(0, 12).join('、'))}</p>` : ''}
-    <p>AI 生成内容仅供法务信息初筛，不构成正式法律意见。</p>
   </footer>
+  </main>
 </body>
 </html>`;
 }

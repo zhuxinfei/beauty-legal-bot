@@ -7,6 +7,7 @@ import {
   htmlToText,
   extractLinks,
   extractImageUrl,
+  isLikelyContentImage,
   getSourceStats,
   makeCandidate,
   isRelevantTitle,
@@ -59,6 +60,9 @@ function testExtractImageUrl() {
   const html = '<meta property="og:image" content="/cover.jpg"><img src="/fallback.jpg">';
   assert.equal(extractImageUrl(html, 'https://site.test/news/a'), 'https://site.test/cover.jpg');
   assert.equal(extractImageUrl('<img src="/fallback.jpg">', 'https://site.test/news/a'), 'https://site.test/fallback.jpg');
+  assert.equal(isLikelyContentImage('https://site.test/logo.png'), false);
+  assert.equal(isLikelyContentImage('https://site.test/news/cosmetics-recall-cover.jpg'), true);
+  assert.equal(extractImageUrl('<meta property="og:image" content="/logo.png"><img src="/news/cosmetics-recall-cover.jpg">', 'https://site.test/news/a'), 'https://site.test/news/cosmetics-recall-cover.jpg');
 }
 
 function testGetSourceStats() {
@@ -177,16 +181,19 @@ function testRenderReportHtml() {
   assert.ok(html.includes('业务影响'));
   assert.ok(html.includes('直接相关') || html.includes('间接相关'));
   assert.ok(html.includes('行业影响力'));
-  assert.ok(html.includes('Intelligence Command Center'));
-  assert.ok(html.includes('class="layout"'));
-  assert.ok(html.includes('class="side-rail"'));
+  assert.ok(html.includes('class="brief-shell"'));
+  assert.ok(html.includes('class="brief-hero"'));
+  assert.ok(html.includes('class="reading-flow"'));
+  assert.ok(html.includes('Verified Intelligence'));
   assert.ok(html.includes('Executive Brief'));
-  assert.ok(html.includes('Strategic Themes'));
-  assert.ok(html.includes('Market Risk Map'));
-  assert.ok(html.includes('Action Board'));
+  assert.ok(html.includes('本周先看这三件事'));
+  assert.ok(html.includes('集团行动板'));
+  assert.ok(html.includes('分类情报'));
   assert.ok(html.includes('Source Evidence'));
-  assert.ok(html.includes('class="theme-card"'));
+  assert.ok(html.includes('class="theme-section"'));
+  assert.ok(html.includes('class="evidence-table"'));
   assert.ok(html.includes('class="evidence-link"'));
+  assert.ok(html.includes('Watchlist') || !html.includes('待核验'));
   assert.ok(html.includes('severity-high'));
   assert.ok(html.includes('severity-medium'));
   assert.ok(html.includes('relevance-direct'));
