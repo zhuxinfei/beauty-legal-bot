@@ -20,6 +20,8 @@ import {
   filterReportQuality,
   limitReportSections,
   buildAnalysisPrompt,
+  runStatusKey,
+  buildRunStartedResponse,
 } from './index.js';
 
 function testNormalizeUrl() {
@@ -149,6 +151,13 @@ function testBuildAnalysisPromptIncludesLeads() {
   assert.ok(prompt.includes('不要输出未加工新闻'));
 }
 
+function testRunStatusHelpers() {
+  assert.equal(runStatusKey('abc123'), 'run:abc123');
+  const response = buildRunStartedResponse('abc123', 'https://beauty-legal-bot.ai-cf.workers.dev');
+  assert.ok(response.includes('/status/abc123'));
+  assert.ok(response.includes('/report/latest'));
+}
+
 function testReportKeys() {
   assert.equal(reportKeyForDate('2026-05-24'), 'report:2026-05-24');
   assert.equal(latestReportKey(), 'report:latest');
@@ -197,6 +206,7 @@ testLimitReportSectionsCapsNonRegulatoryModules();
 testRenderReportHtml();
 testRenderFeishuSummary();
 testBuildAnalysisPromptIncludesLeads();
+testRunStatusHelpers();
 testReportKeys();
 testDedupeReportRemovesRepeatedItems();
 testExtractReportFingerprintsUsesItems();

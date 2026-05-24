@@ -26,6 +26,7 @@ const RELEVANT_KEYWORDS = [
 
 const NOISE_KEYWORDS = ['融资', '发布会', '新品上市', '代言', '财报', '招聘'];
 const REPORT_INDEX_KEY = 'report:index';
+const LATEST_RUN_KEY = 'run:latest';
 const REPORT_MODULES = [
   '新规/修订/废止/生效提醒',
   '广告合规及处罚案例',
@@ -168,6 +169,30 @@ function buildCard(content) {
   };
 }
 
+export function runStatusKey(runId) {
+  return `run:${runId}`;
+}
+
+export function buildRunStartedResponse(runId, origin) {
+  return `OK — weekly pipeline running\nrun_id: ${runId}\nstatus: ${origin}/status/${runId}\nlatest_report: ${origin}/report/latest`;
+}
+
+async function writeRunStatus(kv, runId, patch) {
+  if (!kv || !runId) return;
+  const key = runStatusKey(runId);
+  const raw = await kv.get(key);
+  const current = raw ? JSON.parse(raw) : { run_id: runId, events: [] };
+  const now = new Date().toISOString();
+  const next = {
+    ...current,
+    ...patch,
+    updated_at: now,
+    events: [...(current.events || []), { at: now, stage: patch.stage || current.stage || 'unknown', status: patch.status || current.status || 'running', message: patch.message || '' }].slice(-30),
+  };
+  await kv.put(key, JSON.stringify(next, null, 2), { expirationTtl: 7 * 24 * 60 * 60 });
+  await kv.put(LATEST_RUN_KEY, JSON.stringify(next, null, 2), { expirationTtl: 7 * 24 * 60 * 60 });
+}
+
 async function sendToFeishu(webhookUrl, content) {
   try {
     const resp = await fetch(webhookUrl, {
@@ -195,7 +220,7 @@ async function sendToFeishu(webhookUrl, content) {
 // ---------------------------------------------------------------------------
 // 管道入口
 // ---------------------------------------------------------------------------
-async function runPipeline(env, requestUrl = 'https://beauty-legal-bot.workers.dev/') {
+async function runPipeline(env, requestUrl = 'https://beauty-legal-bot.workers.dev/', runId = '') {
   const deepseekKey = env.DEEPSEEK_API_KEY;
   const feishuUrl = env.FEISHU_WEBHOOK_URL;
   const model = env.DEEPSEEK_MODEL || "deepseek-chat";
@@ -207,37 +232,55 @@ async function runPipeline(env, requestUrl = 'https://beauty-legal-bot.workers.d
 
   console.log("=== 周报管道启动 ===");
 
-  console.log("[stage 1/5] 抓取信息源候选...");
-  const { candidates, leads, failures } = await collectCandidates(sourceCatalog.sources);
-  console.log(`[stage 1/5] 完成，候选 ${candidates.length} 条，线索 ${leads.length} 条，失败源 ${failures.length} 个`);
+  try {
+    await writeRunStatus(kv, runId, { stage: 'start', status: 'running', message: 'pipeline started' });
 
-  console.log("[stage 2/5] DeepSeek 结构化分析...");
-  const period = getPeriod();
-  const rawReport = await deepseekAnalyze({ apiKey: deepseekKey, model, candidates, leads, sources: sourceCatalog.sources, period });
-  const report = limitReportSections(filterReportQuality(dedupeReport(rawReport)));
-  validateReport(report);
-  const itemCount = (report.sections || []).flatMap(section => section.items || []).length;
-  console.log(`[stage 2/5] 完成，模块 ${report.sections.length} 个，去重后 ${itemCount} 条`);
+    console.log("[stage 1/5] 抓取信息源候选...");
+    await writeRunStatus(kv, runId, { stage: 'collect', status: 'running', message: 'collecting candidates and leads' });
+    const { candidates, leads, failures } = await collectCandidates(sourceCatalog.sources);
+    await writeRunStatus(kv, runId, { stage: 'collect', status: 'done', message: `candidates=${candidates.length}, leads=${leads.length}, failures=${failures.length}`, candidates: candidates.length, leads: leads.length, failures });
+    console.log(`[stage 1/5] 完成，候选 ${candidates.length} 条，线索 ${leads.length} 条，失败源 ${failures.length} 个`);
 
-  console.log("[stage 3/5] 生成并保存 HTML 周报...");
-  const generatedAt = new Date().toISOString();
-  const html = renderReportHtml(report, { generatedAt, failures });
-  const reportDate = report.period.end;
-  await saveReport(kv, reportDate, html, { period: report.period, generatedAt, itemCount });
-  console.log(`[stage 3/5] 已保存 /report/${reportDate} 和 /report/latest`);
+    console.log("[stage 2/5] DeepSeek 结构化分析...");
+    await writeRunStatus(kv, runId, { stage: 'deepseek', status: 'running', message: 'calling DeepSeek' });
+    const period = getPeriod();
+    const rawReport = await deepseekAnalyze({ apiKey: deepseekKey, model, candidates, leads, sources: sourceCatalog.sources, period });
+    const report = limitReportSections(filterReportQuality(dedupeReport(rawReport)));
+    validateReport(report);
+    const itemCount = (report.sections || []).flatMap(section => section.items || []).length;
+    await writeRunStatus(kv, runId, { stage: 'deepseek', status: 'done', message: `sections=${report.sections.length}, items=${itemCount}`, itemCount });
+    console.log(`[stage 2/5] 完成，模块 ${report.sections.length} 个，去重后 ${itemCount} 条`);
 
-  console.log("[stage 4/5] 内容去重检查...");
-  const summaryText = renderFeishuSummary(report, reportUrl(requestUrl, '/report/latest'));
-  const { isDup, seen, fps } = await isDuplicateFingerprints(extractReportFingerprints(report), kv);
-  if (isDup) {
-    console.log("[stage 4/5] 报告条目 30 天内已全部推送过，保留页面但跳过飞书推送");
-    return;
+    console.log("[stage 3/5] 生成并保存 HTML 周报...");
+    await writeRunStatus(kv, runId, { stage: 'render', status: 'running', message: 'rendering and saving report' });
+    const generatedAt = new Date().toISOString();
+    const html = renderReportHtml(report, { generatedAt, failures });
+    const reportDate = report.period.end;
+    await saveReport(kv, reportDate, html, { period: report.period, generatedAt, itemCount });
+    await writeRunStatus(kv, runId, { stage: 'render', status: 'done', message: `saved report ${reportDate}`, reportDate, latestReport: reportUrl(requestUrl, '/report/latest') });
+    console.log(`[stage 3/5] 已保存 /report/${reportDate} 和 /report/latest`);
+
+    console.log("[stage 4/5] 内容去重检查...");
+    await writeRunStatus(kv, runId, { stage: 'dedupe', status: 'running', message: 'checking 30-day fingerprints' });
+    const summaryText = renderFeishuSummary(report, reportUrl(requestUrl, '/report/latest'));
+    const { isDup, seen, fps } = await isDuplicateFingerprints(extractReportFingerprints(report), kv);
+    if (isDup) {
+      await writeRunStatus(kv, runId, { stage: 'dedupe', status: 'skipped', message: 'all report items were already pushed in 30 days' });
+      console.log("[stage 4/5] 报告条目 30 天内已全部推送过，保留页面但跳过飞书推送");
+      return;
+    }
+
+    console.log("[stage 5/5] 推送飞书摘要...");
+    await writeRunStatus(kv, runId, { stage: 'feishu', status: 'running', message: 'sending Feishu card' });
+    const ok = await sendToFeishu(feishuUrl, summaryText);
+    if (ok) await markSeen(fps, seen, kv);
+    await writeRunStatus(kv, runId, { stage: 'feishu', status: ok ? 'done' : 'failed', message: ok ? 'Feishu sent' : 'Feishu send failed' });
+    console.log(ok ? "=== 周报管道完成 ===" : "=== 周报管道失败 ===");
+  } catch (error) {
+    console.error(`管道异常: ${error.stack || error.message}`);
+    await writeRunStatus(kv, runId, { stage: 'error', status: 'failed', message: error.stack || error.message });
+    throw error;
   }
-
-  console.log("[stage 5/5] 推送飞书摘要...");
-  const ok = await sendToFeishu(feishuUrl, summaryText);
-  if (ok) await markSeen(fps, seen, kv);
-  console.log(ok ? "=== 周报管道完成 ===" : "=== 周报管道失败 ===");
 }
 
 // ---------------------------------------------------------------------------
@@ -801,8 +844,21 @@ export default {
   async fetch(request, env, ctx) {
     const url = new URL(request.url);
     if (url.pathname === "/test") {
-      ctx.waitUntil(runPipeline(env, request.url));
-      return new Response("OK — weekly pipeline running, check Feishu and /report/latest", { status: 200 });
+      const runId = `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+      const origin = url.origin;
+      ctx.waitUntil(runPipeline(env, request.url, runId));
+      return new Response(buildRunStartedResponse(runId, origin), { status: 200, headers: { "Content-Type": "text/plain; charset=utf-8" } });
+    }
+
+    if (url.pathname === "/status/latest") {
+      const raw = env.SEEN_NEWS ? await env.SEEN_NEWS.get(LATEST_RUN_KEY) : null;
+      return raw ? new Response(raw, { headers: { "Content-Type": "application/json; charset=utf-8" } }) : new Response("No run status yet", { status: 404 });
+    }
+
+    const statusMatch = url.pathname.match(/^\/status\/([^/]+)$/);
+    if (statusMatch) {
+      const raw = env.SEEN_NEWS ? await env.SEEN_NEWS.get(runStatusKey(statusMatch[1])) : null;
+      return raw ? new Response(raw, { headers: { "Content-Type": "application/json; charset=utf-8" } }) : new Response("Run status not found", { status: 404 });
     }
 
     if (url.pathname === "/report") {
