@@ -22,6 +22,7 @@ import {
   buildAnalysisPrompt,
   runStatusKey,
   buildRunStartedResponse,
+  fetchWithTimeout,
 } from './index.js';
 
 function testNormalizeUrl() {
@@ -158,6 +159,17 @@ function testRunStatusHelpers() {
   assert.ok(response.includes('/report/latest'));
 }
 
+async function testFetchWithTimeoutAbortsSlowFetch() {
+  const slowFetch = (_url, init) => new Promise((resolve, reject) => {
+    init.signal.addEventListener('abort', () => reject(new DOMException('Aborted', 'AbortError')));
+    setTimeout(() => resolve(new Response('late')), 50);
+  });
+  await assert.rejects(
+    () => fetchWithTimeout('https://example.com', {}, 1, slowFetch),
+    /timed out|Abort/
+  );
+}
+
 function testReportKeys() {
   assert.equal(reportKeyForDate('2026-05-24'), 'report:2026-05-24');
   assert.equal(latestReportKey(), 'report:latest');
@@ -192,6 +204,7 @@ function testSplitSourcesSeparatesWechatLeads() {
   assert.equal(makeLead(split.leadSources[0]).name, '化妆品观察');
 }
 
+await testFetchWithTimeoutAbortsSlowFetch();
 testNormalizeUrl();
 testHtmlToText();
 testExtractLinks();

@@ -35,6 +35,7 @@ const REPORT_MODULES = [
   '进出口/跨境电商动态',
 ];
 const ACTION_NOISE = ['建议关注', '持续关注', '企业应留意', '可能产生影响', '需持续观察'];
+const SOURCE_FETCH_TIMEOUT_MS = 8000;
 const TYPE_REQUIRED_FIELDS = {
   '法规': ['status', 'what_changed', 'legal_obligation', 'affected_business', 'recommended_actions', 'owner_teams', 'risk_level', 'why_it_matters', 'confidence'],
   '案例': ['case_type', 'facts', 'violation_logic', 'penalty_or_result', 'risk_pattern', 'business_lessons', 'recommended_actions', 'owner_teams', 'risk_level', 'why_it_matters', 'confidence'],
@@ -237,7 +238,7 @@ async function runPipeline(env, requestUrl = 'https://beauty-legal-bot.workers.d
 
     console.log("[stage 1/5] 抓取信息源候选...");
     await writeRunStatus(kv, runId, { stage: 'collect', status: 'running', message: 'collecting candidates and leads' });
-    const { candidates, leads, failures } = await collectCandidates(sourceCatalog.sources);
+    const { candidates, leads, failures } = await collectCandidates(sourceCatalog.sources, progress => writeRunStatus(kv, runId, { stage: 'collect', status: 'running', message: `fetching ${progress.index}/${progress.total}: ${progress.source}` }));
     await writeRunStatus(kv, runId, { stage: 'collect', status: 'done', message: `candidates=${candidates.length}, leads=${leads.length}, failures=${failures.length}`, candidates: candidates.length, leads: leads.length, failures });
     console.log(`[stage 1/5] 完成，候选 ${candidates.length} 条，线索 ${leads.length} 条，失败源 ${failures.length} 个`);
 
@@ -286,6 +287,19 @@ async function runPipeline(env, requestUrl = 'https://beauty-legal-bot.workers.d
 // ---------------------------------------------------------------------------
 // 信息源工具
 // ---------------------------------------------------------------------------
+export async function fetchWithTimeout(url, init = {}, timeoutMs = SOURCE_FETCH_TIMEOUT_MS, fetcher = fetch) {
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), timeoutMs);
+  try {
+    return await fetcher(url, { ...init, signal: controller.signal });
+  } catch (error) {
+    if (error.name === 'AbortError') throw new Error(`fetch timed out after ${timeoutMs}ms`);
+    throw error;
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
 export function normalizeUrl(href, baseUrl) {
   if (!href) return '';
   try {
@@ -786,7 +800,7 @@ async function fetchSourceCandidates(source) {
   if (!source.url || !source.url.startsWith('http')) return [];
 
   try {
-    const response = await fetch(source.url, {
+    const response = await fetchWithTimeout(source.url, {
       headers: {
         'User-Agent': 'beauty-legal-bot/1.0 (+legal intelligence monitor)',
         'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8',
@@ -804,13 +818,14 @@ async function fetchSourceCandidates(source) {
   }
 }
 
-async function collectCandidates(sources = sourceCatalog.sources) {
+async function collectCandidates(sources = sourceCatalog.sources, onProgress = async () => {}) {
   const { fetchableSources, leadSources } = splitSources(sources);
   const candidates = [];
   const failures = [];
   const leads = leadSources.map(makeLead);
 
-  for (const source of fetchableSources) {
+  for (const [index, source] of fetchableSources.entries()) {
+    await onProgress({ index: index + 1, total: fetchableSources.length, source: source.name });
     const items = await fetchSourceCandidates(source);
     if (!items.length) failures.push(source.name);
     candidates.push(...items);
