@@ -871,7 +871,7 @@ export function renderFeishuSummary(report, reportUrl) {
   };
   const highlights = items.slice(0, 5).map(item => {
     const action = Array.isArray(item.recommended_actions) ? item.recommended_actions[0] : '';
-    return `**${item.type}｜${item.country}**\n${item.title}\n建议：${suggest(action)}`;
+    return `**${item.type}｜${item.country}｜行业影响力：${impactLabel(item.industry_impact)}**\n${item.title}\n建议：${suggest(action)}`;
   }).join('\n\n') || '本周暂无需要重点提示的高价值更新。';
   const risks = (report.risk_alerts || []).slice(0, 3).map(alert => `• ${riskLabel(alert.level)}：${alert.text}`).join('\n') || '本周暂无高价值风险提醒。';
   return `**美妆法务周报｜${report.period.end}**\n\n📌 **本周概览**\n筛选出 ${items.length} 条高价值资讯，建议法务、注册、市场、电商团队按业务相关性阅读。\n\n⚠️ **风险提示**\n${risks}\n\n📝 **建议优先查看**\n${highlights}\n\n🔎 **完整版网页**\n[查看完整周报](${reportUrl})\n\n_本周报由 DeepSeek 辅助整理，仅作信息初筛，不构成正式法律意见。_`;

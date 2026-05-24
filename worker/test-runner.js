@@ -146,9 +146,13 @@ function testRenderReportHtml() {
 
 function testRenderFeishuSummary() {
   const summary = renderFeishuSummary(sampleReport, 'https://example.com/report/latest');
+  assert.ok(summary.includes('本周概览'));
+  assert.ok(summary.includes('风险提示'));
+  assert.ok(summary.includes('建议优先查看'));
   assert.ok(summary.includes('查看完整周报'));
   assert.ok(summary.includes('https://example.com/report/latest'));
   assert.ok(summary.includes('建议：'));
+  assert.ok(summary.includes('行业影响力'));
 }
 
 function testBuildAnalysisPromptIncludesLeads() {
