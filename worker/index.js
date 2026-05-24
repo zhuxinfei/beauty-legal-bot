@@ -23,16 +23,23 @@ const RELEVANT_KEYWORDS = [
   '标签', '广告', '虚假宣传', '处罚', '召回', '禁用', '限用', '进出口', '跨境', '清真',
   'cosmetic', 'cosmetics', 'beauty', 'skincare', 'sunscreen', 'MoCRA', 'BPOM', 'AICIS',
 ];
+const BEAUTY_KEYWORDS = [
+  '化妆品', '美妆', '护肤', '彩妆', '香水', '防晒', '洗护', '功效宣称', '功效评价', '牙膏',
+  '儿童化妆品', '普通化妆品', '特殊化妆品', '化妆品原料', '化妆品标签', '化妆品备案',
+  'cosmetic', 'cosmetics', 'beauty', 'skincare', 'sunscreen',
+];
+const INDIRECT_BEAUTY_ECOMMERCE_KEYWORDS = ['直播带货', '直播', '电商', '平台', '消费者保护', '跨境', '进口', '商标', '外观设计'];
+const HIGH_IMPACT_LEGAL_KEYWORDS = ['国家标准', '强制性标准', '征求意见', '管理办法', '监督管理条例', '行政处罚', '召回'];
 
 const NOISE_KEYWORDS = ['融资', '发布会', '新品上市', '代言', '财报', '招聘'];
 const REPORT_INDEX_KEY = 'report:index';
 const LAST_RUN_KEY = 'run:last';
 const REPORT_MODULES = [
-  '新规/修订/废止/生效提醒',
   '广告合规及处罚案例',
-  '美妆行业动态',
+  '美妆动态',
   '知识产权动态',
-  '进出口/跨境电商动态',
+  '新规及案例动态',
+  '进出口动态',
 ];
 const ACTION_NOISE = ['建议关注', '持续关注', '企业应留意', '可能产生影响', '需持续观察'];
 const SOURCE_FETCH_TIMEOUT_MS = 8000;
@@ -44,6 +51,7 @@ const TYPE_REQUIRED_FIELDS = {
   '进出口': ['market_access_change', 'affected_import_flow', 'documents_needed', 'recommended_actions', 'owner_teams', 'risk_level', 'why_it_matters', 'confidence'],
   '动态': ['regulatory_signal', 'compliance_meaning', 'possible_follow_up', 'recommended_actions', 'owner_teams', 'risk_level', 'why_it_matters', 'confidence'],
 };
+const ENTERPRISE_REQUIRED_FIELDS = ['source_type', 'relevance', 'industry_impact', 'business_impact', 'market_scope'];
 
 // ---------------------------------------------------------------------------
 // DeepSeek：一站式搜索 + 分析 + 格式化
@@ -332,7 +340,12 @@ export function isRelevantTitle(title) {
   const text = String(title || '').toLowerCase();
   if (!text) return false;
   if (NOISE_KEYWORDS.some(keyword => text.includes(keyword.toLowerCase()))) return false;
-  return RELEVANT_KEYWORDS.some(keyword => text.includes(keyword.toLowerCase()));
+  const hasBeauty = BEAUTY_KEYWORDS.some(keyword => text.includes(keyword.toLowerCase()));
+  if (hasBeauty) return true;
+  if (INDIRECT_BEAUTY_ECOMMERCE_KEYWORDS.some(keyword => text.includes(keyword.toLowerCase()))) return true;
+  const hasGenericLegal = RELEVANT_KEYWORDS.some(keyword => text.includes(keyword.toLowerCase()));
+  const hasHighImpact = HIGH_IMPACT_LEGAL_KEYWORDS.some(keyword => text.includes(keyword.toLowerCase()));
+  return hasGenericLegal && hasHighImpact && /(化妆|美妆|护肤|彩妆|香水|防晒|洗护|牙膏|cosmetic|beauty|skincare|sunscreen)/i.test(text);
 }
 
 export function extractPublishedDate(...values) {
@@ -430,7 +443,10 @@ function hasValue(value) {
 }
 
 export function getRequiredFields(item) {
-  return TYPE_REQUIRED_FIELDS[item.type] || ['recommended_actions', 'owner_teams', 'risk_level', 'why_it_matters', 'confidence'];
+  return [
+    ...(TYPE_REQUIRED_FIELDS[item.type] || ['recommended_actions', 'owner_teams', 'risk_level', 'why_it_matters', 'confidence']),
+    ...ENTERPRISE_REQUIRED_FIELDS,
+  ];
 }
 
 export function hasSpecificActions(item) {
@@ -488,7 +504,7 @@ export function limitReportSections(report) {
     ...report,
     sections: REPORT_MODULES.map(module => {
       const section = (report.sections || []).find(item => item.module === module) || { module, items: [] };
-      const limit = module === '新规/修订/废止/生效提醒' ? section.items.length : 3;
+      const limit = 8;
       return { ...section, items: (section.items || []).slice(0, limit) };
     }),
   };
@@ -501,73 +517,88 @@ function getPeriod(now = new Date()) {
 }
 
 export function buildAnalysisPrompt({ candidates, leads = [], sources, period }) {
-  return `你是跨境美妆企业法务情报分析员。你的用户是美妆公司法务/合规/注册人员。不要输出未加工新闻，必须把信息拆解成法务情报。
+  return `你是国际化美妆电商集团的高级法务情报分析员。用户是集团法务、合规、注册备案、跨境供应链、品牌/IP、市场投放、电商平台运营团队。不要输出未加工新闻，必须输出可用于业务判断的法务情报。
 
-重要来源规则：
-- candidates 是带公开 URL 的候选，最终 item 必须来自 candidates 或可公开验证的 URL。
-- leads 是公众号或不可抓来源的线索；公众号线索不是事实来源，只能提示选题方向。
-- 禁止把公众号名称、行业传言或无公开链接内容当成最终事实。
-- 每条最终资讯必须包含公开原文 source_url，不能编造 URL。
+集团业务背景：
+- 国际化美妆电商集团，关注中国、欧盟、美国、日本、韩国、泰国、越南、印尼、墨西哥、意大利等市场。
+- 业务覆盖护肤、彩妆、防晒、香水、洗护、跨境进口、直播电商、平台销售、自有品牌和第三方品牌。
+- 需要直接相关法规，也需要间接影响业务的广告、消费者保护、平台规则、知识产权、进出口、数据合规、召回案例。
 
-时间窗口：
-- 这是周报，优先选择过去 7 天发布或更新的信息。
-- 7 天之外的信息只有在行业影响力明显较高时才保留，例如国家级监管规则、重点处罚、召回、跨境准入变化、知识产权代表性案例。
-- 法规：优先过去 7 天发布；未来 90 天进入生效/反馈/认证/过渡期节点的高影响事项也可保留。
-- 案例：优先过去 7 天公开；高代表性案例可放宽到 30-60 天，但必须解释行业影响力。
-- 行业媒体：只作为线索，最终尽量回到官方或公开网页链接。
+来源和质量规则：
+- candidates 来自可抓取网页；leads 来自公众号或不可抓来源。公众号可以作为强线索，但最终必须标注 source_type 和 confidence。
+- 优先国家/区域监管机构、法院、知识产权机构、海关、产品安全召回平台、行业权威媒体。
+- 可以基于 leads 做选题归纳，但不能把传闻当事实；无法找到公开原文时，source_url 可填来源主页，confidence 必须为 medium 或 low，并说明待核验。
+- 每条必须解释美妆电商集团的业务影响；解释不了就丢弃。
 
-筛选规则：
-- 宁缺毋滥，低价值内容丢弃。
-- 先按信息时效性筛选，再按行业影响力排序；同等条件下优先官方监管源和高优先级来源。
-- 每条最终资讯必须包含候选里的原文 URL，字段名 source_url。
-- 同一事项保留官方源或信息最完整来源。
-- 输出必须是合法 JSON，不要 Markdown。
-- 法规和案例必须做拆解，不能只写摘要。
-- 禁止输出“建议关注”“持续关注”“企业应留意”等空泛动作。
+时间和影响力规则：
+- 周报优先过去 7 天发布或更新的信息。
+- 7 天之外的信息只有在行业影响力高时保留，例如国家级监管规则、成分禁限用、标签/功效宣称规则、重点处罚、召回、跨境准入、代表性 IP 案例、平台治理口径。
+- 未来 90 天生效、反馈截止、过渡期、认证节点可以入选。
+- 同等条件下优先直接相关、高影响力、官方源、覆盖核心市场的信息。
 
-输出结构：
+模块必须使用以下 5 个，来自用户 Excel 的“分类”列：
+- 广告合规及处罚案例
+- 美妆动态
+- 知识产权动态
+- 新规及案例动态
+- 进出口动态
+
+输出要求：
+- 输出合法 JSON，不要 Markdown，不要解释。
+- 至少覆盖 3 个模块；如果某模块确实无高价值信息，items 为空。
+- 每条信息要有国家/大洲、直接/间接相关、行业影响力、业务影响面、建议动作。
+- 案例必须拆解事实、认定逻辑、处罚/结果、业务启发。
+- 建议动作必须是“建议...”口吻，不能是命令。
+- 禁止“建议关注”“持续关注”“企业应留意”等空泛动作。
+
+JSON 结构：
 {
   "period": { "start": "${period.start}", "end": "${period.end}" },
-  "summary": ["3-5条执行摘要，必须体现风险和动作"],
+  "summary": ["3-5条集团级执行摘要，必须包含市场/国家、风险、业务影响和建议"],
   "risk_alerts": [{ "level": "high|medium|low", "text": "风险提醒" }],
   "sections": [{
-    "module": "新规/修订/废止/生效提醒|广告合规及处罚案例|美妆行业动态|知识产权动态|进出口/跨境电商动态",
+    "module": "广告合规及处罚案例|美妆动态|知识产权动态|新规及案例动态|进出口动态",
     "items": [{
-      "type": "法规|案例|动态|IP|进出口",
+      "type": "法规|征求意见|生效提醒|废止|案例|召回|动态|IP|进出口|平台规则",
       "module": "模块名称",
-      "region": "区域",
-      "country": "国家",
+      "region": "亚洲|欧洲|北美洲|南美洲|大洋洲|全球",
+      "country": "国家或市场，例如中国|欧盟|美国|日本|韩国|泰国|越南|印尼|墨西哥|意大利",
       "title": "标题",
       "source_name": "来源名称",
-      "source_url": "公开原文URL",
+      "source_url": "公开原文URL或来源主页",
+      "source_type": "official|court|regulator|industry_media|wechat_lead|database",
       "published_at": "YYYY-MM-DD或未知",
+      "relevance": "direct|indirect",
+      "industry_impact": "high|medium|low",
+      "business_impact": ["注册备案|标签|功效宣称|广告投放|直播电商|平台运营|跨境清关|供应链|品牌/IP|客服售后|数据合规"],
+      "market_scope": ["受影响国家/区域/渠道/SKU范围"],
       "risk_level": "high|medium|low",
-      "why_it_matters": "为什么值得美妆公司法务关注",
-      "recommended_actions": ["具体动作：谁在什么时间排查/更新/提交什么"],
-      "owner_teams": ["法务|注册|供应链|电商|市场"],
+      "why_it_matters": "为什么值得国际化美妆电商集团法务关注",
+      "recommended_actions": ["建议谁在什么时间排查/更新/提交什么"],
+      "owner_teams": ["法务|注册|供应链|电商|市场|品牌|客服|数据合规"],
       "confidence": "high|medium|low",
-      "status": "法规状态，仅法规必填",
+      "status": "法规状态，仅法规/征求意见/生效提醒/废止必填",
       "effective_date": "生效日或未知，仅法规",
       "feedback_deadline": "反馈截止日或未知，仅法规",
-      "regulatory_area": "备案|注册|标签|功效宣称|配方|原料|广告|进出口|认证，仅法规",
+      "regulatory_area": "备案|注册|标签|功效宣称|配方|原料|广告|进出口|认证|平台治理|数据合规，仅法规",
       "what_changed": ["变化点，仅法规"],
       "legal_obligation": ["企业义务，仅法规"],
       "affected_business": ["影响市场/渠道/品类/SKU/团队，仅法规"],
       "next_deadline": "下一关键日期或未知，仅法规",
-      "case_type": "行政处罚|民事判决|刑事案件|召回|监管通报，仅案例",
+      "case_type": "行政处罚|民事判决|刑事案件|召回|监管通报|平台处罚，仅案例/召回",
       "parties": "涉事主体或未知，仅案例",
-      "facts": ["案情事实，仅案例"],
-      "violation_logic": ["监管/法院认定逻辑，仅案例"],
-      "penalty_or_result": ["处罚/判决/处理结果，仅案例"],
-      "risk_pattern": "功效宣称|虚假广告|标签瑕疵|未备案|IP侵权|进口不合规|平台规则，仅案例",
-      "business_lessons": ["业务启示，仅案例"]
+      "facts": ["案情事实，仅案例/召回"],
+      "violation_logic": ["监管/法院/平台认定逻辑，仅案例"],
+      "penalty_or_result": ["处罚/判决/召回/处理结果，仅案例"],
+      "risk_pattern": "功效宣称|虚假广告|标签瑕疵|未备案|IP侵权|进口不合规|平台规则|召回质量，仅案例",
+      "business_lessons": ["对国际化美妆电商集团的启发，仅案例"]
     }]
   }]
 }
 
 信息源统计：${JSON.stringify(getSourceStats(sources))}
-候选信息 candidates（已按7天新鲜度和来源影响力预排序）：${JSON.stringify(sortCandidatesForAnalysis(candidates).slice(0, 80))}
-线索 leads（只作选题方向，不是事实来源）：${JSON.stringify(leads.slice(0, 80))}`;
+候选信息 candidates（已按7天新鲜度、国家/大洲、来源权威性和行业影响力预排序）：${JSON.stringify(sortCandidatesForAnalysis(candidates).slice(0, 140))}
+线索 leads（公众号和不可抓来源，可作为强线索但需标注可信度）：${JSON.stringify(leads.slice(0, 120))}`;
 }
 
 async function deepseekAnalyze({ apiKey, model, candidates, leads = [], sources = sourceCatalog.sources, period = getPeriod() }) {
@@ -659,6 +690,10 @@ function riskLabel(level) {
   return labels[level] || level || '风险';
 }
 
+function moduleId(module) {
+  return `module-${hashStr(module)}`;
+}
+
 export function renderReportHtml(report, { generatedAt = new Date().toISOString(), failures = [] } = {}) {
   validateReport(report);
   const sections = report.sections || [];
@@ -668,27 +703,38 @@ export function renderReportHtml(report, { generatedAt = new Date().toISOString(
   const mediumCount = (report.risk_alerts || []).filter(alert => alert.level === 'medium').length;
   const lowCount = (report.risk_alerts || []).filter(alert => alert.level === 'low').length;
 
+  const moduleNav = sections.map(section => {
+    const items = section.items || [];
+    return `<a href="#${moduleId(section.module)}"><span>${escapeHtml(section.module)}</span><strong>${items.length}</strong></a>`;
+  }).join('');
+
   const sectionHtml = sections.map(section => {
     const items = section.items || [];
     const itemHtml = items.length ? items.map(item => `
       <article class="item-card">
         <div class="item-meta">
-          <span class="tag">${escapeHtml(item.type)}</span>
-          <span>${escapeHtml(item.region)} · ${escapeHtml(item.country)}</span>
-          <span>${escapeHtml(item.status || '动态')}</span>
+          <span class="tag ${escapeHtml(item.risk_level || 'medium')}">${escapeHtml(item.type)}</span>
+          <span>${escapeHtml(item.country || item.region)}</span>
           <span>${escapeHtml(item.published_at || '未知日期')}</span>
+          <span>${escapeHtml(riskLabel(item.risk_level))}</span>
         </div>
         <h3>${escapeHtml(item.title)}</h3>
-        <a class="source-link" href="${escapeHtml(item.source_url)}" target="_blank" rel="noopener noreferrer">原文：${escapeHtml(item.source_name)}</a>
-        ${item.why_it_matters ? `<p><strong>为什么重要：</strong>${escapeHtml(item.why_it_matters)}</p>` : ''}
+        <div class="source-row">
+          <a class="source-link" href="${escapeHtml(item.source_url)}" target="_blank" rel="noopener noreferrer">原文：${escapeHtml(item.source_name)}</a>
+          <span>${escapeHtml(item.confidence || 'medium')} confidence</span>
+        </div>
+        ${item.why_it_matters ? `<p class="why"><strong>为什么重要</strong>${escapeHtml(item.why_it_matters)}</p>` : ''}
         ${renderItemAnalysis(item)}
       </article>
     `).join('') : '<p class="empty">本周无高价值更新</p>';
     return `
-      <section class="report-section">
+      <section class="report-section" id="${moduleId(section.module)}">
         <div class="section-heading">
-          <h2>${escapeHtml(section.module)}</h2>
-          <span>${items.length} 条</span>
+          <div>
+            <p>${escapeHtml(report.period.start)} - ${escapeHtml(report.period.end)}</p>
+            <h2>${escapeHtml(section.module)}</h2>
+          </div>
+          <span>${items.length} 条入选</span>
         </div>
         ${itemHtml}
       </section>
@@ -702,44 +748,55 @@ export function renderReportHtml(report, { generatedAt = new Date().toISOString(
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>美妆法务周报</title>
   <style>
-    :root { color-scheme: light; --bg: #F8FAFC; --panel: #FFFFFF; --primary: #1E3A8A; --primary-2: #1E40AF; --gold: #B45309; --text: #0F172A; --muted: #475569; --border: #E2E8F0; --soft: #EFF6FF; --danger: #B91C1C; }
+    :root { color-scheme: light; --bg: #F6F7F9; --panel: #FFFFFF; --ink: #172033; --muted: #667085; --line: #D9DEE7; --blue: #2557A7; --cyan: #087E8B; --amber: #B7791F; --red: #B42318; --green: #287D3C; --soft-blue: #EEF4FF; --soft-amber: #FFF7E6; }
     * { box-sizing: border-box; }
-    body { margin: 0; background: var(--bg); color: var(--text); font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", "PingFang SC", "Hiragino Sans GB", "Microsoft YaHei", sans-serif; font-size: 16px; line-height: 1.68; }
-    a { color: var(--primary-2); text-decoration-thickness: 0.08em; text-underline-offset: 0.18em; }
-    a:focus-visible { outline: 3px solid rgba(180, 83, 9, 0.45); outline-offset: 3px; border-radius: 6px; }
-    .shell { max-width: 1120px; margin: 0 auto; padding: 28px 18px 56px; }
-    .hero { background: linear-gradient(135deg, #0F274C 0%, #1E3A8A 58%, #B45309 140%); color: #fff; border-radius: 28px; padding: 34px; box-shadow: 0 24px 70px rgba(30, 58, 138, 0.22); }
-    .eyebrow { margin: 0 0 10px; color: #FDE68A; font-size: 14px; font-weight: 700; letter-spacing: 0.12em; text-transform: uppercase; }
-    h1 { margin: 0; font-size: clamp(30px, 5vw, 52px); line-height: 1.12; letter-spacing: -0.03em; }
-    .subtitle { max-width: 760px; margin: 16px 0 0; color: #DBEAFE; font-size: 18px; }
-    .hero-grid { display: grid; grid-template-columns: 1fr; gap: 18px; margin-top: 24px; }
+    html { scroll-behavior: smooth; }
+    body { margin: 0; background: var(--bg); color: var(--ink); font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", "PingFang SC", "Hiragino Sans GB", "Microsoft YaHei", sans-serif; font-size: 15px; line-height: 1.68; }
+    a { color: var(--blue); text-decoration-thickness: 0.08em; text-underline-offset: 0.18em; }
+    a:focus-visible { outline: 3px solid rgba(37, 87, 167, 0.28); outline-offset: 3px; border-radius: 6px; }
+    .shell { max-width: 1180px; margin: 0 auto; padding: 24px 18px 56px; }
+    .hero { background: #172033; color: #fff; border: 1px solid #26354F; border-radius: 8px; padding: 28px; box-shadow: 0 18px 44px rgba(23,32,51,.14); }
+    .eyebrow { margin: 0 0 8px; color: #A7C4FF; font-size: 13px; font-weight: 700; letter-spacing: 0; }
+    h1 { margin: 0; font-size: 36px; line-height: 1.18; letter-spacing: 0; }
+    .subtitle { max-width: 820px; margin: 12px 0 0; color: #D8E2F2; font-size: 16px; }
+    .hero-grid { display: grid; grid-template-columns: 1fr; gap: 18px; margin-top: 22px; }
     .metric-grid { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 12px; }
-    .metric { background: rgba(255,255,255,0.12); border: 1px solid rgba(255,255,255,0.22); border-radius: 18px; padding: 16px; backdrop-filter: blur(12px); }
+    .metric { background: rgba(255,255,255,0.08); border: 1px solid rgba(255,255,255,0.18); border-radius: 8px; padding: 14px; }
     .metric strong { display: block; font-size: 28px; line-height: 1; }
-    .metric span { color: #DBEAFE; font-size: 13px; }
-    .panel { margin-top: 20px; background: var(--panel); border: 1px solid var(--border); border-radius: 22px; padding: 22px; box-shadow: 0 14px 44px rgba(15, 23, 42, 0.06); }
+    .metric span { color: #C9D5E8; font-size: 13px; }
+    .module-nav { position: sticky; top: 0; z-index: 5; display: grid; grid-template-columns: repeat(5, minmax(0, 1fr)); gap: 8px; margin-top: 14px; padding: 10px 0; background: rgba(246,247,249,.94); backdrop-filter: blur(10px); }
+    .module-nav a { display: flex; justify-content: space-between; gap: 10px; align-items: center; min-height: 44px; padding: 10px 12px; border: 1px solid var(--line); border-radius: 8px; background: #fff; color: var(--ink); text-decoration: none; font-weight: 700; }
+    .module-nav strong { color: var(--blue); }
+    .panel { margin-top: 16px; background: var(--panel); border: 1px solid var(--line); border-radius: 8px; padding: 20px; box-shadow: 0 8px 24px rgba(23,32,51,.05); }
     .summary-list { margin: 0; padding-left: 20px; }
     .risk-list { display: grid; gap: 10px; margin-top: 14px; }
-    .risk { display: flex; gap: 10px; align-items: flex-start; padding: 12px 14px; background: #FFFBEB; border: 1px solid #FDE68A; border-radius: 14px; }
-    .risk-badge { flex: 0 0 auto; min-width: 58px; text-align: center; border-radius: 999px; padding: 3px 9px; background: var(--gold); color: #fff; font-size: 13px; font-weight: 700; }
+    .risk { display: flex; gap: 10px; align-items: flex-start; padding: 12px 14px; background: var(--soft-amber); border: 1px solid #F3D19C; border-radius: 8px; }
+    .risk-badge { flex: 0 0 auto; min-width: 58px; text-align: center; border-radius: 6px; padding: 3px 8px; background: var(--amber); color: #fff; font-size: 13px; font-weight: 700; }
     .country-strip { display: flex; gap: 8px; overflow-x: auto; padding-bottom: 4px; }
-    .country { flex: 0 0 auto; border: 1px solid var(--border); background: var(--soft); color: var(--primary); border-radius: 999px; padding: 6px 12px; font-size: 14px; font-weight: 700; }
+    .country { flex: 0 0 auto; border: 1px solid #B8C7E6; background: var(--soft-blue); color: var(--blue); border-radius: 999px; padding: 6px 12px; font-size: 14px; font-weight: 700; }
     .report-section { margin-top: 24px; }
     .section-heading { display: flex; justify-content: space-between; gap: 12px; align-items: center; margin-bottom: 12px; }
-    h2 { margin: 0; color: var(--primary); font-size: 24px; letter-spacing: -0.02em; }
+    .section-heading p { margin: 0 0 2px; color: var(--muted); font-size: 13px; }
+    h2 { margin: 0; color: var(--ink); font-size: 24px; letter-spacing: 0; }
     .section-heading span { color: var(--muted); font-size: 14px; }
-    .item-card { background: var(--panel); border: 1px solid var(--border); border-radius: 20px; padding: 20px; margin-top: 12px; box-shadow: 0 10px 28px rgba(15, 23, 42, 0.05); }
+    .item-card { background: var(--panel); border: 1px solid var(--line); border-left: 4px solid var(--blue); border-radius: 8px; padding: 18px; margin-top: 12px; box-shadow: 0 8px 22px rgba(23,32,51,.04); }
     .item-meta { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; color: var(--muted); font-size: 13px; }
-    .tag { background: var(--primary); color: #fff; border-radius: 999px; padding: 3px 10px; font-weight: 700; }
-    h3 { margin: 12px 0 8px; font-size: 21px; line-height: 1.35; }
+    .tag { background: var(--blue); color: #fff; border-radius: 6px; padding: 3px 9px; font-weight: 700; }
+    .tag.high { background: var(--red); }
+    .tag.medium { background: var(--amber); }
+    .tag.low { background: var(--green); }
+    h3 { margin: 12px 0 8px; font-size: 20px; line-height: 1.38; }
+    .source-row { display: flex; flex-wrap: wrap; gap: 12px; align-items: center; color: var(--muted); }
     .source-link { display: inline-flex; min-height: 44px; align-items: center; font-weight: 700; }
+    .why { margin: 8px 0 0; padding: 12px; background: #F8FAFC; border: 1px solid var(--line); border-radius: 8px; }
+    .why strong { display: block; color: var(--blue); margin-bottom: 4px; }
     .compact-list, .scope-list { margin: 10px 0 0; padding-left: 20px; }
     .scope-list li { color: var(--muted); }
     .empty { margin: 0; color: var(--muted); }
     .analysis-block { margin-top: 14px; }
-    .analysis-block h4 { margin: 0 0 6px; color: var(--primary); font-size: 15px; }
+    .analysis-block h4 { margin: 0 0 6px; color: var(--blue); font-size: 15px; }
     .footer { margin-top: 28px; color: var(--muted); font-size: 13px; }
-    @media (max-width: 720px) { .shell { padding: 14px 12px 34px; } .hero { border-radius: 20px; padding: 24px 18px; } .metric-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); } .panel { padding: 18px; border-radius: 18px; } .item-card { padding: 17px; } }
+    @media (max-width: 820px) { .shell { padding: 14px 12px 34px; } .hero { padding: 22px 18px; } .metric-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); } .module-nav { grid-template-columns: 1fr; position: static; } .panel { padding: 16px; } .item-card { padding: 16px; } }
   </style>
 </head>
 <body>
@@ -757,6 +814,8 @@ export function renderReportHtml(report, { generatedAt = new Date().toISOString(
         </div>
       </div>
     </header>
+
+    <nav class="module-nav" aria-label="周报模块导航">${moduleNav}</nav>
 
     <section class="panel" aria-labelledby="summary-title">
       <h2 id="summary-title">执行摘要</h2>

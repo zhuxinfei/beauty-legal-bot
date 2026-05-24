@@ -15,11 +15,11 @@
   ],
   "sections": [
     {
-      "module": "新规/修订/废止/生效提醒",
+      "module": "新规及案例动态",
       "items": [
         {
           "type": "法规",
-          "module": "新规/修订/废止/生效提醒",
+          "module": "新规及案例动态",
           "region": "亚洲",
           "country": "印尼",
           "title": "BPOM 更新化妆品清真认证要求",
@@ -50,9 +50,24 @@
             "供应链团队补齐供应商清真证明和标签支持材料。",
             "法务团队更新印尼市场准入检查清单。"
           ],
-          "owner_teams": ["注册", "供应链", "法务"],
+          "owner_teams": [
+            "注册",
+            "供应链",
+            "法务"
+          ],
           "next_deadline": "2026-10-17",
-          "confidence": "high"
+          "confidence": "high",
+          "relevance": "direct",
+          "industry_impact": "high",
+          "business_impact": [
+            "注册备案",
+            "标签",
+            "跨境清关"
+          ],
+          "market_scope": [
+            "印尼市场 SKU"
+          ],
+          "source_type": "regulator"
         }
       ]
     },
@@ -94,8 +109,23 @@
             "市场团队提交达人脚本和短视频文案给法务复核。",
             "法务团队更新功效宣称红线词清单。"
           ],
-          "owner_teams": ["法务", "电商", "市场"],
-          "confidence": "high"
+          "owner_teams": [
+            "法务",
+            "电商",
+            "市场"
+          ],
+          "confidence": "high",
+          "relevance": "direct",
+          "industry_impact": "high",
+          "business_impact": [
+            "功效宣称",
+            "直播电商",
+            "广告投放"
+          ],
+          "market_scope": [
+            "中国电商渠道"
+          ],
+          "source_type": "regulator"
         }
       ]
     }
