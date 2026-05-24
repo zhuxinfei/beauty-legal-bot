@@ -1,0 +1,45 @@
+import assert from 'node:assert/strict';
+import {
+  normalizeUrl,
+  htmlToText,
+  extractLinks,
+  getSourceStats,
+} from './index.js';
+
+function testNormalizeUrl() {
+  assert.equal(normalizeUrl('/path', 'https://example.com/base'), 'https://example.com/path');
+  assert.equal(normalizeUrl('https://a.com/x', 'https://example.com'), 'https://a.com/x');
+  assert.equal(normalizeUrl('', 'https://example.com'), '');
+}
+
+function testHtmlToText() {
+  const text = htmlToText('<html><body><h1>标题</h1><script>x</script><p>正文&nbsp;内容</p></body></html>');
+  assert.ok(text.includes('标题'));
+  assert.ok(text.includes('正文 内容'));
+  assert.ok(!text.includes('script'));
+}
+
+function testExtractLinks() {
+  const links = extractLinks('<a href="/a">法规通知</a><a href="https://b.test/x">案例通报</a>', 'https://site.test/root');
+  assert.deepEqual(links, [
+    { title: '法规通知', url: 'https://site.test/a' },
+    { title: '案例通报', url: 'https://b.test/x' },
+  ]);
+}
+
+function testGetSourceStats() {
+  const stats = getSourceStats([
+    { module: '新规及案例动态', country: '中国' },
+    { module: '新规及案例动态', country: '美国' },
+    { module: '进出口动态', country: '中国' },
+  ]);
+  assert.equal(stats.total, 3);
+  assert.equal(stats.byModule['新规及案例动态'], 2);
+  assert.equal(stats.byCountry['中国'], 2);
+}
+
+testNormalizeUrl();
+testHtmlToText();
+testExtractLinks();
+testGetSourceStats();
+console.log('worker pure function tests ok');

@@ -11,6 +11,8 @@
  *   npx wrangler deploy
  */
 
+import sourceCatalog from './sources.json' with { type: 'json' };
+
 // ---------------------------------------------------------------------------
 // 配置
 // ---------------------------------------------------------------------------
@@ -299,6 +301,48 @@ async function runPipeline(env) {
   console.log("[stage 3/3] 推送到飞书...");
   const ok = await sendToFeishu(feishuUrl, report);
   console.log(ok ? "=== 管道完成 ===" : "=== 管道失败 ===");
+}
+
+// ---------------------------------------------------------------------------
+// 信息源工具
+// ---------------------------------------------------------------------------
+export function normalizeUrl(href, baseUrl) {
+  if (!href) return '';
+  try {
+    return new URL(href, baseUrl).toString();
+  } catch {
+    return '';
+  }
+}
+
+export function htmlToText(html) {
+  return String(html || '')
+    .replace(/<script[\s\S]*?<\/script>/gi, ' ')
+    .replace(/<style[\s\S]*?<\/style>/gi, ' ')
+    .replace(/<[^>]+>/g, ' ')
+    .replace(/&nbsp;/g, ' ')
+    .replace(/&amp;/g, '&')
+    .replace(/&lt;/g, '<')
+    .replace(/&gt;/g, '>')
+    .replace(/\s+/g, ' ')
+    .trim();
+}
+
+export function extractLinks(html, baseUrl) {
+  const re = /<a\s+[^>]*href=["']([^"']+)["'][^>]*>([\s\S]*?)<\/a>/gi;
+  return Array.from(String(html || '').matchAll(re))
+    .map(match => ({ title: htmlToText(match[2]), url: normalizeUrl(match[1], baseUrl) }))
+    .filter(link => link.title && link.url);
+}
+
+export function getSourceStats(sources = sourceCatalog.sources) {
+  const byModule = {};
+  const byCountry = {};
+  for (const source of sources) {
+    byModule[source.module] = (byModule[source.module] || 0) + 1;
+    byCountry[source.country] = (byCountry[source.country] || 0) + 1;
+  }
+  return { total: sources.length, byModule, byCountry };
 }
 
 // ---------------------------------------------------------------------------
