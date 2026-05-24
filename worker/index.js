@@ -42,8 +42,8 @@ const REPORT_MODULES = [
   '进出口动态',
 ];
 const ACTION_NOISE = ['建议关注', '持续关注', '企业应留意', '可能产生影响', '需持续观察'];
-const SOURCE_FETCH_TIMEOUT_MS = 8000;
-const SOURCE_FETCH_CONCURRENCY = 6;
+const SOURCE_FETCH_TIMEOUT_MS = 30000;
+const SOURCE_FETCH_CONCURRENCY = 4;
 const TYPE_REQUIRED_FIELDS = {
   '法规': ['status', 'what_changed', 'legal_obligation', 'affected_business', 'recommended_actions', 'owner_teams', 'risk_level', 'why_it_matters', 'confidence'],
   '案例': ['case_type', 'facts', 'violation_logic', 'penalty_or_result', 'risk_pattern', 'business_lessons', 'recommended_actions', 'owner_teams', 'risk_level', 'why_it_matters', 'confidence'],
@@ -690,6 +690,11 @@ function riskLabel(level) {
   return labels[level] || level || '风险';
 }
 
+function impactLabel(level) {
+  const labels = { high: '高', medium: '中', low: '低' };
+  return labels[level] || level || '待判断';
+}
+
 function moduleId(module) {
   return `module-${hashStr(module)}`;
 }
@@ -699,6 +704,8 @@ export function renderReportHtml(report, { generatedAt = new Date().toISOString(
   const sections = report.sections || [];
   const allItems = sections.flatMap(section => section.items || []);
   const countries = [...new Set(allItems.map(item => item.country).filter(Boolean))];
+  const directCount = allItems.filter(item => item.relevance === 'direct').length;
+  const highImpactCount = allItems.filter(item => item.industry_impact === 'high').length;
   const highCount = (report.risk_alerts || []).filter(alert => alert.level === 'high').length;
   const mediumCount = (report.risk_alerts || []).filter(alert => alert.level === 'medium').length;
   const lowCount = (report.risk_alerts || []).filter(alert => alert.level === 'low').length;
@@ -715,14 +722,21 @@ export function renderReportHtml(report, { generatedAt = new Date().toISOString(
         <div class="item-meta">
           <span class="tag ${escapeHtml(item.risk_level || 'medium')}">${escapeHtml(item.type)}</span>
           <span>${escapeHtml(item.country || item.region)}</span>
+          <span>${escapeHtml(item.region || '全球')}</span>
           <span>${escapeHtml(item.published_at || '未知日期')}</span>
           <span>${escapeHtml(riskLabel(item.risk_level))}</span>
         </div>
         <h3>${escapeHtml(item.title)}</h3>
+        <div class="intelligence-row">
+          <span>${item.relevance === 'direct' ? '直接相关' : '间接相关'}</span>
+          <span>行业影响力：${escapeHtml(impactLabel(item.industry_impact))}</span>
+          <span>市场覆盖：${escapeHtml((item.market_scope || []).join('、') || item.country || '待判断')}</span>
+        </div>
         <div class="source-row">
           <a class="source-link" href="${escapeHtml(item.source_url)}" target="_blank" rel="noopener noreferrer">原文：${escapeHtml(item.source_name)}</a>
           <span>${escapeHtml(item.confidence || 'medium')} confidence</span>
         </div>
+        ${renderField('业务影响', item.business_impact, 'impact-list')}
         ${item.why_it_matters ? `<p class="why"><strong>为什么重要</strong>${escapeHtml(item.why_it_matters)}</p>` : ''}
         ${renderItemAnalysis(item)}
       </article>
@@ -746,7 +760,7 @@ export function renderReportHtml(report, { generatedAt = new Date().toISOString(
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>美妆法务周报</title>
+  <title>Global Beauty Legal Intelligence</title>
   <style>
     :root { color-scheme: light; --bg: #F6F7F9; --panel: #FFFFFF; --ink: #172033; --muted: #667085; --line: #D9DEE7; --blue: #2557A7; --cyan: #087E8B; --amber: #B7791F; --red: #B42318; --green: #287D3C; --soft-blue: #EEF4FF; --soft-amber: #FFF7E6; }
     * { box-sizing: border-box; }
@@ -788,10 +802,13 @@ export function renderReportHtml(report, { generatedAt = new Date().toISOString(
     h3 { margin: 12px 0 8px; font-size: 20px; line-height: 1.38; }
     .source-row { display: flex; flex-wrap: wrap; gap: 12px; align-items: center; color: var(--muted); }
     .source-link { display: inline-flex; min-height: 44px; align-items: center; font-weight: 700; }
+    .intelligence-row { display: flex; flex-wrap: wrap; gap: 8px; margin: 8px 0; }
+    .intelligence-row span { border: 1px solid var(--line); background: #fff; border-radius: 6px; padding: 4px 8px; color: var(--ink); font-size: 13px; font-weight: 700; }
     .why { margin: 8px 0 0; padding: 12px; background: #F8FAFC; border: 1px solid var(--line); border-radius: 8px; }
     .why strong { display: block; color: var(--blue); margin-bottom: 4px; }
-    .compact-list, .scope-list { margin: 10px 0 0; padding-left: 20px; }
+    .compact-list, .scope-list, .impact-list { margin: 10px 0 0; padding-left: 20px; }
     .scope-list li { color: var(--muted); }
+    .impact-list li { color: var(--ink); font-weight: 600; }
     .empty { margin: 0; color: var(--muted); }
     .analysis-block { margin-top: 14px; }
     .analysis-block h4 { margin: 0 0 6px; color: var(--blue); font-size: 15px; }
@@ -802,20 +819,20 @@ export function renderReportHtml(report, { generatedAt = new Date().toISOString(
 <body>
   <main class="shell">
     <header class="hero">
-      <p class="eyebrow">Beauty Legal Intelligence</p>
-      <h1>美妆法务周报</h1>
-      <p class="subtitle">周期：${escapeHtml(report.period.start)} 至 ${escapeHtml(report.period.end)}。聚焦法规节点、处罚案例、知识产权和跨境合规风险。</p>
+      <p class="eyebrow">Global Beauty Legal Intelligence</p>
+      <h1>国际美妆法务情报周报</h1>
+      <p class="subtitle">周期：${escapeHtml(report.period.start)} 至 ${escapeHtml(report.period.end)}。面向国际化美妆电商集团，覆盖法规、案例、知识产权、进出口和行业动态。</p>
       <div class="hero-grid">
         <div class="metric-grid" aria-label="风险统计">
           <div class="metric"><strong>${allItems.length}</strong><span>高价值资讯</span></div>
-          <div class="metric"><strong>${highCount}</strong><span>高风险提醒</span></div>
-          <div class="metric"><strong>${mediumCount}</strong><span>中风险提醒</span></div>
-          <div class="metric"><strong>${lowCount}</strong><span>低风险提醒</span></div>
+          <div class="metric"><strong>${countries.length}</strong><span>市场覆盖</span></div>
+          <div class="metric"><strong>${directCount}</strong><span>直接相关</span></div>
+          <div class="metric"><strong>${highImpactCount}</strong><span>高行业影响力</span></div>
         </div>
       </div>
     </header>
 
-    <nav class="module-nav" aria-label="周报模块导航">${moduleNav}</nav>
+    <nav class="module-nav" aria-label="模块导航">${moduleNav}</nav>
 
     <section class="panel" aria-labelledby="summary-title">
       <h2 id="summary-title">执行摘要</h2>

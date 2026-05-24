@@ -130,7 +130,13 @@ function testLimitReportSectionsKeepsEnterpriseModuleDepth() {
 function testRenderReportHtml() {
   const html = renderReportHtml(sampleReport, { generatedAt: '2026-05-24T00:00:00.000Z', failures: [] });
   assert.ok(html.includes('<!doctype html>'));
-  assert.ok(html.includes('美妆法务周报'));
+  assert.ok(html.includes('国际美妆法务情报周报'));
+  assert.ok(html.includes('Global Beauty Legal Intelligence'));
+  assert.ok(html.includes('市场覆盖'));
+  assert.ok(html.includes('业务影响'));
+  assert.ok(html.includes('直接相关') || html.includes('间接相关'));
+  assert.ok(html.includes('行业影响力'));
+  assert.ok(html.includes('模块导航'));
   assert.ok(html.includes('https://www.pom.go.id/'));
   assert.ok(html.includes('变化点'));
   assert.ok(html.includes('法务拆解'));
@@ -292,7 +298,7 @@ async function testScheduledPipelineSavesReportThenSendsFeishu() {
 
   assert.ok(store.has('report:latest'));
   assert.ok(store.has(`report:${sampleReport.period.end}`));
-  assert.ok(store.get('report:latest').includes('美妆法务周报'));
+  assert.ok(store.get('report:latest').includes('国际美妆法务情报周报'));
   assert.equal(feishuSent, true);
   assert.equal(reportExistedBeforeFeishu, true);
 }
