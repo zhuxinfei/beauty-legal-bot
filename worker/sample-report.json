@@ -4,8 +4,8 @@
     "end": "2026-05-24"
   },
   "summary": [
-    "印尼 BPOM 化妆品清真认证节点临近，进口 SKU 需要优先排查。",
-    "中国直播和电商功效宣称仍是处罚高频风险。"
+    "印尼 BPOM 化妆品清真认证节点临近，进口 SKU 需要优先排查认证状态。",
+    "中国直播和电商功效宣称仍是处罚高频风险，需要复核达人脚本和详情页话术。"
   ],
   "risk_alerts": [
     {
@@ -15,28 +15,87 @@
   ],
   "sections": [
     {
-      "module": "新规/修订/废止",
+      "module": "新规/修订/废止/生效提醒",
       "items": [
         {
           "type": "法规",
+          "module": "新规/修订/废止/生效提醒",
           "region": "亚洲",
           "country": "印尼",
           "title": "BPOM 更新化妆品清真认证要求",
           "source_name": "BPOM",
           "source_url": "https://www.pom.go.id/",
           "published_at": "2026-05-21",
-          "status": "即将生效",
-          "content": [
+          "status": "生效提醒",
+          "effective_date": "2026-10-17",
+          "feedback_deadline": "未知",
+          "regulatory_area": "认证",
+          "what_changed": [
             "化妆品清真认证进入过渡期关键节点。",
             "进口商需准备认证、标签和供应链证明材料。"
           ],
-          "impact_scope": [
-            "进口化妆品",
-            "跨境电商",
-            "印尼市场 SKU"
+          "legal_obligation": [
+            "进口化妆品应核查清真认证状态。",
+            "标签和供应链文件需能支持认证要求。"
           ],
-          "analysis": "该节点影响产品准入和上架节奏，未完成认证可能影响清关和平台销售。",
-          "action": "法务、注册和供应链团队应建立 SKU 清单，核查认证状态与标签材料。"
+          "affected_business": [
+            "印尼市场进口化妆品",
+            "跨境电商 SKU",
+            "注册、供应链、法务团队"
+          ],
+          "risk_level": "high",
+          "why_it_matters": "该节点影响产品准入和上架节奏，未完成认证可能影响清关和平台销售。",
+          "recommended_actions": [
+            "注册团队在 7 日内导出印尼在售 SKU 清单并标注认证状态。",
+            "供应链团队补齐供应商清真证明和标签支持材料。",
+            "法务团队更新印尼市场准入检查清单。"
+          ],
+          "owner_teams": ["注册", "供应链", "法务"],
+          "next_deadline": "2026-10-17",
+          "confidence": "high"
+        }
+      ]
+    },
+    {
+      "module": "广告合规及处罚案例",
+      "items": [
+        {
+          "type": "案例",
+          "module": "广告合规及处罚案例",
+          "region": "亚洲",
+          "country": "中国",
+          "title": "直播功效宣称与备案资料不一致被处罚",
+          "source_name": "上海市监局",
+          "source_url": "https://scjgj.sh.gov.cn/",
+          "published_at": "2026-05-20",
+          "case_type": "行政处罚",
+          "parties": "某美妆经营主体",
+          "facts": [
+            "直播间使用功效宣称吸引消费者购买。",
+            "相关宣称无法由备案资料和功效评价材料支持。"
+          ],
+          "violation_logic": [
+            "监管以直播录屏、详情页文案和备案资料不一致作为认定依据。",
+            "无法证明的功效表述构成虚假或引人误解的商业宣传风险。"
+          ],
+          "penalty_or_result": [
+            "责令停止相关宣传。",
+            "依法处以行政罚款。"
+          ],
+          "risk_pattern": "功效宣称",
+          "business_lessons": [
+            "直播口播、短视频脚本和详情页应统一纳入 claim library。",
+            "达人合作内容需要留存审核记录和依据材料。"
+          ],
+          "risk_level": "high",
+          "why_it_matters": "直播话术取证和处罚频率上升，直接影响电商转化场景下的功效宣称审核。",
+          "recommended_actions": [
+            "电商团队本周抽查 Top 20 SKU 直播脚本。",
+            "市场团队提交达人脚本和短视频文案给法务复核。",
+            "法务团队更新功效宣称红线词清单。"
+          ],
+          "owner_teams": ["法务", "电商", "市场"],
+          "confidence": "high"
         }
       ]
     }

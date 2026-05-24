@@ -26,6 +26,21 @@ const RELEVANT_KEYWORDS = [
 
 const NOISE_KEYWORDS = ['融资', '发布会', '新品上市', '代言', '财报', '招聘'];
 const REPORT_INDEX_KEY = 'report:index';
+const REPORT_MODULES = [
+  '新规/修订/废止/生效提醒',
+  '广告合规及处罚案例',
+  '美妆行业动态',
+  '知识产权动态',
+  '进出口/跨境电商动态',
+];
+const ACTION_NOISE = ['建议关注', '持续关注', '企业应留意', '可能产生影响', '需持续观察'];
+const TYPE_REQUIRED_FIELDS = {
+  '法规': ['status', 'what_changed', 'legal_obligation', 'affected_business', 'recommended_actions', 'owner_teams', 'risk_level', 'why_it_matters', 'confidence'],
+  '案例': ['case_type', 'facts', 'violation_logic', 'penalty_or_result', 'risk_pattern', 'business_lessons', 'recommended_actions', 'owner_teams', 'risk_level', 'why_it_matters', 'confidence'],
+  'IP': ['dispute_focus', 'protected_element', 'infringement_logic', 'impact_on_brand_assets', 'recommended_actions', 'owner_teams', 'risk_level', 'why_it_matters', 'confidence'],
+  '进出口': ['market_access_change', 'affected_import_flow', 'documents_needed', 'recommended_actions', 'owner_teams', 'risk_level', 'why_it_matters', 'confidence'],
+  '动态': ['regulatory_signal', 'compliance_meaning', 'possible_follow_up', 'recommended_actions', 'owner_teams', 'risk_level', 'why_it_matters', 'confidence'],
+};
 
 // ---------------------------------------------------------------------------
 // DeepSeek：一站式搜索 + 分析 + 格式化
@@ -199,7 +214,8 @@ async function runPipeline(env, requestUrl = 'https://beauty-legal-bot.workers.d
   console.log("[stage 2/5] DeepSeek 结构化分析...");
   const period = getPeriod();
   const rawReport = await deepseekAnalyze({ apiKey: deepseekKey, model, candidates, leads, sources: sourceCatalog.sources, period });
-  const report = dedupeReport(rawReport);
+  const report = limitReportSections(filterReportQuality(dedupeReport(rawReport)));
+  validateReport(report);
   const itemCount = (report.sections || []).flatMap(section => section.items || []).length;
   console.log(`[stage 2/5] 完成，模块 ${report.sections.length} 个，去重后 ${itemCount} 条`);
 
@@ -317,6 +333,24 @@ export function parseAnalysisJson(text) {
   return JSON.parse(cleaned);
 }
 
+function hasValue(value) {
+  if (Array.isArray(value)) return value.filter(Boolean).length > 0;
+  return String(value || '').trim().length > 0;
+}
+
+export function getRequiredFields(item) {
+  return TYPE_REQUIRED_FIELDS[item.type] || ['recommended_actions', 'owner_teams', 'risk_level', 'why_it_matters', 'confidence'];
+}
+
+export function hasSpecificActions(item) {
+  const actions = item.recommended_actions;
+  if (!Array.isArray(actions) || !actions.length) return false;
+  return actions.some(action => {
+    const text = String(action || '').trim();
+    return text.length >= 12 && !ACTION_NOISE.some(noise => text === noise || text.includes(noise));
+  });
+}
+
 export function validateReport(report) {
   if (!report || typeof report !== 'object') throw new Error('report must be object');
   if (!report.period || !report.period.start || !report.period.end) throw new Error('period missing');
@@ -327,12 +361,46 @@ export function validateReport(report) {
     if (!section.module) throw new Error('section.module missing');
     if (!Array.isArray(section.items)) throw new Error('section.items must be array');
     for (const item of section.items) {
-      if (!item.title || !item.type || !item.source_name || !item.source_url) {
-        throw new Error(`item missing required fields: ${item.title || 'unknown'}`);
+      for (const field of ['title', 'type', 'source_name', 'source_url', 'region', 'country']) {
+        if (!hasValue(item[field])) throw new Error(`${field} missing: ${item.title || 'unknown'}`);
       }
+      for (const field of getRequiredFields(item)) {
+        if (!hasValue(item[field])) throw new Error(`${field} missing: ${item.title || 'unknown'}`);
+      }
+      if (!hasSpecificActions(item)) throw new Error(`recommended_actions not specific: ${item.title || 'unknown'}`);
     }
   }
   return true;
+}
+
+export function filterReportQuality(report) {
+  return {
+    ...report,
+    sections: (report.sections || []).map(section => ({
+      ...section,
+      items: (section.items || []).filter(item => {
+        if (!hasValue(item.source_url)) return false;
+        if (item.confidence === 'low' && item.type !== '法规') return false;
+        try {
+          validateReport({ ...report, sections: [{ ...section, items: [item] }] });
+          return true;
+        } catch {
+          return false;
+        }
+      }),
+    })),
+  };
+}
+
+export function limitReportSections(report) {
+  return {
+    ...report,
+    sections: REPORT_MODULES.map(module => {
+      const section = (report.sections || []).find(item => item.module === module) || { module, items: [] };
+      const limit = module === '新规/修订/废止/生效提醒' ? section.items.length : 3;
+      return { ...section, items: (section.items || []).slice(0, limit) };
+    }),
+  };
 }
 
 function getPeriod(now = new Date()) {

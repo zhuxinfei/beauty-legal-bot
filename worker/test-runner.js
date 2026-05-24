@@ -17,6 +17,8 @@ import {
   extractReportFingerprints,
   makeLead,
   splitSources,
+  filterReportQuality,
+  limitReportSections,
 } from './index.js';
 
 function testNormalizeUrl() {
@@ -85,13 +87,35 @@ function testParseAnalysisJson() {
 }
 
 function testValidateReport() {
+  assert.equal(validateReport(sampleReport), true);
+}
+
+function testValidateReportRequiresRegulationAnalysis() {
+  const broken = structuredClone(sampleReport);
+  delete broken.sections[0].items[0].what_changed;
+  assert.throws(() => validateReport(broken), /what_changed/);
+}
+
+function testFilterReportQualityDropsItemsWithoutSourceUrl() {
+  const report = structuredClone(sampleReport);
+  report.sections[0].items.push({ ...report.sections[0].items[0], title: '无链接项', source_url: '' });
+  const filtered = filterReportQuality(report);
+  assert.equal(filtered.sections[0].items.length, 1);
+}
+
+function testLimitReportSectionsCapsNonRegulatoryModules() {
   const report = {
-    period: { start: '2026-05-18', end: '2026-05-24' },
-    summary: ['风险'],
-    risk_alerts: [{ level: 'high', text: '测试' }],
-    sections: [{ module: '新规/修订/废止', items: [] }],
+    period: sampleReport.period,
+    summary: [],
+    risk_alerts: [],
+    sections: [{
+      module: '广告合规及处罚案例',
+      items: Array.from({ length: 4 }, (_, i) => ({ ...sampleReport.sections[1].items[0], title: `案例${i}`, source_url: `https://example.com/${i}` })),
+    }],
   };
-  assert.equal(validateReport(report), true);
+  const limited = limitReportSections(report);
+  const caseSection = limited.sections.find(section => section.module === '广告合规及处罚案例');
+  assert.equal(caseSection.items.length, 3);
 }
 
 function testRenderReportHtml() {
@@ -124,7 +148,10 @@ function testDedupeReportRemovesRepeatedItems() {
 
 function testExtractReportFingerprintsUsesItems() {
   const fingerprints = extractReportFingerprints(sampleReport);
-  assert.deepEqual(fingerprints, ['法规|亚洲|印尼|BPOM 更新化妆品清真认证要求|https://www.pom.go.id/']);
+  assert.deepEqual(fingerprints, [
+    '法规|亚洲|印尼|BPOM 更新化妆品清真认证要求|https://www.pom.go.id/',
+    '案例|亚洲|中国|直播功效宣称与备案资料不一致被处罚|https://scjgj.sh.gov.cn/',
+  ]);
 }
 
 function testSplitSourcesSeparatesWechatLeads() {
@@ -146,6 +173,9 @@ testIsRelevantTitle();
 testMakeCandidate();
 testParseAnalysisJson();
 testValidateReport();
+testValidateReportRequiresRegulationAnalysis();
+testFilterReportQualityDropsItemsWithoutSourceUrl();
+testLimitReportSectionsCapsNonRegulatoryModules();
 testRenderReportHtml();
 testRenderFeishuSummary();
 testReportKeys();
