@@ -479,6 +479,159 @@ async function deepseekAnalyze({ apiKey, model, candidates, sources = sourceCata
   throw new Error('DeepSeek analysis failed');
 }
 
+export function escapeHtml(value) {
+  return String(value ?? '')
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;')
+    .replace(/'/g, '&#39;');
+}
+
+function renderList(values, className = '') {
+  const items = (values || []).filter(Boolean);
+  if (!items.length) return '';
+  return `<ul class="${className}">${items.map(item => `<li>${escapeHtml(item)}</li>`).join('')}</ul>`;
+}
+
+function riskLabel(level) {
+  const labels = { high: '高风险', medium: '中风险', low: '低风险' };
+  return labels[level] || level || '风险';
+}
+
+export function renderReportHtml(report, { generatedAt = new Date().toISOString(), failures = [] } = {}) {
+  validateReport(report);
+  const sections = report.sections || [];
+  const allItems = sections.flatMap(section => section.items || []);
+  const countries = [...new Set(allItems.map(item => item.country).filter(Boolean))];
+  const highCount = (report.risk_alerts || []).filter(alert => alert.level === 'high').length;
+  const mediumCount = (report.risk_alerts || []).filter(alert => alert.level === 'medium').length;
+  const lowCount = (report.risk_alerts || []).filter(alert => alert.level === 'low').length;
+
+  const sectionHtml = sections.map(section => {
+    const items = section.items || [];
+    const itemHtml = items.length ? items.map(item => `
+      <article class="item-card">
+        <div class="item-meta">
+          <span class="tag">${escapeHtml(item.type)}</span>
+          <span>${escapeHtml(item.region)} · ${escapeHtml(item.country)}</span>
+          <span>${escapeHtml(item.status || '动态')}</span>
+          <span>${escapeHtml(item.published_at || '未知日期')}</span>
+        </div>
+        <h3>${escapeHtml(item.title)}</h3>
+        <a class="source-link" href="${escapeHtml(item.source_url)}" target="_blank" rel="noopener noreferrer">原文：${escapeHtml(item.source_name)}</a>
+        ${renderList(item.content, 'compact-list')}
+        ${renderList(item.impact_scope, 'scope-list')}
+        ${item.analysis ? `<p><strong>分析：</strong>${escapeHtml(item.analysis)}</p>` : ''}
+        ${item.action ? `<p><strong>行动建议：</strong>${escapeHtml(item.action)}</p>` : ''}
+      </article>
+    `).join('') : '<p class="empty">本周无高价值更新</p>';
+    return `
+      <section class="report-section">
+        <div class="section-heading">
+          <h2>${escapeHtml(section.module)}</h2>
+          <span>${items.length} 条</span>
+        </div>
+        ${itemHtml}
+      </section>
+    `;
+  }).join('');
+
+  return `<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>美妆法务周报</title>
+  <style>
+    :root { color-scheme: light; --bg: #F8FAFC; --panel: #FFFFFF; --primary: #1E3A8A; --primary-2: #1E40AF; --gold: #B45309; --text: #0F172A; --muted: #475569; --border: #E2E8F0; --soft: #EFF6FF; --danger: #B91C1C; }
+    * { box-sizing: border-box; }
+    body { margin: 0; background: var(--bg); color: var(--text); font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", "PingFang SC", "Hiragino Sans GB", "Microsoft YaHei", sans-serif; font-size: 16px; line-height: 1.68; }
+    a { color: var(--primary-2); text-decoration-thickness: 0.08em; text-underline-offset: 0.18em; }
+    a:focus-visible { outline: 3px solid rgba(180, 83, 9, 0.45); outline-offset: 3px; border-radius: 6px; }
+    .shell { max-width: 1120px; margin: 0 auto; padding: 28px 18px 56px; }
+    .hero { background: linear-gradient(135deg, #0F274C 0%, #1E3A8A 58%, #B45309 140%); color: #fff; border-radius: 28px; padding: 34px; box-shadow: 0 24px 70px rgba(30, 58, 138, 0.22); }
+    .eyebrow { margin: 0 0 10px; color: #FDE68A; font-size: 14px; font-weight: 700; letter-spacing: 0.12em; text-transform: uppercase; }
+    h1 { margin: 0; font-size: clamp(30px, 5vw, 52px); line-height: 1.12; letter-spacing: -0.03em; }
+    .subtitle { max-width: 760px; margin: 16px 0 0; color: #DBEAFE; font-size: 18px; }
+    .hero-grid { display: grid; grid-template-columns: 1fr; gap: 18px; margin-top: 24px; }
+    .metric-grid { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 12px; }
+    .metric { background: rgba(255,255,255,0.12); border: 1px solid rgba(255,255,255,0.22); border-radius: 18px; padding: 16px; backdrop-filter: blur(12px); }
+    .metric strong { display: block; font-size: 28px; line-height: 1; }
+    .metric span { color: #DBEAFE; font-size: 13px; }
+    .panel { margin-top: 20px; background: var(--panel); border: 1px solid var(--border); border-radius: 22px; padding: 22px; box-shadow: 0 14px 44px rgba(15, 23, 42, 0.06); }
+    .summary-list { margin: 0; padding-left: 20px; }
+    .risk-list { display: grid; gap: 10px; margin-top: 14px; }
+    .risk { display: flex; gap: 10px; align-items: flex-start; padding: 12px 14px; background: #FFFBEB; border: 1px solid #FDE68A; border-radius: 14px; }
+    .risk-badge { flex: 0 0 auto; min-width: 58px; text-align: center; border-radius: 999px; padding: 3px 9px; background: var(--gold); color: #fff; font-size: 13px; font-weight: 700; }
+    .country-strip { display: flex; gap: 8px; overflow-x: auto; padding-bottom: 4px; }
+    .country { flex: 0 0 auto; border: 1px solid var(--border); background: var(--soft); color: var(--primary); border-radius: 999px; padding: 6px 12px; font-size: 14px; font-weight: 700; }
+    .report-section { margin-top: 24px; }
+    .section-heading { display: flex; justify-content: space-between; gap: 12px; align-items: center; margin-bottom: 12px; }
+    h2 { margin: 0; color: var(--primary); font-size: 24px; letter-spacing: -0.02em; }
+    .section-heading span { color: var(--muted); font-size: 14px; }
+    .item-card { background: var(--panel); border: 1px solid var(--border); border-radius: 20px; padding: 20px; margin-top: 12px; box-shadow: 0 10px 28px rgba(15, 23, 42, 0.05); }
+    .item-meta { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; color: var(--muted); font-size: 13px; }
+    .tag { background: var(--primary); color: #fff; border-radius: 999px; padding: 3px 10px; font-weight: 700; }
+    h3 { margin: 12px 0 8px; font-size: 21px; line-height: 1.35; }
+    .source-link { display: inline-flex; min-height: 44px; align-items: center; font-weight: 700; }
+    .compact-list, .scope-list { margin: 10px 0 0; padding-left: 20px; }
+    .scope-list li { color: var(--muted); }
+    .empty { margin: 0; color: var(--muted); }
+    .footer { margin-top: 28px; color: var(--muted); font-size: 13px; }
+    @media (max-width: 720px) { .shell { padding: 14px 12px 34px; } .hero { border-radius: 20px; padding: 24px 18px; } .metric-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); } .panel { padding: 18px; border-radius: 18px; } .item-card { padding: 17px; } }
+  </style>
+</head>
+<body>
+  <main class="shell">
+    <header class="hero">
+      <p class="eyebrow">Beauty Legal Intelligence</p>
+      <h1>美妆法务周报</h1>
+      <p class="subtitle">周期：${escapeHtml(report.period.start)} 至 ${escapeHtml(report.period.end)}。聚焦法规节点、处罚案例、知识产权和跨境合规风险。</p>
+      <div class="hero-grid">
+        <div class="metric-grid" aria-label="风险统计">
+          <div class="metric"><strong>${allItems.length}</strong><span>高价值资讯</span></div>
+          <div class="metric"><strong>${highCount}</strong><span>高风险提醒</span></div>
+          <div class="metric"><strong>${mediumCount}</strong><span>中风险提醒</span></div>
+          <div class="metric"><strong>${lowCount}</strong><span>低风险提醒</span></div>
+        </div>
+      </div>
+    </header>
+
+    <section class="panel" aria-labelledby="summary-title">
+      <h2 id="summary-title">执行摘要</h2>
+      ${renderList(report.summary, 'summary-list') || '<p class="empty">本周无高价值更新</p>'}
+    </section>
+
+    <section class="panel" aria-labelledby="risk-title">
+      <h2 id="risk-title">风险雷达</h2>
+      <div class="risk-list">
+        ${(report.risk_alerts || []).length ? report.risk_alerts.map(alert => `<div class="risk"><span class="risk-badge">${escapeHtml(riskLabel(alert.level))}</span><span>${escapeHtml(alert.text)}</span></div>`).join('') : '<p class="empty">本周无高价值风险提醒</p>'}
+      </div>
+      <div class="country-strip" aria-label="涉及国家和地区">${countries.map(country => `<span class="country">${escapeHtml(country)}</span>`).join('')}</div>
+    </section>
+
+    ${sectionHtml}
+
+    <footer class="footer">
+      <p>生成时间：${escapeHtml(generatedAt)}</p>
+      <p>信息源说明：本页面由公开网页与行业线索自动整理生成，公众号类来源仅作线索，最终以原文链接为准。</p>
+      ${failures.length ? `<p>部分源抓取失败：${escapeHtml(failures.slice(0, 12).join('、'))}</p>` : ''}
+      <p>AI 生成内容仅供法务信息初筛，不构成正式法律意见。</p>
+    </footer>
+  </main>
+</body>
+</html>`;
+}
+
+export function renderFeishuSummary(report, reportUrl) {
+  validateReport(report);
+  const items = (report.sections || []).flatMap(section => section.items || []);
+  const highlights = (report.summary || []).slice(0, 5).map(text => `- ${text}`).join('\n') || '- 本周无高价值更新';
+  const risks = (report.risk_alerts || []).slice(0, 3).map(alert => `- ${riskLabel(alert.level)}：${alert.text}`).join('\n') || '- 本周无高价值风险提醒';
+  return `**⚖️ 美妆法务周报 · ${report.period.end}**\n\n本周筛选 ${items.length} 条高价值资讯。\n\n**本周最重要**\n${highlights}\n\n**风险提醒**\n${risks}\n\n[打开完整周报](${reportUrl})`;
+}
+
 async function fetchSourceCandidates(source) {
   if (source.source_type === 'wechat_public_account') return [];
   if (!source.url || !source.url.startsWith('http')) return [];

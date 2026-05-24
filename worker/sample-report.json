@@ -1,0 +1,44 @@
+{
+  "period": {
+    "start": "2026-05-18",
+    "end": "2026-05-24"
+  },
+  "summary": [
+    "印尼 BPOM 化妆品清真认证节点临近，进口 SKU 需要优先排查。",
+    "中国直播和电商功效宣称仍是处罚高频风险。"
+  ],
+  "risk_alerts": [
+    {
+      "level": "high",
+      "text": "印尼市场 SKU 需优先完成 Halal 认证和标签材料排查。"
+    }
+  ],
+  "sections": [
+    {
+      "module": "新规/修订/废止",
+      "items": [
+        {
+          "type": "法规",
+          "region": "亚洲",
+          "country": "印尼",
+          "title": "BPOM 更新化妆品清真认证要求",
+          "source_name": "BPOM",
+          "source_url": "https://www.pom.go.id/",
+          "published_at": "2026-05-21",
+          "status": "即将生效",
+          "content": [
+            "化妆品清真认证进入过渡期关键节点。",
+            "进口商需准备认证、标签和供应链证明材料。"
+          ],
+          "impact_scope": [
+            "进口化妆品",
+            "跨境电商",
+            "印尼市场 SKU"
+          ],
+          "analysis": "该节点影响产品准入和上架节奏，未完成认证可能影响清关和平台销售。",
+          "action": "法务、注册和供应链团队应建立 SKU 清单，核查认证状态与标签材料。"
+        }
+      ]
+    }
+  ]
+}

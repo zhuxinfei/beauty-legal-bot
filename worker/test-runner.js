@@ -1,4 +1,5 @@
 import assert from 'node:assert/strict';
+import sampleReport from './sample-report.json' with { type: 'json' };
 import {
   normalizeUrl,
   htmlToText,
@@ -8,6 +9,8 @@ import {
   isRelevantTitle,
   parseAnalysisJson,
   validateReport,
+  renderReportHtml,
+  renderFeishuSummary,
 } from './index.js';
 
 function testNormalizeUrl() {
@@ -83,6 +86,19 @@ function testValidateReport() {
     sections: [{ module: '新规/修订/废止', items: [] }],
   };
   assert.equal(validateReport(report), true);
+}
+
+function testRenderReportHtml() {
+  const html = renderReportHtml(sampleReport, { generatedAt: '2026-05-24T00:00:00.000Z', failures: [] });
+  assert.ok(html.includes('<!doctype html>'));
+  assert.ok(html.includes('美妆法务周报'));
+  assert.ok(html.includes('https://www.pom.go.id/'));
+}
+
+function testRenderFeishuSummary() {
+  const summary = renderFeishuSummary(sampleReport, 'https://example.com/report/latest');
+  assert.ok(summary.includes('打开完整周报'));
+  assert.ok(summary.includes('https://example.com/report/latest'));
 }
 
 testNormalizeUrl();
