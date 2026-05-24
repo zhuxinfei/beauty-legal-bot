@@ -1,5 +1,6 @@
 import assert from 'node:assert/strict';
 import sampleReport from './sample-report.json' with { type: 'json' };
+import sourceCatalog from './sources.json' with { type: 'json' };
 import {
   default as worker,
   normalizeUrl,
@@ -63,6 +64,8 @@ function testIsRelevantTitle() {
   assert.equal(isRelevantTitle('化妆品安全评估技术导则征求意见'), true);
   assert.equal(isRelevantTitle('直播带货虚假宣传处罚案例'), true);
   assert.equal(isRelevantTitle('公司融资发布会'), false);
+  assert.equal(isRelevantTitle('加强“三品一械”广告监管 新规公开征求意见'), false);
+  assert.equal(isRelevantTitle('北京汇爱科技有限公司主动召回部分型号ipoosi牌婴儿床'), false);
 }
 
 function testMakeCandidate() {
@@ -109,7 +112,7 @@ function testFilterReportQualityDropsItemsWithoutSourceUrl() {
   assert.equal(filtered.sections[0].items.length, 1);
 }
 
-function testLimitReportSectionsCapsNonRegulatoryModules() {
+function testLimitReportSectionsKeepsEnterpriseModuleDepth() {
   const report = {
     period: sampleReport.period,
     summary: [],
@@ -121,7 +124,7 @@ function testLimitReportSectionsCapsNonRegulatoryModules() {
   };
   const limited = limitReportSections(report);
   const caseSection = limited.sections.find(section => section.module === '广告合规及处罚案例');
-  assert.equal(caseSection.items.length, 3);
+  assert.equal(caseSection.items.length, 4);
 }
 
 function testRenderReportHtml() {
@@ -150,10 +153,25 @@ function testBuildAnalysisPromptIncludesLeads() {
     period: { start: '2026-05-18', end: '2026-05-24' },
   });
   assert.ok(prompt.includes('leads'));
-  assert.ok(prompt.includes('公众号线索不是事实来源'));
+  assert.ok(prompt.includes('公众号可以作为强线索'));
   assert.ok(prompt.includes('不要输出未加工新闻'));
   assert.ok(prompt.includes('过去 7 天'));
   assert.ok(prompt.includes('行业影响力'));
+}
+
+function testEnterprisePromptRequiresGlobalLegalIntelligence() {
+  const prompt = buildAnalysisPrompt({
+    candidates: [{ title: 'BPOM 化妆品清真认证更新', url: 'https://www.pom.go.id/', source_name: '印度尼西亚 BPOM', country: '印尼', region: '亚洲' }],
+    leads: [{ name: '化妆品观察', source_type: 'wechat_public_account', topics: ['化妆品'] }],
+    sources: sourceCatalog.sources,
+    period: { start: '2026-05-18', end: '2026-05-24' },
+  });
+  assert.ok(prompt.includes('国际化美妆电商集团'));
+  assert.ok(prompt.includes('国家/区域监管机构'));
+  assert.ok(prompt.includes('直接/间接相关'));
+  assert.ok(prompt.includes('industry_impact'));
+  assert.ok(prompt.includes('business_impact'));
+  assert.ok(prompt.includes('案例必须拆解'));
 }
 
 function testCandidateFreshnessAndInfluenceRanking() {
@@ -329,13 +347,40 @@ function testExtractReportFingerprintsUsesItems() {
 
 function testSplitSourcesSeparatesWechatLeads() {
   const sources = [
-    { name: '化妆品观察', url: '微信公众号', source_type: 'wechat_public_account', module: '美妆行业动态', region: '亚洲', country: '中国', topics: ['化妆品'], priority: 'low' },
-    { name: '国家药监局', url: 'https://www.nmpa.gov.cn/', source_type: 'official_site', module: '新规/修订/废止/生效提醒', region: '亚洲', country: '中国', topics: ['化妆品'], priority: 'high' },
+    { name: '化妆品观察', url: '微信公众号', source_type: 'wechat_public_account', module: '美妆动态', region: '亚洲', country: '中国', topics: ['化妆品'], priority: 'low' },
+    { name: '国家药监局', url: 'https://www.nmpa.gov.cn/', source_type: 'official_site', module: '新规及案例动态', region: '亚洲', country: '中国', topics: ['化妆品'], priority: 'high' },
   ];
   const split = splitSources(sources);
   assert.equal(split.fetchableSources.length, 1);
   assert.equal(split.leadSources.length, 1);
   assert.equal(makeLead(split.leadSources[0]).name, '化妆品观察');
+}
+
+function testSourceCatalogUsesWorkbookModulesAndGlobalMarkets() {
+  const sources = sourceCatalog.sources;
+  const modules = new Set(sources.map(source => source.module));
+  assert.deepEqual([...modules].sort(), [
+    '广告合规及处罚案例',
+    '新规及案例动态',
+    '知识产权动态',
+    '美妆动态',
+    '进出口动态',
+  ].sort());
+
+  const countries = new Set(sources.map(source => source.country));
+  for (const country of ['中国', '欧盟', '美国', '日本', '韩国', '泰国', '越南', '印尼', '墨西哥', '意大利']) {
+    assert.ok(countries.has(country), `missing country ${country}`);
+  }
+
+  const regions = new Set(sources.map(source => source.region));
+  for (const region of ['亚洲', '欧洲', '北美洲']) {
+    assert.ok(regions.has(region), `missing region ${region}`);
+  }
+
+  const bpom = sources.find(source => source.name.includes('BPOM'));
+  assert.equal(bpom.country, '印尼');
+  assert.equal(bpom.module, '新规及案例动态');
+  assert.equal(bpom.priority, 'high');
 }
 
 await testFetchWithTimeoutAbortsSlowFetch();
@@ -353,13 +398,15 @@ testParseAnalysisJson();
 testValidateReport();
 testValidateReportRequiresRegulationAnalysis();
 testFilterReportQualityDropsItemsWithoutSourceUrl();
-testLimitReportSectionsCapsNonRegulatoryModules();
+testLimitReportSectionsKeepsEnterpriseModuleDepth();
 testRenderReportHtml();
 testRenderFeishuSummary();
 testBuildAnalysisPromptIncludesLeads();
+testEnterprisePromptRequiresGlobalLegalIntelligence();
 testCandidateFreshnessAndInfluenceRanking();
 testReportKeys();
 testDedupeReportRemovesRepeatedItems();
 testExtractReportFingerprintsUsesItems();
 testSplitSourcesSeparatesWechatLeads();
+testSourceCatalogUsesWorkbookModulesAndGlobalMarkets();
 console.log('worker pure function tests ok');
