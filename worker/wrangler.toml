@@ -4,10 +4,11 @@ main = "index.js"
 compatibility_date = "2025-01-01"
 
 # cron 表达式为 UTC 时间
+# */5 * * * * = 临时调试：每 5 分钟自动触发一次，验证完成后恢复周报
 # 0 0 * * 1 = 每周一 UTC 00:00 = 北京时间每周一 08:00
 # 如需修改推送时间，调整 cron 即可（注意换算 UTC）
 [triggers]
-crons = ["0 0 * * 1"]
+crons = ["*/5 * * * *"]
 
 [[kv_namespaces]]
 binding = "SEEN_NEWS"
