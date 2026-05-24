@@ -22,6 +22,10 @@ import {
   filterReportQuality,
   limitReportSections,
   buildAnalysisPrompt,
+  makeSourceLeadCandidate,
+  normalizeModuleReport,
+  enrichReportWithSourceSignals,
+  filterReportToObservedSources,
   fetchWithTimeout,
   mapWithConcurrency,
   extractPublishedDate,
@@ -112,6 +116,35 @@ function testFilterReportQualityDropsItemsWithoutSourceUrl() {
   assert.equal(filtered.sections[0].items.length, 1);
 }
 
+function testFilterReportQualityKeepsLeadBasedBeautyAndImportSignals() {
+  const report = structuredClone(sampleReport);
+  const leadItem = {
+    type: '动态',
+    module: '进出口动态',
+    region: '亚洲',
+    country: '中国',
+    title: '跨境美妆清关行业线索',
+    source_name: '青眼资讯',
+    source_url: '微信公众号',
+    source_type: 'wechat_lead',
+    relevance: 'indirect',
+    industry_impact: 'medium',
+    business_impact: ['跨境清关', '供应链'],
+    market_scope: ['中国跨境进口化妆品'],
+    risk_level: 'medium',
+    why_it_matters: '进口通关规则变化会影响美妆电商上架节奏和履约成本。',
+    recommended_actions: ['建议供应链团队在本周核对进口化妆品清关资料和口岸异常反馈。'],
+    owner_teams: ['供应链', '法务'],
+    confidence: 'low',
+    regulatory_signal: ['行业媒体提示近期进口美妆通关和资质核验要求需关注。'],
+    compliance_meaning: ['该信息需二次核验，但可以作为跨境清关周度排查线索。'],
+    possible_follow_up: ['建议法务团队结合海关总署和口岸通知进一步核验。'],
+  };
+  report.sections = [{ module: '进出口动态', items: [leadItem] }];
+  const filtered = filterReportQuality(report);
+  assert.equal(filtered.sections[0].items.length, 1);
+}
+
 function testLimitReportSectionsKeepsEnterpriseModuleDepth() {
   const report = {
     period: sampleReport.period,
@@ -167,6 +200,93 @@ function testBuildAnalysisPromptIncludesLeads() {
   assert.ok(prompt.includes('不要输出未加工新闻'));
   assert.ok(prompt.includes('过去 7 天'));
   assert.ok(prompt.includes('行业影响力'));
+}
+
+function testBuildAnalysisPromptUsesModuleTarget() {
+  const prompt = buildAnalysisPrompt({
+    candidates: [{ title: '青眼资讯：进出口动态行业线索', url: '微信公众号', source_name: '青眼资讯', module: '进出口动态' }],
+    leads: [{ name: '青眼资讯', source_type: 'wechat_public_account', module: '进出口动态', topics: ['进口化妆品'] }],
+    sources: [],
+    period: { start: '2026-05-18', end: '2026-05-24' },
+    targetModule: '进出口动态',
+  });
+  assert.ok(prompt.includes('当前只分析模块：进出口动态'));
+  assert.ok(prompt.includes('不要返回空数组'));
+  assert.ok(prompt.includes('待核验'));
+}
+
+function testNormalizeModuleReportForcesTargetWorkbookModule() {
+  const report = structuredClone(sampleReport);
+  report.sections = [{
+    module: '行业动态',
+    items: [{ ...sampleReport.sections[0].items[0], module: '行业动态', title: '美妆平台治理趋势' }],
+  }];
+
+  const normalized = normalizeModuleReport(report, '美妆动态');
+  assert.deepEqual(normalized.sections.map(section => section.module), ['美妆动态']);
+  assert.equal(normalized.sections[0].items[0].module, '美妆动态');
+  assert.equal(normalized.sections[0].items[0].title, '美妆平台治理趋势');
+}
+
+function testEnrichReportWithSourceSignalsFillsSparseWorkbookModules() {
+  const sparse = {
+    period: sampleReport.period,
+    summary: [],
+    risk_alerts: [],
+    sections: [
+      { module: '广告合规及处罚案例', items: [] },
+      { module: '美妆动态', items: [] },
+      { module: '知识产权动态', items: [] },
+      { module: '新规及案例动态', items: [] },
+      { module: '进出口动态', items: [] },
+    ],
+  };
+  const candidates = [
+    makeSourceLeadCandidate({
+      name: '化妆品观察',
+      url: '微信公众号',
+      source_type: 'wechat_public_account',
+      module: '美妆动态',
+      region: '亚洲',
+      country: '中国',
+      authority_type: 'media',
+      priority: 'medium',
+      topics: ['美妆行业监管', '功效宣称'],
+    }),
+    makeSourceLeadCandidate({
+      name: '海关发布',
+      url: '微信公众号',
+      source_type: 'wechat_public_account',
+      module: '进出口动态',
+      region: '亚洲',
+      country: '中国',
+      authority_type: 'media',
+      priority: 'medium',
+      topics: ['进口化妆品', '跨境清关'],
+    }),
+  ];
+
+  const enriched = enrichReportWithSourceSignals(sparse, { candidates, sources: [] });
+  assert.ok(enriched.sections.find(section => section.module === '美妆动态').items.length >= 1);
+  assert.ok(enriched.sections.find(section => section.module === '进出口动态').items.length >= 1);
+  assert.equal(validateReport(enriched), true);
+}
+
+function testFilterReportToObservedSourcesDropsFabricatedUrls() {
+  const report = structuredClone(sampleReport);
+  report.sections[0].items.push({
+    ...sampleReport.sections[0].items[0],
+    title: '疑似伪链接法规',
+    source_url: 'https://ec.europa.eu/commission/presscorner/detail/en/ip_26_xxx',
+  });
+
+  const filtered = filterReportToObservedSources(report, {
+    candidates: [{ url: sampleReport.sections[0].items[0].source_url }],
+    sources: [{ url: sampleReport.sections[1].items[0].source_url }],
+  });
+
+  assert.equal(filtered.sections[0].items.length, 1);
+  assert.equal(filtered.sections[0].items[0].title, sampleReport.sections[0].items[0].title);
 }
 
 function testEnterprisePromptRequiresGlobalLegalIntelligence() {
@@ -366,6 +486,27 @@ function testSplitSourcesSeparatesWechatLeads() {
   assert.equal(makeLead(split.leadSources[0]).name, '化妆品观察');
 }
 
+function testSourceLeadCandidateKeepsWeaklyFetchableModulesAnalyzable() {
+  const lead = makeSourceLeadCandidate({
+    name: '青眼资讯',
+    url: '微信公众号',
+    source_type: 'wechat_public_account',
+    module: '进出口动态',
+    region: '亚洲',
+    country: '中国',
+    authority_type: 'media',
+    priority: 'medium',
+    topics: ['进口化妆品', '跨境电商', '清关'],
+  });
+
+  assert.equal(lead.module, '进出口动态');
+  assert.equal(lead.source_type, 'wechat_public_account');
+  assert.equal(lead.source_name, '青眼资讯');
+  assert.equal(lead.url, '微信公众号');
+  assert.ok(lead.title.includes('进出口动态'));
+  assert.ok(lead.snippet.includes('进口化妆品'));
+}
+
 function testSourceCatalogUsesWorkbookModulesAndGlobalMarkets() {
   const sources = sourceCatalog.sources;
   const modules = new Set(sources.map(source => source.module));
@@ -408,15 +549,21 @@ testParseAnalysisJson();
 testValidateReport();
 testValidateReportRequiresRegulationAnalysis();
 testFilterReportQualityDropsItemsWithoutSourceUrl();
+testFilterReportQualityKeepsLeadBasedBeautyAndImportSignals();
 testLimitReportSectionsKeepsEnterpriseModuleDepth();
 testRenderReportHtml();
 testRenderFeishuSummary();
 testBuildAnalysisPromptIncludesLeads();
+testBuildAnalysisPromptUsesModuleTarget();
+testNormalizeModuleReportForcesTargetWorkbookModule();
+testEnrichReportWithSourceSignalsFillsSparseWorkbookModules();
+testFilterReportToObservedSourcesDropsFabricatedUrls();
 testEnterprisePromptRequiresGlobalLegalIntelligence();
 testCandidateFreshnessAndInfluenceRanking();
 testReportKeys();
 testDedupeReportRemovesRepeatedItems();
 testExtractReportFingerprintsUsesItems();
 testSplitSourcesSeparatesWechatLeads();
+testSourceLeadCandidateKeepsWeaklyFetchableModulesAnalyzable();
 testSourceCatalogUsesWorkbookModulesAndGlobalMarkets();
 console.log('worker pure function tests ok');

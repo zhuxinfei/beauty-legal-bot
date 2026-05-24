@@ -233,8 +233,9 @@ export async function runPipeline(env, requestUrl = 'https://beauty-legal-bot.wo
 
     console.log("[stage 2/5] DeepSeek 结构化分析...");
     const period = getPeriod();
-    const rawReport = await deepseekAnalyze({ apiKey: deepseekKey, model, candidates, leads, sources: sourceCatalog.sources, period });
-    const report = limitReportSections(filterReportQuality(dedupeReport(rawReport)));
+    const rawReport = await deepseekAnalyzeByModule({ apiKey: deepseekKey, model, candidates, leads, sources: sourceCatalog.sources, period });
+    const sourceCheckedReport = filterReportToObservedSources(rawReport, { candidates, sources: sourceCatalog.sources });
+    const report = limitReportSections(filterReportQuality(dedupeReport(enrichReportWithSourceSignals(sourceCheckedReport, { candidates, sources: sourceCatalog.sources }))));
     validateReport(report);
     const itemCount = (report.sections || []).flatMap(section => section.items || []).length;
     console.log(`[stage 2/5] 完成，模块 ${report.sections.length} 个，去重后 ${itemCount} 条`);
@@ -396,6 +397,20 @@ export function makeLead(source) {
   };
 }
 
+export function makeSourceLeadCandidate(source) {
+  return makeCandidate(source, {
+    title: `${source.name}：${source.module}行业线索`,
+    url: source.url || source.name,
+    snippet: [
+      `来源：${source.name}`,
+      `分类：${source.module}`,
+      `市场：${source.country || '未知'} / ${source.region || '未知'}`,
+      `主题：${(source.topics || []).join('、')}`,
+      '用途：作为周报选题线索；如无法直接抓取原文，需在报告中标注待核验和可信度。',
+    ].filter(Boolean).join('。'),
+  });
+}
+
 export function splitSources(sources = sourceCatalog.sources) {
   const leadSources = sources.filter(source => source.source_type === 'wechat_public_account');
   const fetchableSources = sources.filter(source => source.source_type !== 'wechat_public_account');
@@ -487,7 +502,11 @@ export function filterReportQuality(report) {
       ...section,
       items: (section.items || []).filter(item => {
         if (!hasValue(item.source_url)) return false;
-        if (item.confidence === 'low' && item.relevance !== 'direct' && item.industry_impact !== 'high') return false;
+        const allowLeadSignal = ['美妆动态', '进出口动态'].includes(section.module)
+          && ['wechat_lead', 'industry_media', 'wechat_public_account'].includes(item.source_type)
+          && item.industry_impact !== 'low'
+          && hasSpecificActions(item);
+        if (item.confidence === 'low' && item.relevance !== 'direct' && item.industry_impact !== 'high' && !allowLeadSignal) return false;
         try {
           validateReport({ ...report, sections: [{ ...section, items: [item] }] });
           return true;
@@ -516,7 +535,15 @@ function getPeriod(now = new Date()) {
   return { start: start.toISOString().slice(0, 10), end: end.toISOString().slice(0, 10) };
 }
 
-export function buildAnalysisPrompt({ candidates, leads = [], sources, period }) {
+export function buildAnalysisPrompt({ candidates, leads = [], sources, period, targetModule = '' }) {
+  const moduleInstruction = targetModule ? `
+当前只分析模块：${targetModule}
+- 只返回这个模块的 section。
+- 如果该模块有 candidates 或 leads，不要返回空数组；至少输出 2 条，优先 3 条。
+- 对无法直接打开原文的公众号/行业源，可以输出“待核验”线索型动态，但必须说明待核验点、业务影响和建议动作。
+- 美妆动态重点看行业监管趋势、平台治理、产品安全、功效宣称、渠道变化、头部品牌合规动作。
+- 进出口动态重点看进口准入、清关、口岸抽检、跨境电商、认证、海关监管、召回和贸易合规。
+` : '';
   return `你是国际化美妆电商集团的高级法务情报分析员。用户是集团法务、合规、注册备案、跨境供应链、品牌/IP、市场投放、电商平台运营团队。不要输出未加工新闻，必须输出可用于业务判断的法务情报。
 
 集团业务背景：
@@ -552,6 +579,7 @@ export function buildAnalysisPrompt({ candidates, leads = [], sources, period })
 - 案例必须拆解事实、认定逻辑、处罚/结果、业务启发。
 - 建议动作必须是“建议...”口吻，不能是命令。
 - 禁止“建议关注”“持续关注”“企业应留意”等空泛动作。
+${moduleInstruction}
 
 JSON 结构：
 {
@@ -603,10 +631,10 @@ JSON 结构：
 线索 leads（公众号和不可抓来源，可作为强线索但需标注可信度）：${JSON.stringify(leads.slice(0, 120))}`;
 }
 
-async function deepseekAnalyze({ apiKey, model, candidates, leads = [], sources = sourceCatalog.sources, period = getPeriod() }) {
+async function deepseekAnalyze({ apiKey, model, candidates, leads = [], sources = sourceCatalog.sources, period = getPeriod(), targetModule = '' }) {
   const messages = [
     { role: 'system', content: '你只输出合法 JSON。不要输出解释、Markdown 或代码块。' },
-    { role: 'user', content: buildAnalysisPrompt({ candidates, leads, sources, period }) },
+    { role: 'user', content: buildAnalysisPrompt({ candidates, leads, sources, period, targetModule }) },
   ];
 
   for (let attempt = 0; attempt < 2; attempt++) {
@@ -622,6 +650,205 @@ async function deepseekAnalyze({ apiKey, model, candidates, leads = [], sources 
     }
   }
   throw new Error('DeepSeek analysis failed');
+}
+
+function mergeModuleReports(reports, period) {
+  const summary = reports.flatMap(report => report.summary || []).slice(0, 5);
+  const riskAlerts = reports.flatMap(report => report.risk_alerts || []).slice(0, 8);
+  const sections = REPORT_MODULES.map(module => {
+    const items = reports
+      .flatMap(report => report.sections || [])
+      .filter(section => section.module === module)
+      .flatMap(section => section.items || [])
+      .slice(0, 3);
+    return { module, items };
+  });
+  return { period, summary, risk_alerts: riskAlerts, sections };
+}
+
+export function normalizeModuleReport(report, targetModule) {
+  const items = (report.sections || [])
+    .flatMap(section => section.items || [])
+    .map(item => ({ ...item, module: targetModule }));
+  return {
+    ...report,
+    sections: [{ module: targetModule, items }],
+  };
+}
+
+function signalSourceType(candidate) {
+  if (candidate.source_type === 'wechat_public_account') return 'wechat_lead';
+  if (candidate.authority_type === 'media' || candidate.source_type === 'industry_media') return 'industry_media';
+  if (candidate.authority_type === 'regulator' || candidate.source_type === 'official_site') return 'regulator';
+  return candidate.source_type || 'industry_media';
+}
+
+function signalBusinessImpact(module) {
+  const map = {
+    '广告合规及处罚案例': ['广告投放', '直播电商', '平台运营'],
+    '美妆动态': ['注册备案', '功效宣称', '平台运营', '供应链'],
+    '知识产权动态': ['品牌/IP', '平台运营'],
+    '新规及案例动态': ['注册备案', '标签', '配方', '供应链'],
+    '进出口动态': ['跨境清关', '供应链', '平台运营'],
+  };
+  return map[module] || ['法务'];
+}
+
+function signalTypeForModule(module) {
+  const map = {
+    '广告合规及处罚案例': '动态',
+    '美妆动态': '动态',
+    '知识产权动态': 'IP',
+    '新规及案例动态': '动态',
+    '进出口动态': '进出口',
+  };
+  return map[module] || '动态';
+}
+
+function buildSignalItem(candidate, module) {
+  const topics = (candidate.topics || []).filter(Boolean);
+  const titleCore = String(candidate.title || `${candidate.source_name}：${module}行业线索`).replace(/：.*行业线索$/, '');
+  const base = {
+    type: signalTypeForModule(module),
+    module,
+    region: candidate.region || '全球',
+    country: candidate.country || '全球',
+    title: `${titleCore}：${module}待核验情报线索`,
+    source_name: candidate.source_name || candidate.name || '行业来源',
+    source_url: candidate.url || candidate.source_url || candidate.source_name || '微信公众号',
+    source_type: signalSourceType(candidate),
+    published_at: candidate.published_at || '未知',
+    relevance: module === '美妆动态' || module === '新规及案例动态' ? 'direct' : 'indirect',
+    industry_impact: candidate.priority === 'high' ? 'high' : 'medium',
+    business_impact: signalBusinessImpact(module),
+    market_scope: [`${candidate.country || '相关市场'} ${topics.join('、') || module}`],
+    risk_level: candidate.priority === 'high' ? 'medium' : 'low',
+    why_it_matters: `该来源属于${module}信息源，涉及${topics.join('、') || '监管和行业变化'}；即使本周未抓到可直接引用的明细页，也适合作为法务周报的待核验线索，帮助相关团队提前排查业务影响。`,
+    recommended_actions: [
+      `建议法务团队以${candidate.source_name || candidate.name || '该来源'}为入口，在本周内核验是否有与集团在售品类、渠道或目标市场相关的最新原文。`,
+      `建议${signalBusinessImpact(module)[0]}团队结合${candidate.country || '相关市场'}业务清单，先排查是否存在标签、宣称、清关、平台上架或品牌授权方面的潜在影响。`,
+    ],
+    owner_teams: ['法务', signalBusinessImpact(module)[0]].filter(Boolean),
+    confidence: candidate.source_type === 'official_site' ? 'medium' : 'low',
+    regulatory_signal: [`${candidate.source_name || candidate.name || '该来源'}提供${module}方向的周度监测线索，主题包括${topics.join('、') || module}。`],
+    compliance_meaning: ['该条为自动补全的待核验情报，不替代正式原文判断；用于提示团队不要遗漏该分类下的重要信息源。'],
+    possible_follow_up: [`建议下次周报继续优先抓取该来源，并在发现原文后升级为正式法规、案例或进出口条目。`],
+  };
+
+  if (base.type === 'IP') {
+    return {
+      ...base,
+      dispute_focus: ['品牌名称、商标使用、外观设计或跨境维权动态。'],
+      protected_element: topics.join('、') || '商标和品牌资产',
+      infringement_logic: ['需结合原文判断是否涉及抢注、近似混淆、未授权使用或平台侵权投诉。'],
+      impact_on_brand_assets: ['可能影响集团自有品牌在目标市场的注册、使用证据留存和平台维权。'],
+    };
+  }
+
+  if (base.type === '进出口') {
+    return {
+      ...base,
+      market_access_change: ['待核验是否涉及进口准入、清关文件、口岸抽检、跨境电商正面清单或认证要求变化。'],
+      affected_import_flow: ['商品准入评估', '清关资料准备', '平台上架节奏', '供应链履约'],
+      documents_needed: ['建议核验产品备案/注册资料、中文标签、成分表、原产地及清关单证是否需要更新。'],
+    };
+  }
+
+  return base;
+}
+
+function signalMatchesModule(candidate, module) {
+  let text = [
+    candidate.title,
+    candidate.source_name,
+    candidate.name,
+    candidate.snippet,
+    ...(candidate.topics || []),
+  ].join(' ').toLowerCase();
+  for (const moduleName of REPORT_MODULES) {
+    text = text.replaceAll(moduleName.toLowerCase(), '');
+  }
+  const rules = {
+    '广告合规及处罚案例': ['广告', '处罚', '虚假宣传', '直播', '功效宣称', '监管', '市场监督'],
+    '美妆动态': ['美妆', '化妆品', '护肤', '彩妆', '香水', '防晒', '青眼', '浙江美妆', '化妆品观察'],
+    '知识产权动态': ['知识产权', '商标', '专利', '版权', 'wipo', 'euipo', '品牌'],
+    '新规及案例动态': ['化妆品', '法规', '案例', '药监', 'bpom', 'fda', 'sccs', 'mocra', '卫生部', '最高人民检察院'],
+    '进出口动态': ['进出口', '进口', '出口', '海关', '清关', '跨境', '关务', '口岸', 'cbp', '保税'],
+  };
+  return (rules[module] || []).some(keyword => text.includes(keyword.toLowerCase()));
+}
+
+export function enrichReportWithSourceSignals(report, { candidates = [], sources = [] } = {}) {
+  const sections = REPORT_MODULES.map(module => {
+    const existing = (report.sections || []).find(section => section.module === module)?.items || [];
+    const seen = new Set(existing.map(item => item.source_url || item.title));
+    const moduleCandidates = candidates
+      .filter(candidate => candidate.module === module)
+      .filter(candidate => signalMatchesModule(candidate, module))
+      .filter(candidate => !seen.has(candidate.url || candidate.source_url || candidate.title));
+    const moduleSources = sources
+      .filter(source => source.module === module)
+      .map(makeSourceLeadCandidate)
+      .filter(candidate => signalMatchesModule(candidate, module))
+      .filter(candidate => !seen.has(candidate.url || candidate.source_url || candidate.title));
+    const signals = [...moduleCandidates, ...moduleSources]
+      .sort((a, b) => scoreCandidate(b) - scoreCandidate(a))
+      .slice(0, Math.max(0, 3 - existing.length))
+      .map(candidate => buildSignalItem(candidate, module));
+    return { module, items: [...existing, ...signals].slice(0, 3) };
+  });
+
+  const itemCount = sections.flatMap(section => section.items || []).length;
+  const summary = report.summary?.length ? report.summary : [`本期共整理 ${itemCount} 条国际美妆法务情报，覆盖法规、案例、知识产权、行业动态和进出口线索；其中待核验线索已在条目中标明，建议相关团队优先核验原文后再形成正式处置。`];
+  return { ...report, summary, sections };
+}
+
+function normalizeSourceUrl(url) {
+  return String(url || '').trim().replace(/\/$/, '');
+}
+
+export function filterReportToObservedSources(report, { candidates = [], sources = [] } = {}) {
+  const allowed = new Set([
+    ...candidates.map(candidate => candidate.url || candidate.source_url),
+    ...sources.map(source => source.url),
+    '微信公众号',
+  ].map(normalizeSourceUrl).filter(Boolean));
+
+  return {
+    ...report,
+    sections: (report.sections || []).map(section => ({
+      ...section,
+      items: (section.items || []).filter(item => {
+        const url = normalizeSourceUrl(item.source_url);
+        if (!url || /xxx|example\.com|placeholder|待补充/i.test(url)) return false;
+        return allowed.has(url);
+      }),
+    })),
+  };
+}
+
+async function deepseekAnalyzeByModule({ apiKey, model, candidates, leads = [], sources = sourceCatalog.sources, period = getPeriod() }) {
+  const reports = [];
+  for (const module of REPORT_MODULES) {
+    const moduleCandidates = candidates.filter(candidate => candidate.module === module);
+    const moduleLeads = leads.filter(lead => lead.module === module);
+    const moduleSources = sources.filter(source => source.module === module);
+    if (!moduleCandidates.length && !moduleLeads.length) {
+      reports.push({ period, summary: [], risk_alerts: [], sections: [{ module, items: [] }] });
+      continue;
+    }
+    const report = await deepseekAnalyze({
+      apiKey,
+      model,
+      candidates: moduleCandidates,
+      leads: moduleLeads,
+      sources: moduleSources,
+      period,
+      targetModule: module,
+    });
+    reports.push(normalizeModuleReport(report, module));
+  }
+  return mergeModuleReports(reports, period);
 }
 
 export function escapeHtml(value) {
@@ -930,9 +1157,21 @@ async function fetchSourceCandidates(source) {
     if (!response.ok) return [];
 
     const html = await response.text();
-    const links = extractLinks(html, source.url).filter(link => isRelevantTitle(link.title)).slice(0, 8);
-    const pageText = htmlToText(html).slice(0, 500);
-    return links.map(link => makeCandidate(source, { ...link, snippet: pageText }));
+    const linkLimit = ['美妆动态', '进出口动态'].includes(source.module) ? 14 : 8;
+    const snippetLimit = ['美妆动态', '进出口动态'].includes(source.module) ? 1500 : 800;
+    const links = extractLinks(html, source.url).filter(link => isRelevantTitle(link.title)).slice(0, linkLimit);
+    const pageText = htmlToText(html).slice(0, snippetLimit);
+    const linkCandidates = links.map(link => makeCandidate(source, { ...link, snippet: pageText }));
+    const sourceText = `${source.name} ${(source.topics || []).join(' ')} ${pageText}`;
+    const shouldKeepSourcePage = source.priority === 'high' || BEAUTY_KEYWORDS.some(keyword => sourceText.toLowerCase().includes(keyword.toLowerCase()));
+    const sourceCandidate = shouldKeepSourcePage
+      ? [makeCandidate(source, {
+        title: `${source.name}：${source.module}信息源入口`,
+        url: source.url,
+        snippet: pageText || `${source.name} ${source.module} ${(source.topics || []).join(' ')}`,
+      })]
+      : [];
+    return [...linkCandidates, ...sourceCandidate];
   } catch (error) {
     console.warn(`fetch failed: ${source.name} ${error.message}`);
     return [];
@@ -942,15 +1181,16 @@ async function fetchSourceCandidates(source) {
 async function collectCandidates(sources = sourceCatalog.sources, onProgress = async () => {}) {
   const { fetchableSources, leadSources } = splitSources(sources);
   const leads = leadSources.map(makeLead);
+  const leadCandidates = leadSources.map(makeSourceLeadCandidate);
 
   const results = await mapWithConcurrency(fetchableSources, SOURCE_FETCH_CONCURRENCY, async (source, index) => {
     await onProgress({ index: index + 1, total: fetchableSources.length, source: source.name });
     const items = await fetchSourceCandidates(source);
-    return { source, items };
+    return { source, items: items.length ? items : [makeSourceLeadCandidate(source)] };
   });
 
-  const failures = results.filter(result => !result.items.length).map(result => result.source.name);
-  const candidates = results.flatMap(result => result.items);
+  const failures = results.filter(result => result.items.length === 1 && result.items[0].title.includes('行业线索')).map(result => result.source.name);
+  const candidates = [...results.flatMap(result => result.items), ...leadCandidates];
 
   const seen = new Set();
   const unique = [];
