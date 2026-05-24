@@ -169,7 +169,14 @@ function testRenderReportHtml() {
   assert.ok(html.includes('业务影响'));
   assert.ok(html.includes('直接相关') || html.includes('间接相关'));
   assert.ok(html.includes('行业影响力'));
-  assert.ok(html.includes('模块导航'));
+  assert.ok(html.includes('Intelligence Command Center'));
+  assert.ok(html.includes('class="layout"'));
+  assert.ok(html.includes('class="side-rail"'));
+  assert.ok(html.includes('class="brief-grid"'));
+  assert.ok(html.includes('class="risk-board"'));
+  assert.ok(html.includes('class="intel-card"'));
+  assert.ok(html.includes('class="item-number"'));
+  assert.ok(html.includes('建议动作'));
   assert.ok(html.includes('https://www.pom.go.id/'));
   assert.ok(html.includes('变化点'));
   assert.ok(html.includes('法务拆解'));
