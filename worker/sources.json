@@ -1,0 +1,1048 @@
+{
+  "sources": [
+    {
+      "id": "src-001-gov-cn",
+      "name": "中国政府网",
+      "url": "https://www.gov.cn/",
+      "module": "广告合规及处罚案例",
+      "region": "亚洲",
+      "country": "中国",
+      "source_type": "website",
+      "authority_type": "official",
+      "priority": "high",
+      "topics": [
+        "广告合规",
+        "广告合规及处罚案例",
+        "中国"
+      ]
+    },
+    {
+      "id": "src-002-nmpa-gov-cn",
+      "name": "国家药品监督管理局",
+      "url": "https://www.nmpa.gov.cn/index.html",
+      "module": "新规及案例动态",
+      "region": "亚洲",
+      "country": "中国",
+      "source_type": "website",
+      "authority_type": "official",
+      "priority": "high",
+      "topics": [
+        "药监",
+        "新规及案例动态",
+        "中国"
+      ]
+    },
+    {
+      "id": "src-003-samr-gov-cn",
+      "name": "国家市场监督管理总局",
+      "url": "https://www.samr.gov.cn/",
+      "module": "广告合规及处罚案例",
+      "region": "亚洲",
+      "country": "中国",
+      "source_type": "website",
+      "authority_type": "official",
+      "priority": "high",
+      "topics": [
+        "广告合规",
+        "行政处罚",
+        "广告合规及处罚案例",
+        "中国"
+      ]
+    },
+    {
+      "id": "src-004-scjgj-sh-gov-cn",
+      "name": "上海市市场监督管理局",
+      "url": "http://scjgj.sh.gov.cn/",
+      "module": "广告合规及处罚案例",
+      "region": "亚洲",
+      "country": "中国",
+      "source_type": "website",
+      "authority_type": "official",
+      "priority": "high",
+      "topics": [
+        "广告合规",
+        "行政处罚",
+        "广告合规及处罚案例",
+        "中国"
+      ]
+    },
+    {
+      "id": "src-005-scjg-hangzhou-gov-cn",
+      "name": "杭州市市场监督管理局",
+      "url": "http://scjg.hangzhou.gov.cn/col/col1693482/index.html",
+      "module": "广告合规及处罚案例",
+      "region": "亚洲",
+      "country": "中国",
+      "source_type": "website",
+      "authority_type": "official",
+      "priority": "high",
+      "topics": [
+        "广告合规",
+        "行政处罚",
+        "广告合规及处罚案例",
+        "中国"
+      ]
+    },
+    {
+      "id": "src-006-scjgj-beijing-gov-cn",
+      "name": "北京市市场监督管理局",
+      "url": "http://scjgj.beijing.gov.cn/",
+      "module": "广告合规及处罚案例",
+      "region": "亚洲",
+      "country": "中国",
+      "source_type": "website",
+      "authority_type": "official",
+      "priority": "high",
+      "topics": [
+        "广告合规",
+        "行政处罚",
+        "广告合规及处罚案例",
+        "中国"
+      ]
+    },
+    {
+      "id": "src-007-scjgj-gz-gov-cn",
+      "name": "广州市市场监督管理局",
+      "url": "http://scjgj.gz.gov.cn/",
+      "module": "广告合规及处罚案例",
+      "region": "亚洲",
+      "country": "中国",
+      "source_type": "website",
+      "authority_type": "official",
+      "priority": "high",
+      "topics": [
+        "广告合规",
+        "行政处罚",
+        "广告合规及处罚案例",
+        "中国"
+      ]
+    },
+    {
+      "id": "src-008-mpa-zj-gov-cn",
+      "name": "浙江省药品监督管理局",
+      "url": "http://mpa.zj.gov.cn/",
+      "module": "新规及案例动态",
+      "region": "亚洲",
+      "country": "中国",
+      "source_type": "website",
+      "authority_type": "official",
+      "priority": "high",
+      "topics": [
+        "药监",
+        "新规及案例动态",
+        "中国"
+      ]
+    },
+    {
+      "id": "src-009-zjamr-zj-gov-cn",
+      "name": "浙江省市场监督管理局",
+      "url": "http://zjamr.zj.gov.cn/",
+      "module": "广告合规及处罚案例",
+      "region": "亚洲",
+      "country": "中国",
+      "source_type": "website",
+      "authority_type": "official",
+      "priority": "high",
+      "topics": [
+        "广告合规",
+        "行政处罚",
+        "广告合规及处罚案例",
+        "中国"
+      ]
+    },
+    {
+      "id": "src-010-amr-gd-gov-cn",
+      "name": "广东省市场监督管理局",
+      "url": "http://amr.gd.gov.cn/?consultId=0ed2f923df9b4652b8414d3dce06eabf",
+      "module": "广告合规及处罚案例",
+      "region": "亚洲",
+      "country": "中国",
+      "source_type": "website",
+      "authority_type": "official",
+      "priority": "high",
+      "topics": [
+        "广告合规",
+        "行政处罚",
+        "广告合规及处罚案例",
+        "中国"
+      ]
+    },
+    {
+      "id": "src-011-samr-gov-cn",
+      "name": "国家市场监督管理总局广告监管司",
+      "url": "https://www.samr.gov.cn/ggjgs/index.html",
+      "module": "广告合规及处罚案例",
+      "region": "亚洲",
+      "country": "中国",
+      "source_type": "website",
+      "authority_type": "official",
+      "priority": "high",
+      "topics": [
+        "广告合规",
+        "行政处罚",
+        "广告合规及处罚案例",
+        "中国"
+      ]
+    },
+    {
+      "id": "src-012-source-12",
+      "name": "市场监管半月沙龙",
+      "url": "微信公众号",
+      "module": "uncategorized",
+      "region": "全球",
+      "country": "未分类",
+      "source_type": "website",
+      "authority_type": "industry",
+      "priority": "low",
+      "topics": [
+        "美妆法务"
+      ]
+    },
+    {
+      "id": "src-013-zjmyjj-cn",
+      "name": "浙江省广告监测中心",
+      "url": "http://www.zjmyjj.cn/portalnews/index.html",
+      "module": "美妆动态",
+      "region": "亚洲",
+      "country": "中国",
+      "source_type": "website",
+      "authority_type": "industry",
+      "priority": "low",
+      "topics": [
+        "美妆",
+        "广告合规",
+        "美妆动态",
+        "中国"
+      ]
+    },
+    {
+      "id": "src-014-source-14",
+      "name": "浙江美妆",
+      "url": "微信公众号",
+      "module": "美妆动态",
+      "region": "亚洲",
+      "country": "中国",
+      "source_type": "website",
+      "authority_type": "industry",
+      "priority": "low",
+      "topics": [
+        "美妆",
+        "美妆动态",
+        "中国"
+      ]
+    },
+    {
+      "id": "src-015-source-15",
+      "name": "美妆品牌合规指引",
+      "url": "微信公众号",
+      "module": "美妆动态",
+      "region": "全球",
+      "country": "未分类",
+      "source_type": "website",
+      "authority_type": "industry",
+      "priority": "low",
+      "topics": [
+        "美妆",
+        "美妆动态"
+      ]
+    },
+    {
+      "id": "src-016-source-16",
+      "name": "化妆品报",
+      "url": "微信公众号",
+      "module": "美妆动态",
+      "region": "全球",
+      "country": "未分类",
+      "source_type": "website",
+      "authority_type": "industry",
+      "priority": "low",
+      "topics": [
+        "化妆品",
+        "美妆",
+        "美妆动态"
+      ]
+    },
+    {
+      "id": "src-017-source-17",
+      "name": "化妆品观察",
+      "url": "微信公众号",
+      "module": "美妆动态",
+      "region": "全球",
+      "country": "未分类",
+      "source_type": "website",
+      "authority_type": "industry",
+      "priority": "low",
+      "topics": [
+        "化妆品",
+        "美妆",
+        "美妆动态"
+      ]
+    },
+    {
+      "id": "src-018-source-18",
+      "name": "化妆品法规服务站",
+      "url": "微信公众号",
+      "module": "美妆动态",
+      "region": "全球",
+      "country": "未分类",
+      "source_type": "website",
+      "authority_type": "industry",
+      "priority": "low",
+      "topics": [
+        "化妆品",
+        "美妆",
+        "美妆动态"
+      ]
+    },
+    {
+      "id": "src-019-source-19",
+      "name": "互联网合规君",
+      "url": "微信公众号",
+      "module": "uncategorized",
+      "region": "全球",
+      "country": "未分类",
+      "source_type": "website",
+      "authority_type": "industry",
+      "priority": "low",
+      "topics": [
+        "美妆法务"
+      ]
+    },
+    {
+      "id": "src-020-source-20",
+      "name": "化妆品报",
+      "url": "微信公众号",
+      "module": "美妆动态",
+      "region": "全球",
+      "country": "未分类",
+      "source_type": "website",
+      "authority_type": "industry",
+      "priority": "low",
+      "topics": [
+        "化妆品",
+        "美妆",
+        "美妆动态"
+      ]
+    },
+    {
+      "id": "src-021-source-21",
+      "name": "化妆品行业传媒网",
+      "url": "微信公众号",
+      "module": "美妆动态",
+      "region": "全球",
+      "country": "未分类",
+      "source_type": "website",
+      "authority_type": "industry",
+      "priority": "low",
+      "topics": [
+        "化妆品",
+        "美妆",
+        "美妆动态"
+      ]
+    },
+    {
+      "id": "src-022-source-22",
+      "name": "饭米粒law",
+      "url": "微信公众号",
+      "module": "uncategorized",
+      "region": "全球",
+      "country": "未分类",
+      "source_type": "website",
+      "authority_type": "industry",
+      "priority": "low",
+      "topics": [
+        "美妆法务"
+      ]
+    },
+    {
+      "id": "src-023-source-23",
+      "name": "美妆头条",
+      "url": "微信公众号",
+      "module": "美妆动态",
+      "region": "全球",
+      "country": "未分类",
+      "source_type": "website",
+      "authority_type": "industry",
+      "priority": "low",
+      "topics": [
+        "美妆",
+        "美妆动态"
+      ]
+    },
+    {
+      "id": "src-024-source-24",
+      "name": "质美妆规",
+      "url": "微信公众号",
+      "module": "美妆动态",
+      "region": "全球",
+      "country": "未分类",
+      "source_type": "website",
+      "authority_type": "industry",
+      "priority": "low",
+      "topics": [
+        "美妆",
+        "美妆动态"
+      ]
+    },
+    {
+      "id": "src-025-source-25",
+      "name": "妆研24小时",
+      "url": "微信公众号",
+      "module": "uncategorized",
+      "region": "全球",
+      "country": "未分类",
+      "source_type": "website",
+      "authority_type": "industry",
+      "priority": "low",
+      "topics": [
+        "美妆法务"
+      ]
+    },
+    {
+      "id": "src-026-source-26",
+      "name": "妆规情报局",
+      "url": "微信公众号",
+      "module": "uncategorized",
+      "region": "全球",
+      "country": "未分类",
+      "source_type": "website",
+      "authority_type": "industry",
+      "priority": "low",
+      "topics": [
+        "美妆法务"
+      ]
+    },
+    {
+      "id": "src-027-source-27",
+      "name": "妆研24小时",
+      "url": "微信公众号",
+      "module": "uncategorized",
+      "region": "全球",
+      "country": "未分类",
+      "source_type": "website",
+      "authority_type": "industry",
+      "priority": "low",
+      "topics": [
+        "美妆法务"
+      ]
+    },
+    {
+      "id": "src-028-gippc-com-cn",
+      "name": "广东省知识产权保护中心",
+      "url": "https://www.gippc.com.cn/",
+      "module": "知识产权动态",
+      "region": "亚洲",
+      "country": "中国",
+      "source_type": "website",
+      "authority_type": "industry",
+      "priority": "low",
+      "topics": [
+        "知识产权",
+        "知识产权动态",
+        "中国"
+      ]
+    },
+    {
+      "id": "src-029-cnipa-gov-cn",
+      "name": "国家知识产权局",
+      "url": "https://www.cnipa.gov.cn/",
+      "module": "知识产权动态",
+      "region": "亚洲",
+      "country": "中国",
+      "source_type": "website",
+      "authority_type": "official",
+      "priority": "high",
+      "topics": [
+        "知识产权",
+        "知识产权动态",
+        "中国"
+      ]
+    },
+    {
+      "id": "src-030-sbj-cnipa-gov-cn",
+      "name": "国家知识产权局商标局",
+      "url": "https://sbj.cnipa.gov.cn/sbj/index.html",
+      "module": "知识产权动态",
+      "region": "亚洲",
+      "country": "中国",
+      "source_type": "website",
+      "authority_type": "official",
+      "priority": "high",
+      "topics": [
+        "知识产权",
+        "知识产权动态",
+        "中国"
+      ]
+    },
+    {
+      "id": "src-031-ggfw-cnipa-gov-cn-8010",
+      "name": "国家知识产权公共服务网",
+      "url": "http://ggfw.cnipa.gov.cn:8010/PatentCMS_Center/",
+      "module": "知识产权动态",
+      "region": "亚洲",
+      "country": "中国",
+      "source_type": "website",
+      "authority_type": "official",
+      "priority": "high",
+      "topics": [
+        "知识产权",
+        "知识产权动态",
+        "中国"
+      ]
+    },
+    {
+      "id": "src-032-zscq-scjg-hangzhou-gov-cn",
+      "name": "杭州知识产权运营公共服务平台",
+      "url": "https://zscq.scjg.hangzhou.gov.cn/",
+      "module": "知识产权动态",
+      "region": "亚洲",
+      "country": "中国",
+      "source_type": "website",
+      "authority_type": "official",
+      "priority": "high",
+      "topics": [
+        "知识产权",
+        "知识产权动态",
+        "中国"
+      ]
+    },
+    {
+      "id": "src-033-zscqj-beijing-gov-cn",
+      "name": "北京市知识产权局",
+      "url": "http://zscqj.beijing.gov.cn/",
+      "module": "知识产权动态",
+      "region": "亚洲",
+      "country": "中国",
+      "source_type": "website",
+      "authority_type": "official",
+      "priority": "high",
+      "topics": [
+        "知识产权",
+        "知识产权动态",
+        "中国"
+      ]
+    },
+    {
+      "id": "src-034-source-34",
+      "name": "知识产权家",
+      "url": "微信公众号",
+      "module": "知识产权动态",
+      "region": "全球",
+      "country": "未分类",
+      "source_type": "website",
+      "authority_type": "industry",
+      "priority": "low",
+      "topics": [
+        "知识产权",
+        "知识产权动态"
+      ]
+    },
+    {
+      "id": "src-035-source-35",
+      "name": "知产库",
+      "url": "微信公众号",
+      "module": "uncategorized",
+      "region": "全球",
+      "country": "未分类",
+      "source_type": "website",
+      "authority_type": "industry",
+      "priority": "low",
+      "topics": [
+        "美妆法务"
+      ]
+    },
+    {
+      "id": "src-036-source-36",
+      "name": "知产力",
+      "url": "微信公众号",
+      "module": "uncategorized",
+      "region": "全球",
+      "country": "未分类",
+      "source_type": "website",
+      "authority_type": "industry",
+      "priority": "low",
+      "topics": [
+        "美妆法务"
+      ]
+    },
+    {
+      "id": "src-037-source-37",
+      "name": "知识产权法律服务",
+      "url": "微信公众号",
+      "module": "知识产权动态",
+      "region": "全球",
+      "country": "未分类",
+      "source_type": "website",
+      "authority_type": "industry",
+      "priority": "low",
+      "topics": [
+        "知识产权",
+        "知识产权动态"
+      ]
+    },
+    {
+      "id": "src-038-cta-org-cn",
+      "name": "中华商标协会",
+      "url": "http://www.cta.org.cn/",
+      "module": "uncategorized",
+      "region": "亚洲",
+      "country": "中国",
+      "source_type": "website",
+      "authority_type": "industry",
+      "priority": "low",
+      "topics": [
+        "中国"
+      ]
+    },
+    {
+      "id": "src-039-spp-gov-cn",
+      "name": "中华人民共和国最高人民检察院",
+      "url": "https://www.spp.gov.cn/",
+      "module": "新规及案例动态",
+      "region": "亚洲",
+      "country": "中国",
+      "source_type": "website",
+      "authority_type": "official",
+      "priority": "high",
+      "topics": [
+        "执法案例",
+        "新规及案例动态",
+        "中国"
+      ]
+    },
+    {
+      "id": "src-040-moj-gov-cn",
+      "name": "中华人民共和国司法部",
+      "url": "http://www.moj.gov.cn/pub/sfbgw/index.html",
+      "module": "uncategorized",
+      "region": "亚洲",
+      "country": "中国",
+      "source_type": "website",
+      "authority_type": "official",
+      "priority": "high",
+      "topics": [
+        "中国"
+      ]
+    },
+    {
+      "id": "src-041-npc-gov-cn",
+      "name": "中国人大网",
+      "url": "http://www.npc.gov.cn/",
+      "module": "uncategorized",
+      "region": "亚洲",
+      "country": "中国",
+      "source_type": "website",
+      "authority_type": "official",
+      "priority": "high",
+      "topics": [
+        "中国"
+      ]
+    },
+    {
+      "id": "src-042-source-42",
+      "name": "法大大",
+      "url": "微信公众号",
+      "module": "uncategorized",
+      "region": "全球",
+      "country": "未分类",
+      "source_type": "website",
+      "authority_type": "industry",
+      "priority": "low",
+      "topics": [
+        "美妆法务"
+      ]
+    },
+    {
+      "id": "src-043-source-43",
+      "name": "民法典普法",
+      "url": "微信公众号",
+      "module": "uncategorized",
+      "region": "全球",
+      "country": "未分类",
+      "source_type": "website",
+      "authority_type": "industry",
+      "priority": "low",
+      "topics": [
+        "美妆法务"
+      ]
+    },
+    {
+      "id": "src-044-source-44",
+      "name": "人民法院报",
+      "url": "微信公众号",
+      "module": "新规及案例动态",
+      "region": "全球",
+      "country": "未分类",
+      "source_type": "website",
+      "authority_type": "official",
+      "priority": "high",
+      "topics": [
+        "判决案例",
+        "新规及案例动态"
+      ]
+    },
+    {
+      "id": "src-045-source-45",
+      "name": "保全与执行",
+      "url": "微信公众号",
+      "module": "uncategorized",
+      "region": "全球",
+      "country": "未分类",
+      "source_type": "website",
+      "authority_type": "industry",
+      "priority": "low",
+      "topics": [
+        "美妆法务"
+      ]
+    },
+    {
+      "id": "src-046-source-46",
+      "name": "中国法律评论",
+      "url": "微信公众号",
+      "module": "uncategorized",
+      "region": "亚洲",
+      "country": "中国",
+      "source_type": "website",
+      "authority_type": "industry",
+      "priority": "low",
+      "topics": [
+        "中国"
+      ]
+    },
+    {
+      "id": "src-047-source-47",
+      "name": "最高人民法院司法案例研究院",
+      "url": "微信公众号",
+      "module": "新规及案例动态",
+      "region": "全球",
+      "country": "未分类",
+      "source_type": "website",
+      "authority_type": "official",
+      "priority": "high",
+      "topics": [
+        "判决案例",
+        "新规及案例动态"
+      ]
+    },
+    {
+      "id": "src-048-source-48",
+      "name": "劳动法库",
+      "url": "微信公众号",
+      "module": "uncategorized",
+      "region": "全球",
+      "country": "未分类",
+      "source_type": "website",
+      "authority_type": "industry",
+      "priority": "low",
+      "topics": [
+        "美妆法务"
+      ]
+    },
+    {
+      "id": "src-049-source-49",
+      "name": "最高判例指引",
+      "url": "微信公众号",
+      "module": "uncategorized",
+      "region": "全球",
+      "country": "未分类",
+      "source_type": "website",
+      "authority_type": "industry",
+      "priority": "low",
+      "topics": [
+        "美妆法务"
+      ]
+    },
+    {
+      "id": "src-050-source-50",
+      "name": "海关发布",
+      "url": "微信公众号",
+      "module": "进出口动态",
+      "region": "亚洲",
+      "country": "中国",
+      "source_type": "website",
+      "authority_type": "official",
+      "priority": "high",
+      "topics": [
+        "进出口",
+        "进出口动态",
+        "中国"
+      ]
+    },
+    {
+      "id": "src-051-source-51",
+      "name": "海运网",
+      "url": "微信公众号",
+      "module": "uncategorized",
+      "region": "全球",
+      "country": "未分类",
+      "source_type": "website",
+      "authority_type": "industry",
+      "priority": "low",
+      "topics": [
+        "美妆法务"
+      ]
+    },
+    {
+      "id": "src-052-source-52",
+      "name": "青眼",
+      "url": "微信公众号",
+      "module": "uncategorized",
+      "region": "全球",
+      "country": "未分类",
+      "source_type": "website",
+      "authority_type": "industry",
+      "priority": "low",
+      "topics": [
+        "美妆法务"
+      ]
+    },
+    {
+      "id": "src-053-source-53",
+      "name": "青眼号外",
+      "url": "微信公众号",
+      "module": "uncategorized",
+      "region": "全球",
+      "country": "未分类",
+      "source_type": "website",
+      "authority_type": "industry",
+      "priority": "low",
+      "topics": [
+        "美妆法务"
+      ]
+    },
+    {
+      "id": "src-054-source-54",
+      "name": "青眼资讯",
+      "url": "微信公众号",
+      "module": "uncategorized",
+      "region": "全球",
+      "country": "未分类",
+      "source_type": "website",
+      "authority_type": "industry",
+      "priority": "low",
+      "topics": [
+        "美妆法务"
+      ]
+    },
+    {
+      "id": "src-055-source-55",
+      "name": "关务小二",
+      "url": "微信公众号",
+      "module": "uncategorized",
+      "region": "全球",
+      "country": "未分类",
+      "source_type": "website",
+      "authority_type": "industry",
+      "priority": "low",
+      "topics": [
+        "美妆法务"
+      ]
+    },
+    {
+      "id": "src-056-source-56",
+      "name": "海关发布",
+      "url": "微信公众号",
+      "module": "进出口动态",
+      "region": "亚洲",
+      "country": "中国",
+      "source_type": "website",
+      "authority_type": "official",
+      "priority": "high",
+      "topics": [
+        "进出口",
+        "进出口动态",
+        "中国"
+      ]
+    },
+    {
+      "id": "src-057-source-57",
+      "name": "进出口法律评析",
+      "url": "微信公众号",
+      "module": "uncategorized",
+      "region": "全球",
+      "country": "未分类",
+      "source_type": "website",
+      "authority_type": "industry",
+      "priority": "low",
+      "topics": [
+        "进出口"
+      ]
+    },
+    {
+      "id": "src-058-source-58",
+      "name": "观海咨询",
+      "url": "微信公众号",
+      "module": "uncategorized",
+      "region": "全球",
+      "country": "未分类",
+      "source_type": "website",
+      "authority_type": "industry",
+      "priority": "low",
+      "topics": [
+        "美妆法务"
+      ]
+    },
+    {
+      "id": "src-059-source-59",
+      "name": "潍坊综合保税区",
+      "url": "微信公众号",
+      "module": "uncategorized",
+      "region": "全球",
+      "country": "未分类",
+      "source_type": "website",
+      "authority_type": "industry",
+      "priority": "low",
+      "topics": [
+        "美妆法务"
+      ]
+    },
+    {
+      "id": "src-060-source-60",
+      "name": "欣海关务工作室",
+      "url": "微信公众号",
+      "module": "进出口动态",
+      "region": "亚洲",
+      "country": "中国",
+      "source_type": "website",
+      "authority_type": "official",
+      "priority": "high",
+      "topics": [
+        "进出口",
+        "进出口动态",
+        "中国"
+      ]
+    },
+    {
+      "id": "src-061-nanjing-customs-gov-cn",
+      "name": "海关总署",
+      "url": "http://nanjing.customs.gov.cn/customs/syx/index.html",
+      "module": "进出口动态",
+      "region": "亚洲",
+      "country": "中国",
+      "source_type": "website",
+      "authority_type": "official",
+      "priority": "high",
+      "topics": [
+        "进出口",
+        "进出口动态",
+        "中国"
+      ]
+    },
+    {
+      "id": "src-062-source-62",
+      "name": "跨境进口老歪",
+      "url": "微信公众号",
+      "module": "uncategorized",
+      "region": "全球",
+      "country": "未分类",
+      "source_type": "website",
+      "authority_type": "industry",
+      "priority": "low",
+      "topics": [
+        "跨境电商"
+      ]
+    },
+    {
+      "id": "src-063-source-63",
+      "name": "杭州海关发布",
+      "url": "微信公众号",
+      "module": "进出口动态",
+      "region": "亚洲",
+      "country": "中国",
+      "source_type": "website",
+      "authority_type": "official",
+      "priority": "high",
+      "topics": [
+        "进出口",
+        "进出口动态",
+        "中国"
+      ]
+    },
+    {
+      "id": "src-064-source-64",
+      "name": "欣海关务工作室",
+      "url": "微信公众号",
+      "module": "进出口动态",
+      "region": "亚洲",
+      "country": "中国",
+      "source_type": "website",
+      "authority_type": "official",
+      "priority": "high",
+      "topics": [
+        "进出口",
+        "进出口动态",
+        "中国"
+      ]
+    },
+    {
+      "id": "src-065-source-65",
+      "name": "GOODHONOR嘉诚国际",
+      "url": "微信公众号",
+      "module": "uncategorized",
+      "region": "全球",
+      "country": "未分类",
+      "source_type": "website",
+      "authority_type": "industry",
+      "priority": "low",
+      "topics": [
+        "美妆法务"
+      ]
+    },
+    {
+      "id": "src-066-source-66",
+      "name": "宁波广电（公众号）",
+      "url": "微信公众号",
+      "module": "uncategorized",
+      "region": "全球",
+      "country": "未分类",
+      "source_type": "website",
+      "authority_type": "industry",
+      "priority": "low",
+      "topics": [
+        "美妆法务"
+      ]
+    },
+    {
+      "id": "src-067-source-67",
+      "name": "首席电商观察",
+      "url": "微信公众号",
+      "module": "uncategorized",
+      "region": "全球",
+      "country": "未分类",
+      "source_type": "website",
+      "authority_type": "industry",
+      "priority": "low",
+      "topics": [
+        "美妆法务"
+      ]
+    },
+    {
+      "id": "src-068-source-68",
+      "name": "数字经济联合会",
+      "url": "微信公众号",
+      "module": "uncategorized",
+      "region": "全球",
+      "country": "未分类",
+      "source_type": "website",
+      "authority_type": "industry",
+      "priority": "low",
+      "topics": [
+        "美妆法务"
+      ]
+    },
+    {
+      "id": "src-069-cac-gov-cn",
+      "name": "国家网信办官网",
+      "url": "https://www.cac.gov.cn/index.htm",
+      "module": "uncategorized",
+      "region": "亚洲",
+      "country": "中国",
+      "source_type": "website",
+      "authority_type": "official",
+      "priority": "high",
+      "topics": [
+        "中国"
+      ]
+    }
+  ]
+}
