@@ -527,10 +527,34 @@ export function validateReport(report) {
   return true;
 }
 
-export function filterReportQuality(report) {
+function defaultDynamicAnalysis(item) {
+  const source = item.source_name || '该来源';
+  const title = item.title || '该动态';
+  return {
+    regulatory_signal: [`${source}发布或更新了与${item.module || item.type || '美妆法务'}相关的信息：${title}。`],
+    compliance_meaning: [item.why_it_matters || '该动态可能影响集团相关市场的法务、注册、供应链、市场或电商运营判断，需结合业务覆盖范围核验。'],
+    possible_follow_up: item.recommended_actions || [`建议法务团队核验${source}原文，并判断是否需要更新内部合规清单。`],
+  };
+}
+
+export function normalizeReportForValidation(report) {
   return {
     ...report,
     sections: (report.sections || []).map(section => ({
+      ...section,
+      items: (section.items || []).map(item => {
+        if (item.type !== '动态') return item;
+        return { ...defaultDynamicAnalysis(item), ...item };
+      }),
+    })),
+  };
+}
+
+export function filterReportQuality(report) {
+  const normalizedReport = normalizeReportForValidation(report);
+  return {
+    ...normalizedReport,
+    sections: (normalizedReport.sections || []).map(section => ({
       ...section,
       items: (section.items || []).filter(item => {
         if (!hasValue(item.source_url)) return false;
@@ -540,7 +564,7 @@ export function filterReportQuality(report) {
           && hasSpecificActions(item);
         if (item.confidence === 'low' && item.relevance !== 'direct' && item.industry_impact !== 'high' && !allowLeadSignal) return false;
         try {
-          validateReport({ ...report, sections: [{ ...section, items: [item] }] });
+          validateReport({ ...normalizedReport, sections: [{ ...section, items: [item] }] });
           return true;
         } catch {
           return false;

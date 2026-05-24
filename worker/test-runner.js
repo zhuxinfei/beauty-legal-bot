@@ -24,6 +24,7 @@ import {
   filterReportQuality,
   limitReportSections,
   buildAnalysisPrompt,
+  normalizeReportForValidation,
   makeSourceLeadCandidate,
   normalizeModuleReport,
   enrichReportWithSourceSignals,
@@ -155,6 +156,35 @@ function testFilterReportQualityKeepsLeadBasedBeautyAndImportSignals() {
   report.sections = [{ module: '进出口动态', items: [leadItem] }];
   const filtered = filterReportQuality(report);
   assert.equal(filtered.sections[0].items.length, 1);
+}
+
+function testNormalizeReportForValidationFillsDynamicAnalysisFields() {
+  const report = structuredClone(sampleReport);
+  const dynamicItem = {
+    type: '动态',
+    module: '美妆动态',
+    region: '亚洲',
+    country: '中国',
+    title: '广州市市场监督管理局关于开展2026年化妆品生产企业质量管理体系自查工作的通知',
+    source_name: '广州市市场监督管理局',
+    source_url: 'https://scjgj.gz.gov.cn/',
+    source_type: 'regulator',
+    published_at: '2026-05-24',
+    relevance: 'direct',
+    industry_impact: 'medium',
+    business_impact: ['注册备案', '供应链'],
+    market_scope: ['中国化妆品生产企业'],
+    risk_level: 'medium',
+    why_it_matters: '质量管理体系自查会影响集团供应商准入和生产合规审查。',
+    recommended_actions: ['建议供应链团队在本周核对广州相关供应商是否完成质量管理体系自查。'],
+    owner_teams: ['供应链', '法务'],
+    confidence: 'high',
+  };
+  report.sections = [{ module: '美妆动态', items: [dynamicItem] }];
+  assert.throws(() => validateReport(report), /regulatory_signal/);
+  const normalized = normalizeReportForValidation(report);
+  assert.equal(validateReport(normalized), true);
+  assert.ok(normalized.sections[0].items[0].regulatory_signal[0].includes('广州市市场监督管理局'));
 }
 
 function testLimitReportSectionsKeepsEnterpriseModuleDepth() {
@@ -611,6 +641,7 @@ testValidateReport();
 testValidateReportRequiresRegulationAnalysis();
 testFilterReportQualityDropsItemsWithoutSourceUrl();
 testFilterReportQualityKeepsLeadBasedBeautyAndImportSignals();
+testNormalizeReportForValidationFillsDynamicAnalysisFields();
 testLimitReportSectionsKeepsEnterpriseModuleDepth();
 testRenderReportHtml();
 testRenderReportHtmlShowsEvidenceImageWhenAvailable();
