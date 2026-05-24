@@ -6,6 +6,8 @@ import {
   getSourceStats,
   makeCandidate,
   isRelevantTitle,
+  parseAnalysisJson,
+  validateReport,
 } from './index.js';
 
 function testNormalizeUrl() {
@@ -68,10 +70,27 @@ function testMakeCandidate() {
   assert.equal(candidate.module, '新规及案例动态');
 }
 
+function testParseAnalysisJson() {
+  const parsed = parseAnalysisJson('```json\n{"summary":["a"],"risk_alerts":[],"sections":[],"period":{"start":"2026-05-18","end":"2026-05-24"}}\n```');
+  assert.deepEqual(parsed.summary, ['a']);
+}
+
+function testValidateReport() {
+  const report = {
+    period: { start: '2026-05-18', end: '2026-05-24' },
+    summary: ['风险'],
+    risk_alerts: [{ level: 'high', text: '测试' }],
+    sections: [{ module: '新规/修订/废止', items: [] }],
+  };
+  assert.equal(validateReport(report), true);
+}
+
 testNormalizeUrl();
 testHtmlToText();
 testExtractLinks();
 testGetSourceStats();
 testIsRelevantTitle();
 testMakeCandidate();
+testParseAnalysisJson();
+testValidateReport();
 console.log('worker pure function tests ok');
