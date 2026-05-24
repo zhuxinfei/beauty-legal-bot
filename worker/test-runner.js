@@ -19,6 +19,7 @@ import {
   splitSources,
   filterReportQuality,
   limitReportSections,
+  buildAnalysisPrompt,
 } from './index.js';
 
 function testNormalizeUrl() {
@@ -123,12 +124,29 @@ function testRenderReportHtml() {
   assert.ok(html.includes('<!doctype html>'));
   assert.ok(html.includes('美妆法务周报'));
   assert.ok(html.includes('https://www.pom.go.id/'));
+  assert.ok(html.includes('变化点'));
+  assert.ok(html.includes('法务拆解'));
+  assert.ok(html.includes('违法逻辑'));
+  assert.ok(html.includes('合规动作'));
 }
 
 function testRenderFeishuSummary() {
   const summary = renderFeishuSummary(sampleReport, 'https://example.com/report/latest');
   assert.ok(summary.includes('打开完整周报'));
   assert.ok(summary.includes('https://example.com/report/latest'));
+  assert.ok(summary.includes('动作：'));
+}
+
+function testBuildAnalysisPromptIncludesLeads() {
+  const prompt = buildAnalysisPrompt({
+    candidates: [{ title: '法规候选', url: 'https://example.com/a', source_name: '官方源' }],
+    leads: [{ name: '化妆品观察', source_type: 'wechat_public_account', topics: ['化妆品'] }],
+    sources: [],
+    period: { start: '2026-05-18', end: '2026-05-24' },
+  });
+  assert.ok(prompt.includes('leads'));
+  assert.ok(prompt.includes('公众号线索不是事实来源'));
+  assert.ok(prompt.includes('不要输出未加工新闻'));
 }
 
 function testReportKeys() {
@@ -178,6 +196,7 @@ testFilterReportQualityDropsItemsWithoutSourceUrl();
 testLimitReportSectionsCapsNonRegulatoryModules();
 testRenderReportHtml();
 testRenderFeishuSummary();
+testBuildAnalysisPromptIncludesLeads();
 testReportKeys();
 testDedupeReportRemovesRepeatedItems();
 testExtractReportFingerprintsUsesItems();

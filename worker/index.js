@@ -409,8 +409,14 @@ function getPeriod(now = new Date()) {
   return { start: start.toISOString().slice(0, 10), end: end.toISOString().slice(0, 10) };
 }
 
-function buildAnalysisPrompt({ candidates, sources, period }) {
-  return `你是跨境美妆企业法务情报分析员。只基于候选信息生成 JSON，不要编造 URL，不要使用候选外信息。
+export function buildAnalysisPrompt({ candidates, leads = [], sources, period }) {
+  return `你是跨境美妆企业法务情报分析员。你的用户是美妆公司法务/合规/注册人员。不要输出未加工新闻，必须把信息拆解成法务情报。
+
+重要来源规则：
+- candidates 是带公开 URL 的候选，最终 item 必须来自 candidates 或可公开验证的 URL。
+- leads 是公众号或不可抓来源的线索；公众号线索不是事实来源，只能提示选题方向。
+- 禁止把公众号名称、行业传言或无公开链接内容当成最终事实。
+- 每条最终资讯必须包含公开原文 source_url，不能编造 URL。
 
 时间窗口：
 - 法规：过去 14 天发布，或未来 90 天进入生效/反馈/认证/过渡期节点。
@@ -422,39 +428,58 @@ function buildAnalysisPrompt({ candidates, sources, period }) {
 - 每条最终资讯必须包含候选里的原文 URL，字段名 source_url。
 - 同一事项保留官方源或信息最完整来源。
 - 输出必须是合法 JSON，不要 Markdown。
+- 法规和案例必须做拆解，不能只写摘要。
+- 禁止输出“建议关注”“持续关注”“企业应留意”等空泛动作。
 
 输出结构：
 {
   "period": { "start": "${period.start}", "end": "${period.end}" },
-  "summary": ["3-5条执行摘要"],
+  "summary": ["3-5条执行摘要，必须体现风险和动作"],
   "risk_alerts": [{ "level": "high|medium|low", "text": "风险提醒" }],
   "sections": [{
-    "module": "新规/修订/废止|广告合规及处罚案例|美妆行业动态|知识产权动态|进出口/跨境电商动态",
+    "module": "新规/修订/废止/生效提醒|广告合规及处罚案例|美妆行业动态|知识产权动态|进出口/跨境电商动态",
     "items": [{
       "type": "法规|案例|动态|IP|进出口",
+      "module": "模块名称",
       "region": "区域",
       "country": "国家",
       "title": "标题",
       "source_name": "来源名称",
-      "source_url": "候选原文URL",
+      "source_url": "公开原文URL",
       "published_at": "YYYY-MM-DD或未知",
-      "status": "征求意见|正式发布|生效提醒|废止|公开案例|动态",
-      "content": ["核心内容"],
-      "impact_scope": ["影响范围"],
-      "analysis": "为什么重要",
-      "action": "建议动作"
+      "risk_level": "high|medium|low",
+      "why_it_matters": "为什么值得美妆公司法务关注",
+      "recommended_actions": ["具体动作：谁在什么时间排查/更新/提交什么"],
+      "owner_teams": ["法务|注册|供应链|电商|市场"],
+      "confidence": "high|medium|low",
+      "status": "法规状态，仅法规必填",
+      "effective_date": "生效日或未知，仅法规",
+      "feedback_deadline": "反馈截止日或未知，仅法规",
+      "regulatory_area": "备案|注册|标签|功效宣称|配方|原料|广告|进出口|认证，仅法规",
+      "what_changed": ["变化点，仅法规"],
+      "legal_obligation": ["企业义务，仅法规"],
+      "affected_business": ["影响市场/渠道/品类/SKU/团队，仅法规"],
+      "next_deadline": "下一关键日期或未知，仅法规",
+      "case_type": "行政处罚|民事判决|刑事案件|召回|监管通报，仅案例",
+      "parties": "涉事主体或未知，仅案例",
+      "facts": ["案情事实，仅案例"],
+      "violation_logic": ["监管/法院认定逻辑，仅案例"],
+      "penalty_or_result": ["处罚/判决/处理结果，仅案例"],
+      "risk_pattern": "功效宣称|虚假广告|标签瑕疵|未备案|IP侵权|进口不合规|平台规则，仅案例",
+      "business_lessons": ["业务启示，仅案例"]
     }]
   }]
 }
 
 信息源统计：${JSON.stringify(getSourceStats(sources))}
-候选信息：${JSON.stringify(candidates.slice(0, 80))}`;
+候选信息 candidates：${JSON.stringify(candidates.slice(0, 80))}
+线索 leads（只作选题方向，不是事实来源）：${JSON.stringify(leads.slice(0, 80))}`;
 }
 
-async function deepseekAnalyze({ apiKey, model, candidates, sources = sourceCatalog.sources, period = getPeriod() }) {
+async function deepseekAnalyze({ apiKey, model, candidates, leads = [], sources = sourceCatalog.sources, period = getPeriod() }) {
   const messages = [
     { role: 'system', content: '你只输出合法 JSON。不要输出解释、Markdown 或代码块。' },
-    { role: 'user', content: buildAnalysisPrompt({ candidates, sources, period }) },
+    { role: 'user', content: buildAnalysisPrompt({ candidates, leads, sources, period }) },
   ];
 
   for (let attempt = 0; attempt < 2; attempt++) {
@@ -487,6 +512,54 @@ function renderList(values, className = '') {
   return `<ul class="${className}">${items.map(item => `<li>${escapeHtml(item)}</li>`).join('')}</ul>`;
 }
 
+function renderField(label, values, className = 'compact-list') {
+  const list = Array.isArray(values) ? values : (values ? [values] : []);
+  if (!list.length) return '';
+  return `<div class="analysis-block"><h4>${escapeHtml(label)}</h4>${renderList(list, className)}</div>`;
+}
+
+function renderItemAnalysis(item) {
+  if (item.type === '法规') {
+    return [
+      renderField('变化点', item.what_changed),
+      renderField('法务拆解', item.legal_obligation),
+      renderField('影响范围', item.affected_business, 'scope-list'),
+      renderField('合规动作', item.recommended_actions),
+      renderField('截止节点', item.next_deadline || item.effective_date || item.feedback_deadline),
+    ].join('');
+  }
+  if (item.type === '案例') {
+    return [
+      renderField('案情', item.facts),
+      renderField('违法逻辑', item.violation_logic),
+      renderField('处罚/结果', item.penalty_or_result),
+      renderField('业务启示', item.business_lessons),
+      renderField('排查动作', item.recommended_actions),
+    ].join('');
+  }
+  if (item.type === 'IP') {
+    return [
+      renderField('争议焦点', item.dispute_focus),
+      renderField('侵权逻辑', item.infringement_logic),
+      renderField('品牌资产影响', item.impact_on_brand_assets),
+      renderField('合规动作', item.recommended_actions),
+    ].join('');
+  }
+  if (item.type === '进出口') {
+    return [
+      renderField('准入/清关变化', item.market_access_change),
+      renderField('影响流程', item.affected_import_flow),
+      renderField('所需文件', item.documents_needed),
+      renderField('合规动作', item.recommended_actions),
+    ].join('');
+  }
+  return [
+    renderField('监管信号', item.regulatory_signal),
+    renderField('合规意义', item.compliance_meaning),
+    renderField('后续动作', item.possible_follow_up || item.recommended_actions),
+  ].join('');
+}
+
 function riskLabel(level) {
   const labels = { high: '高风险', medium: '中风险', low: '低风险' };
   return labels[level] || level || '风险';
@@ -513,10 +586,8 @@ export function renderReportHtml(report, { generatedAt = new Date().toISOString(
         </div>
         <h3>${escapeHtml(item.title)}</h3>
         <a class="source-link" href="${escapeHtml(item.source_url)}" target="_blank" rel="noopener noreferrer">原文：${escapeHtml(item.source_name)}</a>
-        ${renderList(item.content, 'compact-list')}
-        ${renderList(item.impact_scope, 'scope-list')}
-        ${item.analysis ? `<p><strong>分析：</strong>${escapeHtml(item.analysis)}</p>` : ''}
-        ${item.action ? `<p><strong>行动建议：</strong>${escapeHtml(item.action)}</p>` : ''}
+        ${item.why_it_matters ? `<p><strong>为什么重要：</strong>${escapeHtml(item.why_it_matters)}</p>` : ''}
+        ${renderItemAnalysis(item)}
       </article>
     `).join('') : '<p class="empty">本周无高价值更新</p>';
     return `
@@ -571,6 +642,8 @@ export function renderReportHtml(report, { generatedAt = new Date().toISOString(
     .compact-list, .scope-list { margin: 10px 0 0; padding-left: 20px; }
     .scope-list li { color: var(--muted); }
     .empty { margin: 0; color: var(--muted); }
+    .analysis-block { margin-top: 14px; }
+    .analysis-block h4 { margin: 0 0 6px; color: var(--primary); font-size: 15px; }
     .footer { margin-top: 28px; color: var(--muted); font-size: 13px; }
     @media (max-width: 720px) { .shell { padding: 14px 12px 34px; } .hero { border-radius: 20px; padding: 24px 18px; } .metric-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); } .panel { padding: 18px; border-radius: 18px; } .item-card { padding: 17px; } }
   </style>
@@ -620,9 +693,12 @@ export function renderReportHtml(report, { generatedAt = new Date().toISOString(
 export function renderFeishuSummary(report, reportUrl) {
   validateReport(report);
   const items = (report.sections || []).flatMap(section => section.items || []);
-  const highlights = (report.summary || []).slice(0, 5).map(text => `- ${text}`).join('\n') || '- 本周无高价值更新';
+  const highlights = items.slice(0, 5).map(item => {
+    const action = Array.isArray(item.recommended_actions) ? item.recommended_actions[0] : '';
+    return `- [${item.type}][${item.country}] ${item.title}\n  动作：${action}`;
+  }).join('\n') || '- 本周无高价值更新';
   const risks = (report.risk_alerts || []).slice(0, 3).map(alert => `- ${riskLabel(alert.level)}：${alert.text}`).join('\n') || '- 本周无高价值风险提醒';
-  return `**⚖️ 美妆法务周报 · ${report.period.end}**\n\n本周筛选 ${items.length} 条高价值资讯。\n\n**本周最重要**\n${highlights}\n\n**风险提醒**\n${risks}\n\n[打开完整周报](${reportUrl})`;
+  return `**⚖️ 美妆法务周报 · ${report.period.end}**\n\n本周筛选 ${items.length} 条高价值资讯。\n\n**本周重点风险与动作**\n${highlights}\n\n**风险提醒**\n${risks}\n\n[打开完整周报](${reportUrl})`;
 }
 
 export function reportKeyForDate(date) {
