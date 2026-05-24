@@ -193,12 +193,12 @@ async function runPipeline(env, requestUrl = 'https://beauty-legal-bot.workers.d
   console.log("=== 周报管道启动 ===");
 
   console.log("[stage 1/5] 抓取信息源候选...");
-  const { candidates, failures } = await collectCandidates(sourceCatalog.sources);
-  console.log(`[stage 1/5] 完成，候选 ${candidates.length} 条，失败源 ${failures.length} 个`);
+  const { candidates, leads, failures } = await collectCandidates(sourceCatalog.sources);
+  console.log(`[stage 1/5] 完成，候选 ${candidates.length} 条，线索 ${leads.length} 条，失败源 ${failures.length} 个`);
 
   console.log("[stage 2/5] DeepSeek 结构化分析...");
   const period = getPeriod();
-  const rawReport = await deepseekAnalyze({ apiKey: deepseekKey, model, candidates, sources: sourceCatalog.sources, period });
+  const rawReport = await deepseekAnalyze({ apiKey: deepseekKey, model, candidates, leads, sources: sourceCatalog.sources, period });
   const report = dedupeReport(rawReport);
   const itemCount = (report.sections || []).flatMap(section => section.items || []).length;
   console.log(`[stage 2/5] 完成，模块 ${report.sections.length} 个，去重后 ${itemCount} 条`);
@@ -288,6 +288,24 @@ export function makeCandidate(source, item) {
     topics: source.topics || [],
     fetched_at: new Date().toISOString(),
   };
+}
+
+export function makeLead(source) {
+  return {
+    name: source.name,
+    source_type: source.source_type,
+    module: source.module,
+    region: source.region,
+    country: source.country,
+    topics: source.topics || [],
+    priority: source.priority,
+  };
+}
+
+export function splitSources(sources = sourceCatalog.sources) {
+  const leadSources = sources.filter(source => source.source_type === 'wechat_public_account');
+  const fetchableSources = sources.filter(source => source.source_type !== 'wechat_public_account');
+  return { fetchableSources, leadSources };
 }
 
 export function parseAnalysisJson(text) {
@@ -578,7 +596,6 @@ async function renderReportIndex(kv) {
 }
 
 async function fetchSourceCandidates(source) {
-  if (source.source_type === 'wechat_public_account') return [];
   if (!source.url || !source.url.startsWith('http')) return [];
 
   try {
@@ -601,11 +618,14 @@ async function fetchSourceCandidates(source) {
 }
 
 async function collectCandidates(sources = sourceCatalog.sources) {
+  const { fetchableSources, leadSources } = splitSources(sources);
   const candidates = [];
   const failures = [];
-  for (const source of sources) {
+  const leads = leadSources.map(makeLead);
+
+  for (const source of fetchableSources) {
     const items = await fetchSourceCandidates(source);
-    if (!items.length && source.source_type !== 'wechat_public_account') failures.push(source.name);
+    if (!items.length) failures.push(source.name);
     candidates.push(...items);
   }
 
@@ -618,7 +638,7 @@ async function collectCandidates(sources = sourceCatalog.sources) {
       unique.push(item);
     }
   }
-  return { candidates: unique, failures };
+  return { candidates: unique, leads, failures };
 }
 
 // ---------------------------------------------------------------------------

@@ -15,6 +15,8 @@ import {
   latestReportKey,
   dedupeReport,
   extractReportFingerprints,
+  makeLead,
+  splitSources,
 } from './index.js';
 
 function testNormalizeUrl() {
@@ -125,6 +127,17 @@ function testExtractReportFingerprintsUsesItems() {
   assert.deepEqual(fingerprints, ['法规|亚洲|印尼|BPOM 更新化妆品清真认证要求|https://www.pom.go.id/']);
 }
 
+function testSplitSourcesSeparatesWechatLeads() {
+  const sources = [
+    { name: '化妆品观察', url: '微信公众号', source_type: 'wechat_public_account', module: '美妆行业动态', region: '亚洲', country: '中国', topics: ['化妆品'], priority: 'low' },
+    { name: '国家药监局', url: 'https://www.nmpa.gov.cn/', source_type: 'official_site', module: '新规/修订/废止/生效提醒', region: '亚洲', country: '中国', topics: ['化妆品'], priority: 'high' },
+  ];
+  const split = splitSources(sources);
+  assert.equal(split.fetchableSources.length, 1);
+  assert.equal(split.leadSources.length, 1);
+  assert.equal(makeLead(split.leadSources[0]).name, '化妆品观察');
+}
+
 testNormalizeUrl();
 testHtmlToText();
 testExtractLinks();
@@ -138,4 +151,5 @@ testRenderFeishuSummary();
 testReportKeys();
 testDedupeReportRemovesRepeatedItems();
 testExtractReportFingerprintsUsesItems();
+testSplitSourcesSeparatesWechatLeads();
 console.log('worker pure function tests ok');
