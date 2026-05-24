@@ -261,6 +261,31 @@ async function testScheduledPipelineSavesReportThenSendsFeishu() {
   assert.equal(reportExistedBeforeFeishu, true);
 }
 
+async function testManualTestRouteRecordsFailure() {
+  const store = new Map();
+  const response = await worker.fetch(
+    new Request('https://example.com/test'),
+    {
+      SEEN_NEWS: {
+        async get(key) { return store.get(key) || null; },
+        async put(key, value) { store.set(key, value); },
+      },
+      __TEST_RUN_PIPELINE__: async () => {
+        throw new Error('boom');
+      },
+    },
+    { waitUntil() {} }
+  );
+
+  const text = await response.text();
+  const lastRun = JSON.parse(store.get('run:last'));
+  assert.equal(response.status, 500);
+  assert.ok(text.includes('boom'));
+  assert.equal(lastRun.trigger, 'manual');
+  assert.equal(lastRun.status, 'failed');
+  assert.ok(lastRun.error.includes('boom'));
+}
+
 function testReportKeys() {
   assert.equal(reportKeyForDate('2026-05-24'), 'report:2026-05-24');
   assert.equal(latestReportKey(), 'report:latest');
@@ -299,6 +324,7 @@ await testFetchWithTimeoutAbortsSlowFetch();
 await testManualTestRouteAwaitsPipeline();
 await testMapWithConcurrencyLimitsParallelWork();
 await testScheduledPipelineSavesReportThenSendsFeishu();
+await testManualTestRouteRecordsFailure();
 testNormalizeUrl();
 testHtmlToText();
 testExtractLinks();

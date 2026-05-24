@@ -26,6 +26,7 @@ const RELEVANT_KEYWORDS = [
 
 const NOISE_KEYWORDS = ['融资', '发布会', '新品上市', '代言', '财报', '招聘'];
 const REPORT_INDEX_KEY = 'report:index';
+const LAST_RUN_KEY = 'run:last';
 const REPORT_MODULES = [
   '新规/修订/废止/生效提醒',
   '广告合规及处罚案例',
@@ -192,6 +193,14 @@ async function sendToFeishu(webhookUrl, content) {
     console.error(`飞书异常: ${e.message}`);
     return false;
   }
+}
+
+async function recordLastRun(kv, patch) {
+  if (!kv) return;
+  const now = new Date().toISOString();
+  const raw = await kv.get(LAST_RUN_KEY);
+  const current = raw ? JSON.parse(raw) : {};
+  await kv.put(LAST_RUN_KEY, JSON.stringify({ ...current, ...patch, updated_at: now }, null, 2));
 }
 
 // ---------------------------------------------------------------------------
@@ -832,16 +841,30 @@ function sleep(ms) { return new Promise(r => setTimeout(r, ms)); }
 // 入口
 // ---------------------------------------------------------------------------
 export default {
-  async scheduled(_event, env, _ctx) {
-    await runPipeline(env);
+  async scheduled(event, env, _ctx) {
+    try {
+      await recordLastRun(env.SEEN_NEWS, { trigger: 'scheduled', scheduled_time: event?.scheduledTime || null, status: 'started' });
+      const result = await runPipeline(env);
+      await recordLastRun(env.SEEN_NEWS, { trigger: 'scheduled', scheduled_time: event?.scheduledTime || null, status: result?.status || 'done', stage: result?.stage || 'pipeline' });
+    } catch (error) {
+      await recordLastRun(env.SEEN_NEWS, { trigger: 'scheduled', scheduled_time: event?.scheduledTime || null, status: 'failed', error: error.stack || error.message });
+      throw error;
+    }
   },
 
   async fetch(request, env, ctx) {
     const url = new URL(request.url);
     if (url.pathname === "/test") {
       const pipeline = env.__TEST_RUN_PIPELINE__ || runPipeline;
-      const result = await pipeline(env, request.url);
-      return new Response(`OK — weekly pipeline finished\nstatus: ${result?.status || 'done'}\nlatest_report: ${url.origin}/report/latest`, { status: 200, headers: { "Content-Type": "text/plain; charset=utf-8" } });
+      try {
+        await recordLastRun(env.SEEN_NEWS, { trigger: 'manual', status: 'started' });
+        const result = await pipeline(env, request.url);
+        await recordLastRun(env.SEEN_NEWS, { trigger: 'manual', status: result?.status || 'done', stage: result?.stage || 'pipeline' });
+        return new Response(`OK — weekly pipeline finished\nstatus: ${result?.status || 'done'}\nlatest_report: ${url.origin}/report/latest`, { status: 200, headers: { "Content-Type": "text/plain; charset=utf-8" } });
+      } catch (error) {
+        await recordLastRun(env.SEEN_NEWS, { trigger: 'manual', status: 'failed', error: error.stack || error.message });
+        return new Response(`FAILED — weekly pipeline error\n${error.stack || error.message}`, { status: 500, headers: { "Content-Type": "text/plain; charset=utf-8" } });
+      }
     }
 
     if (url.pathname === "/report") {
