@@ -42,7 +42,7 @@ jobs:
             echo "No site changes"
           else
             git commit -m "chore: weekly legal report ${REPORT_DATE}"
-            git push origin HEAD:main
+            git push origin HEAD:master
           fi
 
       - name: Push to CF KV
