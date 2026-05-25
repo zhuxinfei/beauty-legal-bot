@@ -5,3 +5,5 @@ config.json
 *.log
 .DS_Store
 .wrangler/
+out/
+.code-index/
