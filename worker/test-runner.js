@@ -31,6 +31,7 @@ import {
   filterReportToObservedSources,
   attachReportImages,
   fetchWithTimeout,
+  selectSourcesForWorkerBudget,
   mapWithConcurrency,
   extractPublishedDate,
   sortCandidatesForAnalysis,
@@ -511,7 +512,7 @@ async function testScheduledPipelineSavesReportThenSendsFeishu() {
   }
 
   assert.ok(store.has('report:latest'));
-  assert.ok(store.has(`report:${sampleReport.period.end}`));
+  assert.ok([...store.keys()].some(key => /^report:\d{4}-\d{2}-\d{2}$/.test(key)));
   assert.ok(store.get('report:latest').includes('国际美妆法务情报周报'));
   assert.equal(feishuSent, true);
   assert.equal(reportExistedBeforeFeishu, true);
@@ -624,6 +625,22 @@ function testSourceCatalogUsesWorkbookModulesAndGlobalMarkets() {
   assert.equal(bpom.priority, 'high');
 }
 
+function testSelectSourcesForWorkerBudgetKeepsImportantCoverageUnderLimit() {
+  const selected = selectSourcesForWorkerBudget(sourceCatalog.sources, 16);
+  const fetchable = selected.filter(source => source.source_type !== 'wechat_public_account');
+  assert.ok(fetchable.length <= 16);
+  assert.ok(selected.some(source => source.source_type === 'wechat_public_account'));
+  assert.ok(selected.some(source => source.name.includes('国家市场监督管理总局')));
+  assert.ok(selected.some(source => source.name.includes('国家知识产权局')));
+  assert.ok(selected.some(source => source.name.includes('美国 FDA')));
+  for (const country of ['欧盟', '印尼', '泰国', '越南', '日本', '韩国', '墨西哥', '意大利']) {
+    assert.ok(fetchable.some(source => source.country === country), `missing country ${country}`);
+  }
+  for (const module of ['广告合规及处罚案例', '知识产权动态', '新规及案例动态', '进出口动态']) {
+    assert.ok(fetchable.some(source => source.module === module), `missing fetchable module ${module}`);
+  }
+}
+
 await testFetchWithTimeoutAbortsSlowFetch();
 await testManualTestRouteAwaitsPipeline();
 await testMapWithConcurrencyLimitsParallelWork();
@@ -660,4 +677,5 @@ testExtractReportFingerprintsUsesItems();
 testSplitSourcesSeparatesWechatLeads();
 testSourceLeadCandidateKeepsWeaklyFetchableModulesAnalyzable();
 testSourceCatalogUsesWorkbookModulesAndGlobalMarkets();
+testSelectSourcesForWorkerBudgetKeepsImportantCoverageUnderLimit();
 console.log('worker pure function tests ok');

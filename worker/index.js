@@ -44,6 +44,7 @@ const REPORT_MODULES = [
 const ACTION_NOISE = ['建议关注', '持续关注', '企业应留意', '可能产生影响', '需持续观察'];
 const SOURCE_FETCH_TIMEOUT_MS = 30000;
 const SOURCE_FETCH_CONCURRENCY = 4;
+const WORKER_FETCH_SOURCE_BUDGET = 16;
 const TYPE_REQUIRED_FIELDS = {
   '法规': ['status', 'what_changed', 'legal_obligation', 'affected_business', 'recommended_actions', 'owner_teams', 'risk_level', 'why_it_matters', 'confidence'],
   '案例': ['case_type', 'facts', 'violation_logic', 'penalty_or_result', 'risk_pattern', 'business_lessons', 'recommended_actions', 'owner_teams', 'risk_level', 'why_it_matters', 'confidence'],
@@ -228,15 +229,20 @@ export async function runPipeline(env, requestUrl = 'https://beauty-legal-bot.wo
 
   try {
     console.log("[stage 1/5] 抓取信息源候选...");
-    const { candidates, leads, failures } = await collectCandidates(sourceCatalog.sources);
+    const sources = env.FULL_SOURCE_SCAN === '1'
+      ? sourceCatalog.sources
+      : selectSourcesForWorkerBudget(sourceCatalog.sources, Number(env.WORKER_FETCH_SOURCE_BUDGET || WORKER_FETCH_SOURCE_BUDGET));
+    const { fetchableSources } = splitSources(sources);
+    console.log(`[stage 1/5] Worker 抓取预算：${fetchableSources.length} 个可抓取源，${sources.length - fetchableSources.length} 个线索源`);
+    const { candidates, leads, failures } = await collectCandidates(sources);
     console.log(`[stage 1/5] 完成，候选 ${candidates.length} 条，线索 ${leads.length} 条，失败源 ${failures.length} 个`);
 
     console.log("[stage 2/5] DeepSeek 结构化分析...");
     const period = getPeriod();
-    const rawReport = await deepseekAnalyzeByModule({ apiKey: deepseekKey, model, candidates, leads, sources: sourceCatalog.sources, period });
-    const sourceCheckedReport = filterReportToObservedSources(rawReport, { candidates, sources: sourceCatalog.sources });
+    const rawReport = await deepseekAnalyzeByModule({ apiKey: deepseekKey, model, candidates, leads, sources, period });
+    const sourceCheckedReport = filterReportToObservedSources(rawReport, { candidates, sources });
     const imageAwareReport = attachReportImages(sourceCheckedReport, { candidates });
-    const report = limitReportSections(filterReportQuality(dedupeReport(enrichReportWithSourceSignals(imageAwareReport, { candidates, sources: sourceCatalog.sources }))));
+    const report = limitReportSections(filterReportQuality(dedupeReport(enrichReportWithSourceSignals(imageAwareReport, { candidates, sources }))));
     validateReport(report);
     const itemCount = (report.sections || []).flatMap(section => section.items || []).length;
     console.log(`[stage 2/5] 完成，模块 ${report.sections.length} 个，去重后 ${itemCount} 条`);
@@ -447,6 +453,44 @@ export function splitSources(sources = sourceCatalog.sources) {
   const leadSources = sources.filter(source => source.source_type === 'wechat_public_account');
   const fetchableSources = sources.filter(source => source.source_type !== 'wechat_public_account');
   return { fetchableSources, leadSources };
+}
+
+export function selectSourcesForWorkerBudget(sources = sourceCatalog.sources, fetchBudget = WORKER_FETCH_SOURCE_BUDGET) {
+  const { fetchableSources, leadSources } = splitSources(sources);
+  const selected = [];
+  const selectedKeys = new Set();
+  const add = source => {
+    const key = `${source.name}:${source.url || ''}`;
+    if (!selectedKeys.has(key) && selected.length < fetchBudget) {
+      selected.push(source);
+      selectedKeys.add(key);
+    }
+  };
+
+  for (const module of REPORT_MODULES) {
+    const moduleSources = fetchableSources.filter(source => source.module === module);
+    const directHigh = moduleSources.find(source => source.priority === 'high');
+    if (directHigh) add(directHigh);
+  }
+
+  for (const country of ['欧盟', '美国', '印尼', '泰国', '越南', '日本', '韩国', '墨西哥', '意大利']) {
+    const marketSource = fetchableSources.find(source => source.country === country && source.priority === 'high')
+      || fetchableSources.find(source => source.country === country);
+    if (marketSource) add(marketSource);
+  }
+
+  [...fetchableSources]
+    .sort((a, b) => {
+      const score = source => (source.priority === 'high' ? 100 : 50)
+        + (source.authority_type === 'regulator' ? 30 : 0)
+        + (source.authority_type === 'official' ? 20 : 0)
+        + (source.country === '中国' ? 8 : 0)
+        + (['欧盟', '美国', '印尼', '泰国', '越南', '日本', '韩国', '墨西哥', '意大利'].includes(source.country) ? 6 : 0);
+      return score(b) - score(a);
+    })
+    .forEach(add);
+
+  return [...selected, ...leadSources];
 }
 
 function scoreCandidate(candidate, now = new Date()) {
