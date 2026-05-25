@@ -2,7 +2,7 @@ import { readdir, writeFile, readFile, mkdir } from 'node:fs/promises';
 import { existsSync } from 'node:fs';
 import { join } from 'node:path';
 
-const SITE_DIR = join(process.cwd(), 'site');
+const SITE_DIR = join(process.cwd(), 'docs');
 const REPORTS_DIR = join(SITE_DIR, 'reports');
 const INDEX_PATH = join(SITE_DIR, 'index.html');
 
