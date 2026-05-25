@@ -1,0 +1,573 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Global Beauty Legal Intelligence</title>
+  <style>
+    :root { color-scheme: light; --paper: #f7f4ef; --surface: #fffdfa; --ink: #161412; --muted: #6d6860; --line: #e2d8ca; --line-strong: #b9aa96; --rose: #9f5964; --rose-soft: #f5e9e8; --gold: #8a642d; --green: #286c58; --blue: #2b5878; --red: #9c3934; --amber: #94651f; --shadow: 0 22px 60px rgba(54, 42, 29, .09); }
+    * { box-sizing: border-box; }
+    html { scroll-behavior: smooth; }
+    body { margin: 0; background: linear-gradient(180deg, #f8f4ed 0%, #fbfaf7 44%, #f4efe7 100%); color: var(--ink); font-family: Georgia, "Times New Roman", "Songti SC", "SimSun", serif; font-size: 16px; line-height: 1.72; }
+    a { color: var(--blue); text-decoration-thickness: 0.08em; text-underline-offset: 0.2em; }
+    a:focus-visible { outline: 3px solid rgba(181, 107, 117, .35); outline-offset: 3px; border-radius: 4px; }
+    .brief-shell { max-width: 1160px; margin: 0 auto; padding: 42px 24px 64px; }
+    .brief-hero { display: grid; grid-template-columns: minmax(0, 1fr) 330px; gap: 34px; align-items: end; padding: 38px 0 32px; border-bottom: 1px solid var(--line-strong); }
+    .eyebrow, .section-heading p, .panel-kicker { margin: 0 0 8px; color: var(--rose); font: 800 11px/1.3 -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; letter-spacing: .12em; text-transform: uppercase; }
+    h1 { margin: 0; max-width: 780px; font-size: 46px; line-height: 1.12; font-weight: 700; letter-spacing: 0; }
+    .hero-copy { margin: 14px 0 0; max-width: 760px; color: var(--muted); font: 400 16px/1.75 -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; }
+    .metric-grid { display: grid; grid-template-columns: repeat(2, minmax(0,1fr)); gap: 10px; }
+    .metric { min-height: 92px; padding: 15px; background: rgba(255,253,250,.86); border: 1px solid var(--line); border-radius: 8px; box-shadow: var(--shadow); }
+    .metric strong { display: block; font: 700 30px/1 Georgia, "Times New Roman", serif; color: var(--rose); }
+    .metric span { display: block; margin-top: 8px; color: var(--muted); font: 700 13px/1.45 -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; }
+    .module-nav { display: flex; flex-wrap: wrap; gap: 8px; margin: 18px 0 0; }
+    .module-nav a { display: inline-flex; align-items: center; gap: 8px; min-height: 44px; padding: 8px 12px; border: 1px solid var(--line); border-radius: 999px; background: rgba(255,255,255,.7); color: var(--ink); font: 700 13px/1.4 -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; text-decoration: none; }
+    .module-nav span { min-width: 22px; height: 22px; display: inline-grid; place-items: center; border-radius: 999px; background: var(--rose-soft); color: var(--rose); }
+    .elevator { position: fixed; right: 18px; top: 50%; transform: translateY(-50%); z-index: 20; display: grid; gap: 7px; width: 118px; padding: 10px; border: 1px solid rgba(185,170,150,.72); border-radius: 8px; background: rgba(255,253,250,.88); box-shadow: 0 18px 44px rgba(54,42,29,.12); backdrop-filter: blur(12px); }
+    .elevator a { min-height: 34px; display: flex; align-items: center; justify-content: center; padding: 5px 8px; border-radius: 6px; color: var(--muted); font: 800 12px/1.25 -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; text-align: center; text-decoration: none; }
+    .elevator a:hover, .elevator a:focus-visible { background: var(--rose-soft); color: var(--rose); }
+    .reading-flow { display: grid; gap: 26px; margin-top: 28px; }
+    .brief-panel, .decision-panel, .action-board, .market-panel, .source-panel, .theme-section { background: rgba(255,253,250,.95); border: 1px solid var(--line); border-radius: 8px; box-shadow: var(--shadow); }
+    .brief-panel, .decision-panel, .action-board, .market-panel, .source-panel { padding: 26px; }
+    .split { display: grid; grid-template-columns: minmax(0, 1.08fr) minmax(320px, .92fr); gap: 20px; }
+    h2 { margin: 0; font-size: 27px; line-height: 1.25; font-weight: 700; letter-spacing: 0; }
+    .subhead { margin: 16px 0 0; color: var(--rose); font: 800 13px/1.35 -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; }
+    .executive-conclusion { margin: 14px 0 14px; padding-left: 16px; border-left: 4px solid var(--rose); font-size: 20px; line-height: 1.68; font-weight: 700; }
+    .summary-list, .plain-list, .compact-list, .scope-list, .impact-list { margin: 0; padding-left: 20px; }
+    .summary-list { display: grid; gap: 8px; color: var(--muted); font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; }
+    .decision-list { display: grid; gap: 14px; margin-top: 14px; }
+    .decision-item { display: grid; grid-template-columns: 42px minmax(0,1fr); gap: 14px; padding: 16px 0; border-top: 1px solid var(--line); }
+    .decision-item > span { width: 36px; height: 36px; display: grid; place-items: center; border: 1px solid var(--rose); border-radius: 999px; color: var(--rose); font-weight: 800; }
+    .decision-item h3 { margin: 0 0 6px; font-size: 18px; line-height: 1.45; }
+    .decision-item p { margin: 0 0 8px; color: var(--muted); font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; }
+    .market-grid, .action-grid { display: grid; gap: 10px; }
+    .market-chip, .action-block { padding: 14px 15px; border: 1px solid var(--line); border-radius: 8px; background: #fff; }
+    .market-chip strong { display: block; font-size: 17px; }
+    .market-chip span { display: block; color: var(--muted); font: 700 12px/1.5 -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; }
+    .action-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); margin-top: 12px; }
+    .action-block h3 { margin: 0 0 8px; color: var(--rose); font: 800 14px/1.3 -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; }
+    .theme-section { padding: 0; overflow: hidden; scroll-margin-top: 18px; }
+    .section-heading { padding: 24px 28px 18px; border-bottom: 1px solid var(--line); background: linear-gradient(90deg, #fffdfa 0%, #fbf2ee 100%); }
+    .section-heading span { display: block; margin-top: 8px; color: var(--muted); font: 700 13px/1.5 -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; }
+    .intel-row { display: grid; grid-template-columns: 78px minmax(0,1fr); gap: 22px; padding: 28px; border-top: 1px solid var(--line); }
+    .intel-row:first-of-type { border-top: 0; }
+    .row-index { color: var(--rose); font: 700 18px/1 Georgia, "Times New Roman", serif; }
+    .row-meta { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; color: var(--muted); font: 700 12px/1.4 -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; }
+    .pill { display: inline-flex; align-items: center; min-height: 27px; padding: 4px 10px; border: 1px solid var(--line); border-radius: 999px; background: #fff; }
+    .severity-high { border-color: #e4aaa7 !important; background: #fff1f0 !important; color: var(--red) !important; }
+    .severity-medium { border-color: #e5c992 !important; background: #fff8ea !important; color: var(--amber) !important; }
+    .severity-low { border-color: #bed8cf !important; background: #f0faf6 !important; color: var(--green) !important; }
+    .relevance-direct { border-color: #b9cce0 !important; background: #f0f6fb !important; color: var(--blue) !important; }
+    .relevance-indirect { border-color: #ded2c1 !important; background: #fbf7f0 !important; color: var(--gold) !important; }
+    .impact-high { color: var(--red); } .impact-medium { color: var(--amber); } .impact-low { color: var(--green); }
+    .row-main h3 { margin: 12px 0 10px; font-size: 24px; line-height: 1.35; letter-spacing: 0; }
+    .lead { margin: 0 0 14px; max-width: 820px; color: #332f2a; font-size: 17px; line-height: 1.75; }
+    .answer-grid { display: grid; grid-template-columns: minmax(0,.9fr) minmax(0,1.1fr); gap: 14px; margin-top: 14px; }
+    .answer-grid section, .deep-dive { border: 1px solid var(--line); border-radius: 8px; background: #fff; padding: 14px; }
+    .answer-grid h4, .analysis-block h4, .deep-dive summary { margin: 0 0 8px; color: var(--rose); font: 800 13px/1.35 -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; }
+    .deep-dive { margin-top: 14px; }
+    .deep-dive summary { cursor: pointer; min-height: 32px; }
+    .analysis-block { margin-top: 13px; }
+    .analysis-block:first-child { margin-top: 0; }
+    .source-line { display: flex; flex-wrap: wrap; gap: 10px 14px; align-items: center; margin-top: 14px; padding-top: 13px; border-top: 1px solid var(--line); color: var(--muted); font: 700 13px/1.4 -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; }
+    .source-line > span { color: var(--gold); text-transform: uppercase; letter-spacing: .04em; }
+    .source-note { color: var(--muted); font-weight: 800; }
+    .evidence-link { font-weight: 900; }
+    .confidence-high { color: var(--green); } .confidence-medium { color: var(--amber); } .confidence-low { color: var(--red); }
+    .evidence-image { width: min(360px, 100%); margin: 10px 0 0; border: 1px solid var(--line); border-radius: 8px; overflow: hidden; background: #fff; aspect-ratio: 16 / 9; }
+    .evidence-image img { width: 100%; height: 100%; object-fit: cover; display: block; }
+    .source-panel { overflow-x: auto; }
+    .watchlist-panel { background: transparent; border-style: dashed; box-shadow: none; }
+    .evidence-table { width: 100%; border-collapse: collapse; min-width: 760px; margin-top: 12px; font: 14px/1.55 -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; }
+    .evidence-table th, .evidence-table td { padding: 11px 10px; border-bottom: 1px solid var(--line); text-align: left; vertical-align: top; }
+    .evidence-table th { color: var(--muted); font-size: 12px; text-transform: uppercase; letter-spacing: .04em; }
+    .empty { margin: 0; color: var(--muted); font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; }
+    .footer { margin-top: 28px; padding-top: 18px; border-top: 1px solid var(--line); color: var(--muted); font: 13px/1.7 -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; }
+    @media (prefers-reduced-motion: reduce) { html { scroll-behavior: auto; } }
+    @media (max-width: 1280px) { .elevator { right: 8px; width: 96px; } }
+    @media (max-width: 1060px) { .elevator { position: sticky; top: 0; transform: none; width: auto; display: flex; overflow-x: auto; margin: 0 -24px 18px; padding: 10px 24px; border-left: 0; border-right: 0; border-radius: 0; } .elevator a { flex: 0 0 auto; } }
+    @media (max-width: 940px) { .brief-hero, .split, .answer-grid, .action-grid { grid-template-columns: 1fr; } .brief-hero { align-items: start; } }
+    @media (max-width: 680px) { .brief-shell { padding: 22px 14px 42px; } h1 { font-size: 32px; } .metric-grid { grid-template-columns: 1fr 1fr; } .intel-row { grid-template-columns: 1fr; gap: 8px; padding: 18px; } .section-heading { padding: 18px; } .row-main h3 { font-size: 21px; } }
+  </style>
+</head>
+<body>
+  <main class="brief-shell" id="top">
+    <nav class="elevator" aria-label="模块电梯导航"><a href="#top">Top</a><a href="#decision">三件事</a><a href="#actions">行动板</a><a href="#module-a8aaeb1c">广告合规及处罚</a><a href="#module-3b562011">美妆</a><a href="#module-6e6fc8d6">知识产权</a><a href="#module-1765ff12">新规及</a><a href="#module-11b8279d">进出口</a><a href="#sources">证据</a></nav>
+    <header class="brief-hero">
+      <div>
+      <p class="eyebrow">Global Beauty Legal Intelligence</p>
+      <h1>国际美妆法务情报周报</h1>
+        <p class="hero-copy">周期：2026-05-19 至 2026-05-25。本页主阅读流仅展示可核验公开来源；公众号、泛首页和低可信待核验线索统一下沉至 Watchlist，避免干扰集团决策。</p>
+        <nav class="module-nav" aria-label="报告模块"><a href="#module-a8aaeb1c">广告合规及处罚案例<span>2</span></a><a href="#module-3b562011">美妆动态<span>2</span></a><a href="#module-6e6fc8d6">知识产权动态<span>3</span></a><a href="#module-1765ff12">新规及案例动态<span>0</span></a><a href="#module-11b8279d">进出口动态<span>0</span></a></nav>
+      </div>
+      <div class="metric-grid" aria-label="风险统计">
+        <div class="metric"><strong>7</strong><span>Verified Intelligence</span></div>
+        <div class="metric"><strong>3</strong><span>市场覆盖</span></div>
+        <div class="metric"><strong>4</strong><span>直接相关</span></div>
+        <div class="metric"><strong>7</strong><span>Source Evidence</span></div>
+      </div>
+    </header>
+
+    <div class="reading-flow">
+      <div class="split">
+        <section class="brief-panel" aria-labelledby="summary-title">
+          <p class="panel-kicker">Executive Brief</p>
+          <h2 id="summary-title">Executive Brief</h2>
+          <h3 class="subhead">核心结论</h3>
+          <p class="executive-conclusion">北京集中约谈17家重点平台，直播电商与平台广告合规压力进一步升级，建议电商与法务团队立即核查主要平台最新规则并更新广告审核SOP。</p>
+          <ul class="summary-list"><li>北京集中约谈17家重点平台，直播电商与平台广告合规压力进一步升级，建议电商与法务团队立即核查主要平台最新规则并更新广告审核SOP。</li><li>市场监管总局4月连续出台互联网广告生态治理和专项整治文件，虽稍早于本周但影响延续，需关注广告提示性用语、直播话术及跨境广告合规红线。</li><li>2026中国化妆品科学技术大会在广州开幕，释放功效宣称、原料安全评估等行业政策信号，建议注册与市场团队跟踪论坛中的监管风向与标准进展。</li><li>墨西哥工业产权法修订及韩国美妆APR全球商标策略，提示集团在拉美和韩国市场的IP布局需要更新风险评估，品牌团队应启动墨西哥商标合规审查。</li></ul>
+        </section>
+        <section class="decision-panel" id="decision">
+          <p class="panel-kicker">Decision First</p>
+          <h2>本周先看这三件事</h2>
+          <div class="decision-list">
+    <article class="decision-item">
+      <span>1</span>
+      <div>
+        <h3>中国｜北京市网络市场监管联席会议召开 集中约谈17家重点平台</h3>
+        <p>平台是美妆线上销售核心渠道，约谈后平台通常短期内集中收紧直播话术、功效宣称和广告素材审核标准，直接影响跨境品牌和自有品牌的流量获取与转化。</p>
+        <a class="evidence-link" href="http://scjgj.beijing.gov.cn/zwxx/scjgdt/202605/t20260525_4664076.html" target="_blank" rel="noopener noreferrer">查看原文：北京市市场监督管理局</a>
+      </div>
+    </article>
+  
+    <article class="decision-item">
+      <span>2</span>
+      <div>
+        <h3>中国｜2026中国化妆品科学技术大会在广州开幕，聚焦功效与安全评价新趋势</h3>
+        <p>大会汇集国家药监局、中检院等政策制定者，可能透露功效评价方法、防晒指数测定、纳米原料安全评估等下一阶段监管重点，直接影响新品注册策略和宣称文案。</p>
+        <a class="evidence-link" href="http://scjgj.gz.gov.cn/zwdt/tpxw/content/post_10825663.html" target="_blank" rel="noopener noreferrer">查看原文：广州市市场监督管理局</a>
+      </div>
+    </article>
+  
+    <article class="decision-item">
+      <span>3</span>
+      <div>
+        <h3>中国｜商标网上查询系统以图搜图功能上线，方便图形商标监测</h3>
+        <p>以图搜图大幅降低图形商标近似监测成本，集团旗下多个品牌的产品包装、logo图案可更快发现市场仿冒行为，同时需警惕自己新品设计无意中侵权。</p>
+        <a class="evidence-link" href="https://sbj.cnipa.gov.cn/sbj/tpxw/202604/t20260430_38259.html" target="_blank" rel="noopener noreferrer">查看原文：国家知识产权局商标局</a>
+      </div>
+    </article>
+  </div>
+        </section>
+      </div>
+
+      <section class="action-board" id="actions" aria-labelledby="action-title">
+        <p class="panel-kicker">Action Board</p>
+        <h2 id="action-title">集团行动板</h2>
+        <div class="action-grid"><section class="action-block"><h3>法务</h3><ul class="plain-list"><li>建议电商团队在3个工作日内向主要平台（天猫国际、抖音电商、京东国际等）确认最新合规自检清单，并反馈法务。</li><li>建议法务与市场团队联合审查所有在播短视频、直播脚本及详情页，重点删除“医美级”“药妆”“三天祛痘”等疑似违规宣称。</li></ul></section><section class="action-block"><h3>注册</h3><ul class="plain-list"><li>建议注册及研发团队在会后一周内获取大会公开报告或重点演讲资料，识别功效评价新方法是否需纳入注册方案。</li><li>建议法务和品牌团队对照会议释放的政策信号，预判下半年功效宣称审查重点，提前调整备案用语和广告素材库。</li></ul></section><section class="action-block"><h3>市场</h3><ul class="plain-list"><li>建议电商团队在3个工作日内向主要平台（天猫国际、抖音电商、京东国际等）确认最新合规自检清单，并反馈法务。</li><li>建议法务与市场团队联合审查所有在播短视频、直播脚本及详情页，重点删除“医美级”“药妆”“三天祛痘”等疑似违规宣称。</li></ul></section><section class="action-block"><h3>电商</h3><ul class="plain-list"><li>建议电商团队在3个工作日内向主要平台（天猫国际、抖音电商、京东国际等）确认最新合规自检清单，并反馈法务。</li><li>建议法务与市场团队联合审查所有在播短视频、直播脚本及详情页，重点删除“医美级”“药妆”“三天祛痘”等疑似违规宣称。</li></ul></section><section class="action-block"><h3>供应链</h3><ul class="plain-list"><li>建议供应链团队在5月底前要求所有合作代工厂提交自查报告模板或整改计划，并核实其上次现场审核日期。</li><li>建议法务与质量部建立代工厂合规预警清单，对近6个月有抽检不合格记录的工厂启动备用供应链评估。</li></ul></section><section class="action-block"><h3>品牌/IP</h3><ul class="plain-list"><li>建议注册及研发团队在会后一周内获取大会公开报告或重点演讲资料，识别功效评价新方法是否需纳入注册方案。</li><li>建议法务和品牌团队对照会议释放的政策信号，预判下半年功效宣称审查重点，提前调整备案用语和广告素材库。</li></ul></section><section class="action-block"><h3>客服</h3><ul class="plain-list"><li>建议电商团队在3个工作日内向主要平台（天猫国际、抖音电商、京东国际等）确认最新合规自检清单，并反馈法务。</li><li>建议法务与市场团队联合审查所有在播短视频、直播脚本及详情页，重点删除“医美级”“药妆”“三天祛痘”等疑似违规宣称。</li></ul></section></div>
+      </section>
+
+      <section class="market-panel">
+        <p class="panel-kicker">Market Risk Map</p>
+        <h2>市场风险地图</h2>
+        <div class="market-grid"><div class="market-chip severity-high"><strong>中国</strong><span>5 条 · 1 高风险 · 2 中风险</span></div><div class="market-chip severity-medium"><strong>墨西哥</strong><span>1 条 · 0 高风险 · 1 中风险</span></div><div class="market-chip severity-low"><strong>韩国</strong><span>1 条 · 0 高风险 · 0 中风险</span></div></div>
+      </section>
+
+      
+      <section class="theme-section" id="module-a8aaeb1c">
+        <header class="section-heading">
+          <p>分类情报 01</p>
+          <h2>广告合规及处罚案例</h2>
+          <span>2 条入选 · 按时效性、权威性、行业影响力筛选</span>
+        </header>
+        
+      <article class="intel-row">
+        <div class="row-index">01.01</div>
+        <div class="row-main">
+          <div class="row-meta">
+            <span class="pill severity-high">高风险</span>
+            <span class="pill relevance-direct">直接相关</span>
+            <span class="pill impact-high">行业影响力高</span>
+            <span>中国 · 2026-05-25</span>
+          </div>
+          <h3>北京市网络市场监管联席会议召开 集中约谈17家重点平台</h3>
+          <p class="lead">平台是美妆线上销售核心渠道，约谈后平台通常短期内集中收紧直播话术、功效宣称和广告素材审核标准，直接影响跨境品牌和自有品牌的流量获取与转化。</p>
+          <figure class="evidence-image"><img src="http://scjgj.beijing.gov.cn/sy/gg/202101/W020210128598919685469.png" alt="北京市市场监督管理局 来源图片" loading="lazy"></figure>
+          <div class="answer-grid">
+            <section>
+              <h4>业务影响</h4>
+              <ul class="plain-list"><li>直播电商</li><li>平台运营</li><li>广告投放</li></ul>
+            </section>
+            <section>
+              <h4>建议动作</h4>
+              <ul class="plain-list"><li>建议电商团队在3个工作日内向主要平台（天猫国际、抖音电商、京东国际等）确认最新合规自检清单，并反馈法务。</li><li>建议法务与市场团队联合审查所有在播短视频、直播脚本及详情页，重点删除“医美级”“药妆”“三天祛痘”等疑似违规宣称。</li><li>建议合规部更新广告审核SOP，增加“平台约谈后专项自查”环节，并在一周内完成对直播代运营机构的合规培训。</li></ul>
+            </section>
+          </div>
+          <details class="deep-dive" open>
+            <summary>法务拆解</summary>
+            <div class="analysis-block"><h4>监管信号</h4><ul class="compact-list"><li>北京市市场监督管理局发布或更新了与广告合规及处罚案例相关的信息：北京市网络市场监管联席会议召开 集中约谈17家重点平台。</li></ul></div><div class="analysis-block"><h4>合规意义</h4><ul class="compact-list"><li>平台是美妆线上销售核心渠道，约谈后平台通常短期内集中收紧直播话术、功效宣称和广告素材审核标准，直接影响跨境品牌和自有品牌的流量获取与转化。</li></ul></div><div class="analysis-block"><h4>后续动作</h4><ul class="compact-list"><li>建议电商团队在3个工作日内向主要平台（天猫国际、抖音电商、京东国际等）确认最新合规自检清单，并反馈法务。</li><li>建议法务与市场团队联合审查所有在播短视频、直播脚本及详情页，重点删除“医美级”“药妆”“三天祛痘”等疑似违规宣称。</li><li>建议合规部更新广告审核SOP，增加“平台约谈后专项自查”环节，并在一周内完成对直播代运营机构的合规培训。</li></ul></div>
+          </details>
+          <div class="source-line">
+            <span>Source Evidence</span>
+            <a class="evidence-link" href="http://scjgj.beijing.gov.cn/zwxx/scjgdt/202605/t20260525_4664076.html" target="_blank" rel="noopener noreferrer">查看原文：北京市市场监督管理局</a>
+            <em class="confidence-high">high confidence</em>
+          </div>
+        </div>
+      </article>
+    
+      <article class="intel-row">
+        <div class="row-index">01.02</div>
+        <div class="row-main">
+          <div class="row-meta">
+            <span class="pill severity-low">低风险</span>
+            <span class="pill relevance-indirect">间接相关</span>
+            <span class="pill impact-medium">行业影响力中</span>
+            <span>中国 · 2026-04-28</span>
+          </div>
+          <h3>北京广告企业可申领广告业服务券，合规资源再分配</h3>
+          <p class="lead">服务券可用于广告合规咨询或内容审核服务，集团旗下品牌或合作MCN机构可利用该资源降低合规成本，同时对广告代理商的合规要求可能提升。</p>
+          <figure class="evidence-image"><img src="https://www.samr.gov.cn/cms_files/filemanager/1647978232/picture/20263/442bf0375a7545e28a7d2fb2b1431684.png" alt="国家市场监督管理总局广告监管司 来源图片" loading="lazy"></figure>
+          <div class="answer-grid">
+            <section>
+              <h4>业务影响</h4>
+              <ul class="plain-list"><li>广告投放</li></ul>
+            </section>
+            <section>
+              <h4>建议动作</h4>
+              <ul class="plain-list"><li>建议市场部统计在北京设有运营主体的品牌或合作MCN，评估是否符合申领条件，并在5月底前向北京广告协会等获取申请指引。</li><li>建议法务团队评估是否利用该服务券拓展广告素材预审合作方，提升直播广告的合规效率。</li></ul>
+            </section>
+          </div>
+          <details class="deep-dive" open>
+            <summary>法务拆解</summary>
+            <div class="analysis-block"><h4>监管信号</h4><ul class="compact-list"><li>国家市场监督管理总局广告监管司发布或更新了与广告合规及处罚案例相关的信息：北京广告企业可申领广告业服务券，合规资源再分配。</li></ul></div><div class="analysis-block"><h4>合规意义</h4><ul class="compact-list"><li>服务券可用于广告合规咨询或内容审核服务，集团旗下品牌或合作MCN机构可利用该资源降低合规成本，同时对广告代理商的合规要求可能提升。</li></ul></div><div class="analysis-block"><h4>后续动作</h4><ul class="compact-list"><li>建议市场部统计在北京设有运营主体的品牌或合作MCN，评估是否符合申领条件，并在5月底前向北京广告协会等获取申请指引。</li><li>建议法务团队评估是否利用该服务券拓展广告素材预审合作方，提升直播广告的合规效率。</li></ul></div>
+          </details>
+          <div class="source-line">
+            <span>Source Evidence</span>
+            <a class="evidence-link" href="https://www.samr.gov.cn/ggjgs/index.html" target="_blank" rel="noopener noreferrer">查看原文：国家市场监督管理总局广告监管司</a>
+            <em class="confidence-medium">medium confidence</em>
+          </div>
+        </div>
+      </article>
+    
+      </section>
+    
+      <section class="theme-section" id="module-3b562011">
+        <header class="section-heading">
+          <p>分类情报 02</p>
+          <h2>美妆动态</h2>
+          <span>2 条入选 · 按时效性、权威性、行业影响力筛选</span>
+        </header>
+        
+      <article class="intel-row">
+        <div class="row-index">02.01</div>
+        <div class="row-main">
+          <div class="row-meta">
+            <span class="pill severity-medium">中风险</span>
+            <span class="pill relevance-direct">直接相关</span>
+            <span class="pill impact-high">行业影响力高</span>
+            <span>中国 · 2026-05-25</span>
+          </div>
+          <h3>2026中国化妆品科学技术大会在广州开幕，聚焦功效与安全评价新趋势</h3>
+          <p class="lead">大会汇集国家药监局、中检院等政策制定者，可能透露功效评价方法、防晒指数测定、纳米原料安全评估等下一阶段监管重点，直接影响新品注册策略和宣称文案。</p>
+          <figure class="evidence-image"><img src="http://scjgj.gz.gov.cn/images/20221028_fc02.jpg" alt="广州市市场监督管理局 来源图片" loading="lazy"></figure>
+          <div class="answer-grid">
+            <section>
+              <h4>业务影响</h4>
+              <ul class="plain-list"><li>功效宣称</li><li>注册备案</li><li>标签</li><li>配方</li><li>原料</li></ul>
+            </section>
+            <section>
+              <h4>建议动作</h4>
+              <ul class="plain-list"><li>建议注册及研发团队在会后一周内获取大会公开报告或重点演讲资料，识别功效评价新方法是否需纳入注册方案。</li><li>建议法务和品牌团队对照会议释放的政策信号，预判下半年功效宣称审查重点，提前调整备案用语和广告素材库。</li></ul>
+            </section>
+          </div>
+          <details class="deep-dive" open>
+            <summary>法务拆解</summary>
+            <div class="analysis-block"><h4>监管信号</h4><ul class="compact-list"><li>广州市市场监督管理局发布或更新了与美妆动态相关的信息：2026中国化妆品科学技术大会在广州开幕，聚焦功效与安全评价新趋势。</li></ul></div><div class="analysis-block"><h4>合规意义</h4><ul class="compact-list"><li>大会汇集国家药监局、中检院等政策制定者，可能透露功效评价方法、防晒指数测定、纳米原料安全评估等下一阶段监管重点，直接影响新品注册策略和宣称文案。</li></ul></div><div class="analysis-block"><h4>后续动作</h4><ul class="compact-list"><li>建议注册及研发团队在会后一周内获取大会公开报告或重点演讲资料，识别功效评价新方法是否需纳入注册方案。</li><li>建议法务和品牌团队对照会议释放的政策信号，预判下半年功效宣称审查重点，提前调整备案用语和广告素材库。</li></ul></div>
+          </details>
+          <div class="source-line">
+            <span>Source Evidence</span>
+            <a class="evidence-link" href="http://scjgj.gz.gov.cn/zwdt/tpxw/content/post_10825663.html" target="_blank" rel="noopener noreferrer">查看原文：广州市市场监督管理局</a>
+            <em class="confidence-high">high confidence</em>
+          </div>
+        </div>
+      </article>
+    
+      <article class="intel-row">
+        <div class="row-index">02.02</div>
+        <div class="row-main">
+          <div class="row-meta">
+            <span class="pill severity-medium">中风险</span>
+            <span class="pill relevance-indirect">间接相关</span>
+            <span class="pill impact-medium">行业影响力中</span>
+            <span>中国 · 2026-05-15</span>
+          </div>
+          <h3>广州市启动2026年化妆品生产企业质量管理体系自查，供应链合规压力传导</h3>
+          <p class="lead">广州是集团代工和自有品牌生产集中地，自查通知往往预示后续飞行检查或飞行抽检，管理体系存在漏洞的代工厂可能停产整顿，影响爆品供货。</p>
+          <figure class="evidence-image"><img src="http://scjgj.gz.gov.cn/images/20221028_fc02.jpg" alt="广州市市场监督管理局 来源图片" loading="lazy"></figure>
+          <div class="answer-grid">
+            <section>
+              <h4>业务影响</h4>
+              <ul class="plain-list"><li>供应链</li><li>注册备案</li></ul>
+            </section>
+            <section>
+              <h4>建议动作</h4>
+              <ul class="plain-list"><li>建议供应链团队在5月底前要求所有合作代工厂提交自查报告模板或整改计划，并核实其上次现场审核日期。</li><li>建议法务与质量部建立代工厂合规预警清单，对近6个月有抽检不合格记录的工厂启动备用供应链评估。</li></ul>
+            </section>
+          </div>
+          <details class="deep-dive" open>
+            <summary>法务拆解</summary>
+            <div class="analysis-block"><h4>监管信号</h4><ul class="compact-list"><li>广州市市场监督管理局发布或更新了与美妆动态相关的信息：广州市启动2026年化妆品生产企业质量管理体系自查，供应链合规压力传导。</li></ul></div><div class="analysis-block"><h4>合规意义</h4><ul class="compact-list"><li>广州是集团代工和自有品牌生产集中地，自查通知往往预示后续飞行检查或飞行抽检，管理体系存在漏洞的代工厂可能停产整顿，影响爆品供货。</li></ul></div><div class="analysis-block"><h4>后续动作</h4><ul class="compact-list"><li>建议供应链团队在5月底前要求所有合作代工厂提交自查报告模板或整改计划，并核实其上次现场审核日期。</li><li>建议法务与质量部建立代工厂合规预警清单，对近6个月有抽检不合格记录的工厂启动备用供应链评估。</li></ul></div>
+          </details>
+          <div class="source-line">
+            <span>Source Evidence</span>
+            <a class="evidence-link" href="http://scjgj.gz.gov.cn/zwdt/tzgg/content/post_10816912.html" target="_blank" rel="noopener noreferrer">查看原文：广州市市场监督管理局</a>
+            <em class="confidence-high">high confidence</em>
+          </div>
+        </div>
+      </article>
+    
+      </section>
+    
+      <section class="theme-section" id="module-6e6fc8d6">
+        <header class="section-heading">
+          <p>分类情报 03</p>
+          <h2>知识产权动态</h2>
+          <span>3 条入选 · 按时效性、权威性、行业影响力筛选</span>
+        </header>
+        
+      <article class="intel-row">
+        <div class="row-index">03.01</div>
+        <div class="row-main">
+          <div class="row-meta">
+            <span class="pill severity-low">低风险</span>
+            <span class="pill relevance-direct">直接相关</span>
+            <span class="pill impact-medium">行业影响力中</span>
+            <span>中国 · 2026-05-21</span>
+          </div>
+          <h3>商标网上查询系统以图搜图功能上线，方便图形商标监测</h3>
+          <p class="lead">以图搜图大幅降低图形商标近似监测成本，集团旗下多个品牌的产品包装、logo图案可更快发现市场仿冒行为，同时需警惕自己新品设计无意中侵权。</p>
+          <figure class="evidence-image"><img src="https://sbj.cnipa.gov.cn/images/lhtop2025.jpg" alt="国家知识产权局商标局 来源图片" loading="lazy"></figure>
+          <div class="answer-grid">
+            <section>
+              <h4>业务影响</h4>
+              <ul class="plain-list"><li>品牌/IP</li></ul>
+            </section>
+            <section>
+              <h4>建议动作</h4>
+              <ul class="plain-list"><li>建议品牌保护团队在5月底前利用该功能对核心品牌图形商标进行一次全网近似查询，标记高风险近似商标并评估异议或无效宣告可行性。</li><li>建议设计部门在新包材定稿前，将设计图上传系统进行原创性筛查，降低被诉风险。</li></ul>
+            </section>
+          </div>
+          <details class="deep-dive" open>
+            <summary>法务拆解</summary>
+            <div class="analysis-block"><h4>监管信号</h4><ul class="compact-list"><li>国家知识产权局商标局发布或更新了与知识产权动态相关的信息：商标网上查询系统以图搜图功能上线，方便图形商标监测。</li></ul></div><div class="analysis-block"><h4>合规意义</h4><ul class="compact-list"><li>以图搜图大幅降低图形商标近似监测成本，集团旗下多个品牌的产品包装、logo图案可更快发现市场仿冒行为，同时需警惕自己新品设计无意中侵权。</li></ul></div><div class="analysis-block"><h4>后续动作</h4><ul class="compact-list"><li>建议品牌保护团队在5月底前利用该功能对核心品牌图形商标进行一次全网近似查询，标记高风险近似商标并评估异议或无效宣告可行性。</li><li>建议设计部门在新包材定稿前，将设计图上传系统进行原创性筛查，降低被诉风险。</li></ul></div>
+          </details>
+          <div class="source-line">
+            <span>Source Evidence</span>
+            <a class="evidence-link" href="https://sbj.cnipa.gov.cn/sbj/tpxw/202604/t20260430_38259.html" target="_blank" rel="noopener noreferrer">查看原文：国家知识产权局商标局</a>
+            <em class="confidence-high">high confidence</em>
+          </div>
+        </div>
+      </article>
+    
+      <article class="intel-row">
+        <div class="row-index">03.02</div>
+        <div class="row-main">
+          <div class="row-meta">
+            <span class="pill severity-medium">中风险</span>
+            <span class="pill relevance-indirect">间接相关</span>
+            <span class="pill impact-high">行业影响力高</span>
+            <span>墨西哥 · 2026-05-15</span>
+          </div>
+          <h3>墨西哥联邦工业产权法最新修订，加强对工业设计及商标保护</h3>
+          <p class="lead">墨西哥是集团在拉美的重要市场，此次修订可能强化商标使用要求、延长保护期或引入惩罚性赔偿，直接影响在墨商标维护策略及新品品牌提前布局。</p>
+          <figure class="evidence-image"><img src="https://www.gippc.com.cn/ippc/xhtml/images/m_wxgzh.jpg" alt="广东省知识产权保护中心 来源图片" loading="lazy"></figure>
+          <div class="answer-grid">
+            <section>
+              <h4>业务影响</h4>
+              <ul class="plain-list"><li>品牌/IP</li></ul>
+            </section>
+            <section>
+              <h4>建议动作</h4>
+              <ul class="plain-list"><li>建议国际法务团队获取修订案全文（可联系墨西哥当地合作律所），在6月底前完成对现有墨西哥商标组合的合规性审查，特别是使用证据准备。</li><li>建议品牌团队若有计划在2026下半年进入墨西哥市场，立即启动商标预申请，避免被抢注。</li></ul>
+            </section>
+          </div>
+          <details class="deep-dive" open>
+            <summary>法务拆解</summary>
+            <div class="analysis-block"><h4>监管信号</h4><ul class="compact-list"><li>广东省知识产权保护中心发布或更新了与知识产权动态相关的信息：墨西哥联邦工业产权法最新修订，加强对工业设计及商标保护。</li></ul></div><div class="analysis-block"><h4>合规意义</h4><ul class="compact-list"><li>墨西哥是集团在拉美的重要市场，此次修订可能强化商标使用要求、延长保护期或引入惩罚性赔偿，直接影响在墨商标维护策略及新品品牌提前布局。</li></ul></div><div class="analysis-block"><h4>后续动作</h4><ul class="compact-list"><li>建议国际法务团队获取修订案全文（可联系墨西哥当地合作律所），在6月底前完成对现有墨西哥商标组合的合规性审查，特别是使用证据准备。</li><li>建议品牌团队若有计划在2026下半年进入墨西哥市场，立即启动商标预申请，避免被抢注。</li></ul></div>
+          </details>
+          <div class="source-line">
+            <span>Source Evidence</span>
+            <a class="evidence-link" href="https://www.gippc.com.cn/ippc/sbsc/202004/88ac74bf80b841e588a4057ad703597c.shtml" target="_blank" rel="noopener noreferrer">查看原文：广东省知识产权保护中心</a>
+            <em class="confidence-high">high confidence</em>
+          </div>
+        </div>
+      </article>
+    
+      <article class="intel-row">
+        <div class="row-index">03.03</div>
+        <div class="row-main">
+          <div class="row-meta">
+            <span class="pill severity-low">低风险</span>
+            <span class="pill relevance-direct">直接相关</span>
+            <span class="pill impact-medium">行业影响力中</span>
+            <span>韩国 · 未知</span>
+          </div>
+          <h3>WIPO聚焦韩国美妆科技APR全球商标策略，提示美妆品牌出海IP布局要点</h3>
+          <p class="lead">该案例为同样进行全球品牌输出的集团提供了可借鉴的商标组合管理、跨境平台投诉及证据收集方法，尤其是针对韩系、日系品牌常见抢注问题。</p>
+          <figure class="evidence-image"><img src="https://www.wipo.int/export/sites/www/shared/images/portal_index.jpg" alt="WIPO 来源图片" loading="lazy"></figure>
+          <div class="answer-grid">
+            <section>
+              <h4>业务影响</h4>
+              <ul class="plain-list"><li>品牌/IP</li><li>跨境清关</li></ul>
+            </section>
+            <section>
+              <h4>建议动作</h4>
+              <ul class="plain-list"><li>建议国际品牌保护团队研究该案例中跨境电商平台的投诉成功路径，优化欧美东南亚站点的仿冒品下架流程。</li><li>建议法务在2026年6月前重新评估集团自有品牌及代理品牌的马德里注册覆盖区域，查漏补缺。</li></ul>
+            </section>
+          </div>
+          <details class="deep-dive" open>
+            <summary>法务拆解</summary>
+            <div class="analysis-block"><h4>案情</h4><ul class="compact-list"><li>APR作为韩国美妆及美容仪品牌，通过马德里体系和单一国家注册在全球布局商标，通过防御性注册保护medicube等核心品牌，并针对不同市场调整商标使用形态。</li></ul></div><div class="analysis-block"><h4>违法逻辑</h4><ul class="compact-list"><li>无违规，但案例展示了在多个法域提前布局商标和应对恶意抢注的策略。</li></ul></div><div class="analysis-block"><h4>处罚/结果</h4><ul class="compact-list"><li>无处罚，但通过商标策略成功阻止了东南亚和美国市场的仿冒品泛滥，并利用商标权进行平台投诉下架。</li></ul></div><div class="analysis-block"><h4>业务启示</h4><ul class="compact-list"><li>韩系品牌出海经验表明，提前在目标市场进行防御性商标注册和平台认证是防止跨境侵权和假货冲击的关键；集团应建立品牌出海IP预审节点。</li></ul></div><div class="analysis-block"><h4>排查动作</h4><ul class="compact-list"><li>建议国际品牌保护团队研究该案例中跨境电商平台的投诉成功路径，优化欧美东南亚站点的仿冒品下架流程。</li><li>建议法务在2026年6月前重新评估集团自有品牌及代理品牌的马德里注册覆盖区域，查漏补缺。</li></ul></div>
+          </details>
+          <div class="source-line">
+            <span>Source Evidence</span>
+            <a class="evidence-link" href="https://www.wipo.int/en/web/ip-advantage/w/stories/from-korean-skincare-to-beauty-tech-apr-global-trademark-strategy" target="_blank" rel="noopener noreferrer">查看原文：WIPO</a>
+            <em class="confidence-medium">medium confidence</em>
+          </div>
+        </div>
+      </article>
+    
+      </section>
+    
+      <section class="theme-section" id="module-1765ff12">
+        <header class="section-heading">
+          <p>分类情报 04</p>
+          <h2>新规及案例动态</h2>
+          <span>0 条入选 · 按时效性、权威性、行业影响力筛选</span>
+        </header>
+        <p class="empty">本周无高价值更新</p>
+      </section>
+    
+      <section class="theme-section" id="module-11b8279d">
+        <header class="section-heading">
+          <p>分类情报 05</p>
+          <h2>进出口动态</h2>
+          <span>0 条入选 · 按时效性、权威性、行业影响力筛选</span>
+        </header>
+        <p class="empty">本周无高价值更新</p>
+      </section>
+    
+
+      <section class="source-panel" id="sources">
+        <p class="panel-kicker">Source Evidence</p>
+        <h2>Source Evidence｜原文证据索引</h2>
+        <table class="evidence-table">
+          <thead><tr><th>#</th><th>来源链接</th><th>主题</th><th>市场</th><th>可信度</th></tr></thead>
+          <tbody>
+    <tr>
+      <td>01</td>
+      <td><a class="evidence-link" href="http://scjgj.beijing.gov.cn/zwxx/scjgdt/202605/t20260525_4664076.html" target="_blank" rel="noopener noreferrer">查看原文：北京市市场监督管理局</a></td>
+      <td>北京市网络市场监管联席会议召开 集中约谈17家重点平台</td>
+      <td>中国</td>
+      <td><span class="confidence-high">high</span></td>
+    </tr>
+  
+    <tr>
+      <td>02</td>
+      <td><a class="evidence-link" href="https://www.samr.gov.cn/ggjgs/index.html" target="_blank" rel="noopener noreferrer">查看原文：国家市场监督管理总局广告监管司</a></td>
+      <td>北京广告企业可申领广告业服务券，合规资源再分配</td>
+      <td>中国</td>
+      <td><span class="confidence-medium">medium</span></td>
+    </tr>
+  
+    <tr>
+      <td>03</td>
+      <td><a class="evidence-link" href="http://scjgj.gz.gov.cn/zwdt/tpxw/content/post_10825663.html" target="_blank" rel="noopener noreferrer">查看原文：广州市市场监督管理局</a></td>
+      <td>2026中国化妆品科学技术大会在广州开幕，聚焦功效与安全评价新趋势</td>
+      <td>中国</td>
+      <td><span class="confidence-high">high</span></td>
+    </tr>
+  
+    <tr>
+      <td>04</td>
+      <td><a class="evidence-link" href="http://scjgj.gz.gov.cn/zwdt/tzgg/content/post_10816912.html" target="_blank" rel="noopener noreferrer">查看原文：广州市市场监督管理局</a></td>
+      <td>广州市启动2026年化妆品生产企业质量管理体系自查，供应链合规压力传导</td>
+      <td>中国</td>
+      <td><span class="confidence-high">high</span></td>
+    </tr>
+  
+    <tr>
+      <td>05</td>
+      <td><a class="evidence-link" href="https://sbj.cnipa.gov.cn/sbj/tpxw/202604/t20260430_38259.html" target="_blank" rel="noopener noreferrer">查看原文：国家知识产权局商标局</a></td>
+      <td>商标网上查询系统以图搜图功能上线，方便图形商标监测</td>
+      <td>中国</td>
+      <td><span class="confidence-high">high</span></td>
+    </tr>
+  
+    <tr>
+      <td>06</td>
+      <td><a class="evidence-link" href="https://www.gippc.com.cn/ippc/sbsc/202004/88ac74bf80b841e588a4057ad703597c.shtml" target="_blank" rel="noopener noreferrer">查看原文：广东省知识产权保护中心</a></td>
+      <td>墨西哥联邦工业产权法最新修订，加强对工业设计及商标保护</td>
+      <td>墨西哥</td>
+      <td><span class="confidence-high">high</span></td>
+    </tr>
+  
+    <tr>
+      <td>07</td>
+      <td><a class="evidence-link" href="https://www.wipo.int/en/web/ip-advantage/w/stories/from-korean-skincare-to-beauty-tech-apr-global-trademark-strategy" target="_blank" rel="noopener noreferrer">查看原文：WIPO</a></td>
+      <td>WIPO聚焦韩国美妆科技APR全球商标策略，提示美妆品牌出海IP布局要点</td>
+      <td>韩国</td>
+      <td><span class="confidence-medium">medium</span></td>
+    </tr>
+  </tbody>
+        </table>
+      </section>
+
+      <section class="source-panel watchlist-panel">
+        <p class="panel-kicker">Watchlist</p>
+        <h2>待核验线索附录</h2>
+        <table class="evidence-table">
+          <thead><tr><th>#</th><th>来源</th><th>线索主题</th><th>市场</th><th>可信度</th></tr></thead>
+          <tbody>
+    <tr>
+      <td>01</td>
+      <td>北京市市场监督管理局</td>
+      <td>央广网：北京搭建国家标准制修订服务平台 助推饮料...：广告合规及处罚案例待核验情报线索</td>
+      <td>中国</td>
+      <td>medium</td>
+    </tr>
+  
+    <tr>
+      <td>02</td>
+      <td>浙江美妆</td>
+      <td>浙江美妆：美妆动态待核验情报线索</td>
+      <td>中国</td>
+      <td>low</td>
+    </tr>
+  
+    <tr>
+      <td>03</td>
+      <td>意大利卫生部 Cosmetics</td>
+      <td>意大利卫生部 Cosmetics：新规及案例动态信息源入口：新规及案例动态待核验情报线索</td>
+      <td>意大利</td>
+      <td>medium</td>
+    </tr>
+  
+    <tr>
+      <td>04</td>
+      <td>海关总署</td>
+      <td>海关总署：进出口动态待核验情报线索</td>
+      <td>中国</td>
+      <td>medium</td>
+    </tr>
+  
+    <tr>
+      <td>05</td>
+      <td>美国 CBP</td>
+      <td>美国 CBP：进出口动态待核验情报线索</td>
+      <td>美国</td>
+      <td>medium</td>
+    </tr>
+  </tbody>
+        </table>
+      </section>
+    </div>
+
+    <footer class="footer">
+    <p>生成时间：2026-05-25T06:22:09.713Z</p>
+      <p>信息源说明：公开网页优先展示原文链接；公众号类来源仅作线索，最终以可核验原文为准。主题图仅在可识别为正文相关图片时展示，站点 logo、头像、二维码和低清占位图不会进入报告。</p>
+    <p>部分源抓取失败：国家药品监督管理局、杭州市市场监督管理局、浙江省药品监督管理局、浙江省市场监督管理局、广东省市场监督管理局、国家知识产权公共服务网、杭州知识产权运营公共服务平台、中华人民共和国司法部、中国人大网、海关总署、美国 FTC Advertising、印度尼西亚 BPOM</p>
+  </footer>
+  </main>
+</body>
+</html>
