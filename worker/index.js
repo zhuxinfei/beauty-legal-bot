@@ -44,7 +44,7 @@ const REPORT_MODULES = [
 const ACTION_NOISE = ['建议关注', '持续关注', '企业应留意', '可能产生影响', '需持续观察'];
 const SOURCE_FETCH_TIMEOUT_MS = 30000;
 const SOURCE_FETCH_CONCURRENCY = 4;
-const WORKER_FETCH_SOURCE_BUDGET = 16;
+const WORKER_FETCH_SOURCE_BUDGET = 15;
 const TYPE_REQUIRED_FIELDS = {
   '法规': ['status', 'what_changed', 'legal_obligation', 'affected_business', 'recommended_actions', 'owner_teams', 'risk_level', 'why_it_matters', 'confidence'],
   '案例': ['case_type', 'facts', 'violation_logic', 'penalty_or_result', 'risk_pattern', 'business_lessons', 'recommended_actions', 'owner_teams', 'risk_level', 'why_it_matters', 'confidence'],
@@ -57,19 +57,23 @@ const ENTERPRISE_REQUIRED_FIELDS = ['source_type', 'relevance', 'industry_impact
 // ---------------------------------------------------------------------------
 // DeepSeek：一站式搜索 + 分析 + 格式化
 // ---------------------------------------------------------------------------
-async function requestDeepSeekChat({ apiKey, model = "deepseek-chat", messages, temperature = 0.2, maxTokens = 3000 }) {
+async function requestDeepSeekChat({ apiKey, model = "deepseek-v4-pro", messages, temperature = 0.2, maxTokens = 8000 }) {
+  const body = {
+    model,
+    messages,
+    temperature,
+    max_tokens: maxTokens,
+  };
+  if (model === 'deepseek-v4-pro') {
+    body.reasoning_effort = 'high';
+  }
   const resp = await fetch(DEEPSEEK_API, {
     method: "POST",
     headers: {
       "Authorization": `Bearer ${apiKey}`,
       "Content-Type": "application/json",
     },
-    body: JSON.stringify({
-      model,
-      messages,
-      temperature,
-      max_tokens: maxTokens,
-    }),
+    body: JSON.stringify(body),
   });
 
   if (!resp.ok) {
@@ -731,7 +735,7 @@ JSON 结构：
 线索 leads（公众号和不可抓来源，可作为强线索但需标注可信度）：${JSON.stringify(leads.slice(0, 120))}`;
 }
 
-async function deepseekAnalyze({ apiKey, model, candidates, leads = [], sources = sourceCatalog.sources, period = getPeriod(), targetModule = '' }) {
+export async function deepseekAnalyze({ apiKey, model, candidates, leads = [], sources = sourceCatalog.sources, period = getPeriod(), targetModule = '' }) {
   const messages = [
     { role: 'system', content: '你只输出合法 JSON。不要输出解释、Markdown 或代码块。' },
     { role: 'user', content: buildAnalysisPrompt({ candidates, leads, sources, period, targetModule }) },
@@ -946,26 +950,19 @@ export function attachReportImages(report, { candidates = [] } = {}) {
 }
 
 async function deepseekAnalyzeByModule({ apiKey, model, candidates, leads = [], sources = sourceCatalog.sources, period = getPeriod() }) {
-  const reports = [];
-  for (const module of REPORT_MODULES) {
-    const moduleCandidates = candidates.filter(candidate => candidate.module === module);
-    const moduleLeads = leads.filter(lead => lead.module === module);
-    const moduleSources = sources.filter(source => source.module === module);
-    if (!moduleCandidates.length && !moduleLeads.length) {
-      reports.push({ period, summary: [], risk_alerts: [], sections: [{ module, items: [] }] });
-      continue;
-    }
-    const report = await deepseekAnalyze({
-      apiKey,
-      model,
-      candidates: moduleCandidates,
-      leads: moduleLeads,
-      sources: moduleSources,
-      period,
-      targetModule: module,
-    });
-    reports.push(normalizeModuleReport(report, module));
+  // 将 5 个模块合并为 2 次 DeepSeek 调用，节省 subrequest
+  // 所有模块合并为 1 次 DeepSeek 调用，最小化 subrequest
+  if (!candidates.length && !leads.length) {
+    return { period, summary: [], risk_alerts: [], sections: REPORT_MODULES.map(m => ({ module: m, items: [] })) };
   }
+  const report = await deepseekAnalyze({
+    apiKey, model, candidates, leads, sources, period,
+    targetModule: REPORT_MODULES.join('、'),
+  });
+  const reports = REPORT_MODULES.map(module => {
+    const section = (report.sections || []).find(s => s.module === module) || { module, items: [] };
+    return normalizeModuleReport({ ...report, sections: [section] }, module);
+  });
   return mergeModuleReports(reports, period);
 }
 
@@ -1437,12 +1434,27 @@ async function fetchSourceCandidates(source) {
   if (!source.url || !source.url.startsWith('http')) return [];
 
   try {
-    const response = await fetchWithTimeout(source.url, {
+    let response = await fetchWithTimeout(source.url, {
       headers: {
         'User-Agent': 'beauty-legal-bot/1.0 (+legal intelligence monitor)',
         'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8',
       },
+      redirect: 'manual',
     });
+    // 手动跟随一次重定向（避免自动重定向链消耗过多 subrequest）
+    if ([301, 302, 303, 307, 308].includes(response.status)) {
+      const location = response.headers.get('Location');
+      if (location) {
+        const redirectUrl = new URL(location, source.url).toString();
+        response = await fetchWithTimeout(redirectUrl, {
+          headers: {
+            'User-Agent': 'beauty-legal-bot/1.0 (+legal intelligence monitor)',
+            'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8',
+          },
+          redirect: 'manual',
+        });
+      }
+    }
     if (!response.ok) return [];
 
     const html = await response.text();
@@ -1469,7 +1481,7 @@ async function fetchSourceCandidates(source) {
   }
 }
 
-async function collectCandidates(sources = sourceCatalog.sources, onProgress = async () => {}) {
+export async function collectCandidates(sources = sourceCatalog.sources, onProgress = async () => {}) {
   const { fetchableSources, leadSources } = splitSources(sources);
   const leads = leadSources.map(makeLead);
   const leadCandidates = leadSources.map(makeSourceLeadCandidate);
@@ -1501,6 +1513,129 @@ async function collectCandidates(sources = sourceCatalog.sources, onProgress = a
 function sleep(ms) { return new Promise(r => setTimeout(r, ms)); }
 
 // ---------------------------------------------------------------------------
+// 多阶段 Pipeline：内部端点认证与编排
+// ---------------------------------------------------------------------------
+function chunkArray(arr, size) {
+  const chunks = [];
+  for (let i = 0; i < arr.length; i += size) chunks.push(arr.slice(i, i + size));
+  return chunks;
+}
+
+function validateInternalAuth(request, env) {
+  const key = String(env?.DEEPSEEK_API_KEY || '');
+  if (!key) return false;
+  const auth = (request.headers.get('Authorization') || '').trim();
+  return auth === `Bearer ${key}`;
+}
+
+async function fetchSelf(env, pathname, body, retries = 2) {
+  const base = String(env?.WORKER_URL || 'https://beauty-legal-bot.ai-cf.workers.dev').replace(/\/$/, '');
+  const url = `${base}${pathname}`;
+  const key = String(env?.DEEPSEEK_API_KEY || '');
+  for (let attempt = 0; attempt <= retries; attempt++) {
+    try {
+      const resp = await fetch(url, {
+        method: 'POST',
+        headers: { 'Authorization': `Bearer ${key}`, 'Content-Type': 'application/json' },
+        body: JSON.stringify(body),
+      });
+      const data = await resp.json();
+      if (!resp.ok) throw new Error(`HTTP ${resp.status}: ${JSON.stringify(data)}`);
+      return data;
+    } catch (error) {
+      if (attempt === retries) throw error;
+      await sleep(1000 * (attempt + 1));
+    }
+  }
+}
+
+async function runCollectPhase(sources, batchId, date, env) {
+  if (!env?.SEEN_NEWS) throw new Error('SEEN_NEWS KV binding required');
+  const { candidates, leads, failures } = await collectCandidates(sources);
+  await env.SEEN_NEWS.put(
+    `pipeline:${date}:batch:${batchId}`,
+    JSON.stringify({ candidates, leads, failures })
+  );
+  return { batchId, candidateCount: candidates.length, leadCount: leads.length, failures };
+}
+
+async function runAnalysisPhase(date, env, additionalCandidates = []) {
+  if (!env?.SEEN_NEWS || !env?.DEEPSEEK_API_KEY) throw new Error('KV and DEEPSEEK_API_KEY required');
+  const kv = env.SEEN_NEWS;
+  const allCandidates = [...additionalCandidates];
+  const allLeads = [];
+  const allFailures = [];
+
+  for (const batchId of ['1', '2', '3']) {
+    const raw = await kv.get(`pipeline:${date}:batch:${batchId}`);
+    if (!raw) continue;
+    const data = JSON.parse(raw);
+    allCandidates.push(...(data.candidates || []));
+    allLeads.push(...(data.leads || []));
+    allFailures.push(...(data.failures || []));
+  }
+
+  const model = env.DEEPSEEK_MODEL || 'deepseek-v4-pro';
+  const period = getPeriod();
+  const rawReport = await deepseekAnalyzeByModule({
+    apiKey: env.DEEPSEEK_API_KEY,
+    model,
+    candidates: allCandidates,
+    leads: allLeads,
+    sources: sourceCatalog.sources,
+    period,
+  });
+
+  await kv.put(`pipeline:${date}:rawReport`, JSON.stringify(rawReport));
+  await kv.put(`pipeline:${date}:candidates`, JSON.stringify({ candidates: allCandidates, leads: allLeads, failures: allFailures }));
+
+  const itemCount = (rawReport.sections || []).flatMap(s => s.items || []).length;
+  return { modules: (rawReport.sections || []).length, itemCount, failures: allFailures };
+}
+
+async function runFinalizePhase(date, env, requestUrl) {
+  const kv = env.SEEN_NEWS;
+  if (!kv) throw new Error('KV required');
+
+  const raw = await kv.get(`pipeline:${date}:rawReport`);
+  if (!raw) throw new Error(`No raw report for ${date}`);
+
+  const rawReport = JSON.parse(raw);
+  let candidatesMeta = { candidates: [], sources: sourceCatalog.sources };
+  try {
+    const metaRaw = await kv.get(`pipeline:${date}:candidates`);
+    if (metaRaw) candidatesMeta = JSON.parse(metaRaw);
+  } catch { /* use defaults */ }
+
+  const sourceCheckedReport = filterReportToObservedSources(rawReport, candidatesMeta);
+  const imageAwareReport = attachReportImages(sourceCheckedReport, candidatesMeta);
+  const report = limitReportSections(filterReportQuality(dedupeReport(enrichReportWithSourceSignals(imageAwareReport, candidatesMeta))));
+  validateReport(report);
+
+  const generatedAt = new Date().toISOString();
+  const failures = candidatesMeta.failures || [];
+  const html = renderReportHtml(report, { generatedAt, failures });
+  const reportDate = report.period.end;
+  const itemCount = (report.sections || []).flatMap(s => s.items || []).length;
+  await saveReport(kv, reportDate, html, { period: report.period, generatedAt, itemCount });
+
+  const summaryText = renderFeishuSummary(report, reportUrl(requestUrl, '/report/latest'));
+  const { isDup, seen, fps } = await isDuplicateFingerprints(extractReportFingerprints(report), kv);
+  if (isDup) return { stage: 'dedupe', status: 'skipped', message: '30-day duplicate' };
+
+  const ok = await sendToFeishu(env.FEISHU_WEBHOOK_URL, summaryText);
+  if (ok) await markSeen(fps, seen, kv);
+  return { stage: 'feishu', status: ok ? 'done' : 'failed', message: ok ? 'Feishu sent' : 'Feishu failed' };
+}
+
+async function cleanupPipelineState(date, kv) {
+  if (!kv) return;
+  for (const batchId of ['1', '2', '3']) {
+    try { await kv.delete(`pipeline:${date}:batch:${batchId}`); } catch {}
+  }
+}
+
+// ---------------------------------------------------------------------------
 // 入口
 // ---------------------------------------------------------------------------
 export default {
@@ -1517,16 +1652,65 @@ export default {
 
   async fetch(request, env, ctx) {
     const url = new URL(request.url);
+
+    // ── 内部端点 ──
+    if (url.pathname === '/internal/collect' && request.method === 'POST') {
+      if (!validateInternalAuth(request, env)) return new Response(JSON.stringify({ error: 'unauthorized' }), { status: 401, headers: { 'Content-Type': 'application/json' } });
+      try {
+        const { sources, batchId, date } = await request.json();
+        if (!sources?.length) throw new Error('sources required');
+        const result = await runCollectPhase(sources, batchId || '1', date, env);
+        return new Response(JSON.stringify(result), { status: 200, headers: { 'Content-Type': 'application/json' } });
+      } catch (error) {
+        return new Response(JSON.stringify({ error: error.message }), { status: 500, headers: { 'Content-Type': 'application/json' } });
+      }
+    }
+
+    if (url.pathname === '/internal/analyze' && request.method === 'POST') {
+      if (!validateInternalAuth(request, env)) return new Response(JSON.stringify({ error: 'unauthorized' }), { status: 401, headers: { 'Content-Type': 'application/json' } });
+      try {
+        const { date } = await request.json();
+        const result = await runAnalysisPhase(date, env);
+        return new Response(JSON.stringify(result), { status: 200, headers: { 'Content-Type': 'application/json' } });
+      } catch (error) {
+        return new Response(JSON.stringify({ error: error.message }), { status: 500, headers: { 'Content-Type': 'application/json' } });
+      }
+    }
+
+    if (url.pathname === '/internal/finalize' && request.method === 'POST') {
+      if (!validateInternalAuth(request, env)) return new Response(JSON.stringify({ error: 'unauthorized' }), { status: 401, headers: { 'Content-Type': 'application/json' } });
+      try {
+        const { date, requestUrl: finalizeUrl } = await request.json();
+        const result = await runFinalizePhase(date, env, finalizeUrl || request.url);
+        return new Response(JSON.stringify(result), { status: 200, headers: { 'Content-Type': 'application/json' } });
+      } catch (error) {
+        return new Response(JSON.stringify({ error: error.message }), { status: 500, headers: { 'Content-Type': 'application/json' } });
+      }
+    }
+
+    // ── 公开端点 ──
     if (url.pathname === "/test") {
-      const pipeline = env.__TEST_RUN_PIPELINE__ || runPipeline;
+      // 测试 mock 优先（单元测试用），否则走多阶段 Pipeline
+      if (env.__TEST_RUN_PIPELINE__) {
+        try {
+          await recordLastRun(env.SEEN_NEWS, { trigger: 'manual', status: 'started' });
+          const result = await env.__TEST_RUN_PIPELINE__(env, request.url);
+          await recordLastRun(env.SEEN_NEWS, { trigger: 'manual', status: result?.status || 'done', stage: result?.stage || 'pipeline' });
+          return new Response(`OK — weekly pipeline finished\nstatus: ${result?.status || 'done'}\nlatest_report: ${url.origin}/report/latest`, { status: 200, headers: { "Content-Type": "text/plain; charset=utf-8" } });
+        } catch (error) {
+          await recordLastRun(env.SEEN_NEWS, { trigger: 'manual', status: 'failed', error: error.stack || error.message });
+          return new Response(`FAILED — weekly pipeline error\n${error.stack || error.message}`, { status: 500, headers: { "Content-Type": "text/plain; charset=utf-8" } });
+        }
+      }
+
       try {
         await recordLastRun(env.SEEN_NEWS, { trigger: 'manual', status: 'started' });
-        const result = await pipeline(env, request.url);
+        const result = await runPipeline(env, request.url);
         await recordLastRun(env.SEEN_NEWS, { trigger: 'manual', status: result?.status || 'done', stage: result?.stage || 'pipeline' });
-        return new Response(`OK — weekly pipeline finished\nstatus: ${result?.status || 'done'}\nlatest_report: ${url.origin}/report/latest`, { status: 200, headers: { "Content-Type": "text/plain; charset=utf-8" } });
+        return new Response(`OK — pipeline finished\nstatus: ${result?.status || 'done'}\nlatest_report: ${url.origin}/report/latest`, { status: 200, headers: { "Content-Type": "text/plain; charset=utf-8" } });
       } catch (error) {
         await recordLastRun(env.SEEN_NEWS, { trigger: 'manual', status: 'failed', error: error.stack || error.message });
-        return new Response(`FAILED — weekly pipeline error\n${error.stack || error.message}`, { status: 500, headers: { "Content-Type": "text/plain; charset=utf-8" } });
+        return new Response(`FAILED — pipeline error\n${error.stack || error.message}`, { status: 500, headers: { "Content-Type": "text/plain; charset=utf-8" } });
       }
     }
 

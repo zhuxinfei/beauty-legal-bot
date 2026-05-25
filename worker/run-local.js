@@ -14,7 +14,8 @@ const kv = {
 const env = {
   DEEPSEEK_API_KEY: process.env.DEEPSEEK_API_KEY,
   FEISHU_WEBHOOK_URL: process.env.FEISHU_WEBHOOK_URL || 'https://example.com/skip-feishu',
-  DEEPSEEK_MODEL: process.env.DEEPSEEK_WORKER_MODEL || 'deepseek-chat',
+  DEEPSEEK_MODEL: process.env.DEEPSEEK_WORKER_MODEL || 'deepseek-v4-pro',
+  FULL_SOURCE_SCAN: process.env.FULL_SOURCE_SCAN || '0',
   SEEN_NEWS: kv,
 };
 
