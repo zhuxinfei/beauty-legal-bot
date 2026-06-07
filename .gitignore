@@ -4,6 +4,8 @@ __pycache__/
 config.json
 *.log
 .DS_Store
+node_modules/
 .wrangler/
 out/
 .code-index/
+.codegraph/

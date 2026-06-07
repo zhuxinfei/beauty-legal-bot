@@ -1,0 +1,9 @@
+{
+  "type": "module",
+  "scripts": {
+    "render:decision-map": "node scripts/render-decision-map-png.js"
+  },
+  "devDependencies": {
+    "sharp": "^0.34.5"
+  }
+}
