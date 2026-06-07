@@ -1,6 +1,6 @@
 import { readFile, writeFile, mkdir } from 'node:fs/promises';
 import sharp from 'sharp';
-import { runPipeline, latestReportKey } from './index.js';
+import { runPipeline } from './index.js';
 
 const store = new Map();
 const kv = {
@@ -71,16 +71,12 @@ if (!process.env.FEISHU_WEBHOOK_URL) {
 
 await runPipeline(env, 'https://beauty-legal-bot.ai-cf.workers.dev/');
 
-const html = store.get(latestReportKey());
-if (!html) throw new Error('report:latest was not generated');
 const decisionMapSvg = store.get('asset:decision-map:latest');
 const decisionMapPng = store.get('asset:decision-map:latest.png');
 
 await mkdir('out', { recursive: true });
-await writeFile('out/latest-report.html', html, 'utf8');
 if (decisionMapSvg) await writeFile('out/decision-map.svg', decisionMapSvg, 'utf8');
 if (decisionMapPng) await writeFile('out/decision-map.png', decisionMapPng);
-console.log('Generated out/latest-report.html');
 if (decisionMapSvg) console.log('Generated out/decision-map.svg');
 if (decisionMapPng) console.log('Generated out/decision-map.png');
 console.log(process.env.DINGTALK_WEBHOOK_URL ? 'DingTalk webhook was called.' : 'DingTalk webhook was not configured.');

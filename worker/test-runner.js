@@ -13,7 +13,6 @@ import {
   isRelevantTitle,
   parseAnalysisJson,
   validateReport,
-  renderReportHtml,
   renderFeishuSummary,
   renderDingTalkMarkdown,
   renderDingTalkSummaryCard,
@@ -25,8 +24,6 @@ import {
   overwriteDingTalkDocument,
   publishDingTalkDocument,
   requestAiChat,
-  reportKeyForDate,
-  latestReportKey,
   dedupeReport,
   extractReportFingerprints,
   makeLead,
@@ -229,53 +226,8 @@ function testLimitReportSectionsAcceptsQualityLimit() {
   assert.equal(qualityLimited.sections.find(section => section.module === '广告合规及处罚案例').items.length, 10);
 }
 
-function testRenderReportHtml() {
-  const html = renderReportHtml(sampleReport, { generatedAt: '2026-05-24T00:00:00.000Z', failures: [] });
-  assert.ok(html.includes('<!doctype html>'));
-  assert.ok(html.includes('国际美妆法务情报周报'));
-  assert.ok(html.includes('Global Beauty Legal Intelligence'));
-  assert.ok(html.includes('市场覆盖'));
-  assert.ok(html.includes('业务影响'));
-  assert.ok(html.includes('直接相关') || html.includes('间接相关'));
-  assert.ok(html.includes('行业影响力'));
-  assert.ok(html.includes('class="brief-shell"'));
-  assert.ok(html.includes('class="brief-hero"'));
-  assert.ok(html.includes('class="reading-flow"'));
-  assert.ok(html.includes('Verified Intelligence'));
-  assert.ok(html.includes('Executive Brief'));
-  assert.ok(html.includes('本周先看这三件事'));
-  assert.ok(html.includes('集团行动板'));
-  assert.ok(html.includes('分类情报'));
-  assert.ok(html.includes('Source Evidence'));
-  assert.ok(html.includes('class="theme-section"'));
-  assert.ok(html.includes('class="evidence-table"'));
-  assert.ok(html.includes('class="evidence-link"'));
-  assert.ok(html.includes('Watchlist') || !html.includes('待核验'));
-  assert.ok(html.includes('severity-high'));
-  assert.ok(html.includes('severity-medium'));
-  assert.ok(html.includes('relevance-direct'));
-  assert.ok(html.includes('confidence-high'));
-  assert.ok(html.includes('Source Evidence'));
-  assert.ok(html.includes('查看原文'));
-  assert.ok(html.includes('核心结论'));
-  assert.ok(html.includes('建议动作'));
-  assert.ok(html.includes('https://www.pom.go.id/'));
-  assert.ok(html.includes('变化点'));
-  assert.ok(html.includes('法务拆解'));
-  assert.ok(html.includes('违法逻辑'));
-  assert.ok(html.includes('合规动作'));
-}
-
-function testRenderReportHtmlShowsEvidenceImageWhenAvailable() {
-  const report = structuredClone(sampleReport);
-  report.sections[0].items[0].image_url = 'https://example.com/evidence.jpg';
-  const html = renderReportHtml(report, { generatedAt: '2026-05-24T00:00:00.000Z', failures: [] });
-  assert.ok(html.includes('class="evidence-image"'));
-  assert.ok(html.includes('https://example.com/evidence.jpg'));
-}
-
 function testRenderFeishuSummary() {
-  const summary = renderFeishuSummary(sampleReport, 'https://example.com/report/latest');
+  const summary = renderFeishuSummary(sampleReport, 'https://example.com/doc/latest');
   assert.ok(summary.includes('Executive Brief'));
   assert.ok(summary.includes('导读'));
   assert.ok(summary.includes('核心判断'));
@@ -284,13 +236,13 @@ function testRenderFeishuSummary() {
   assert.ok(summary.includes('风险提示'));
   assert.ok(summary.includes('Action Board'));
   assert.ok(summary.includes('Source Evidence'));
-  assert.ok(summary.includes('阅读全文｜打开网页版情报中心'));
-  assert.ok(summary.includes('查看完整法务情报周报 →'));
-  assert.ok(summary.includes('https://example.com/report/latest'));
+  assert.ok(summary.includes('查看完整版本'));
+  assert.ok(summary.includes('打开完整法务情报周报 →'));
+  assert.ok(summary.includes('https://example.com/doc/latest'));
   assert.ok(summary.includes('建议'));
   assert.ok(summary.includes('来源证据'));
   assert.ok(summary.includes('**高风险**') || summary.includes('**中风险**') || summary.includes('**低风险**'));
-  assert.ok(summary.includes('[查看完整法务情报周报 →](https://example.com/report/latest)'));
+  assert.ok(summary.includes('[打开完整法务情报周报 →](https://example.com/doc/latest)'));
   assert.ok(/\[[^\]]+\]\(https?:\/\/[^)]+\)/.test(summary));
   assert.equal(/(^|\s)https?:\/\/\S+/.test(summary.replace(/\[[^\]]+\]\(https?:\/\/[^)]+\)/g, '')), false);
   assert.equal(summary.includes('本周报由 DeepSeek 辅助整理'), false);
@@ -400,7 +352,7 @@ async function testNotifyReportPrefersDingTalkWhenConfigured() {
   let sentMarkdown = '';
   const ok = await notifyReport({
     report: sampleReport,
-    reportUrl: 'https://example.com/report/latest',
+    reportUrl: 'https://example.com/doc/latest',
     env: {
       DINGTALK_WEBHOOK_URL: 'https://oapi.dingtalk.com/robot/send?access_token=abc',
       DINGTALK_DOC_URL: 'https://example.com/doc/latest',
@@ -419,8 +371,7 @@ async function testNotifyReportPrefersDingTalkWhenConfigured() {
   assert.equal(feishuCalls, 0);
   assert.ok(sentTitle.includes('美妆法务资讯'));
   assert.ok(sentMarkdown.includes('## 本周最值得看'));
-  assert.ok(sentMarkdown.includes('[查看完整版本](https://example.com/report/latest)'));
-  assert.equal(sentMarkdown.includes('https://example.com/doc/latest'), false);
+  assert.ok(sentMarkdown.includes('[查看完整版本](https://example.com/doc/latest)'));
   assert.equal(sentMarkdown.includes('#### 印尼'), false);
 }
 
@@ -683,7 +634,8 @@ async function testManualTestRouteAwaitsPipeline() {
   assert.equal(pipelineStarted, true);
   assert.ok(text.includes('weekly pipeline finished'));
   assert.ok(text.includes('status: done'));
-  assert.ok(text.includes('/report/latest'));
+  assert.ok(text.includes('full_version: DingTalk document'));
+  assert.equal(text.includes('/report/latest'), false);
 }
 
 async function testMapWithConcurrencyLimitsParallelWork() {
@@ -701,7 +653,7 @@ async function testMapWithConcurrencyLimitsParallelWork() {
   assert.equal(maxActive, 2);
 }
 
-async function testScheduledPipelineSavesReportThenSendsFeishu() {
+async function testScheduledPipelineSendsFeishuWithoutHtmlReport() {
   const originalFetch = globalThis.fetch;
   const store = new Map();
   const kv = {
@@ -713,7 +665,6 @@ async function testScheduledPipelineSavesReportThenSendsFeishu() {
     },
   };
   let feishuSent = false;
-  let reportExistedBeforeFeishu = false;
 
   globalThis.fetch = async (url, init = {}) => {
     const href = String(url);
@@ -724,10 +675,9 @@ async function testScheduledPipelineSavesReportThenSendsFeishu() {
     }
     if (href === 'https://example.com/webhook') {
       feishuSent = true;
-      reportExistedBeforeFeishu = store.has('report:latest');
       const body = JSON.parse(init.body);
       assert.equal(body.msg_type, 'interactive');
-      assert.ok(JSON.stringify(body.card).includes('查看完整法务情报周报'));
+      assert.ok(JSON.stringify(body.card).includes('Executive Brief'));
       return new Response(JSON.stringify({ code: 0 }), { status: 200, headers: { 'Content-Type': 'application/json' } });
     }
     return new Response('<a href="/cosmetic-rule">化妆品安全评估技术导则征求意见</a>', {
@@ -747,11 +697,10 @@ async function testScheduledPipelineSavesReportThenSendsFeishu() {
     globalThis.fetch = originalFetch;
   }
 
-  assert.ok(store.has('report:latest'));
-  assert.ok([...store.keys()].some(key => /^report:\d{4}-\d{2}-\d{2}$/.test(key)));
-  assert.ok(store.get('report:latest').includes('国际美妆法务情报周报'));
+  assert.equal(store.has('report:latest'), false);
+  assert.equal([...store.keys()].some(key => /^report:\d{4}-\d{2}-\d{2}$/.test(key)), false);
+  assert.ok(store.has('asset:decision-map:latest'));
   assert.equal(feishuSent, true);
-  assert.equal(reportExistedBeforeFeishu, true);
 }
 
 async function testManualTestRouteRecordsFailure() {
@@ -777,11 +726,6 @@ async function testManualTestRouteRecordsFailure() {
   assert.equal(lastRun.trigger, 'manual');
   assert.equal(lastRun.status, 'failed');
   assert.ok(lastRun.error.includes('boom'));
-}
-
-function testReportKeys() {
-  assert.equal(reportKeyForDate('2026-05-24'), 'report:2026-05-24');
-  assert.equal(latestReportKey(), 'report:latest');
 }
 
 function testDedupeReportRemovesRepeatedItems() {
@@ -891,7 +835,7 @@ function testSelectSourcesForWorkerBudgetKeepsImportantCoverageUnderLimit() {
 await testFetchWithTimeoutAbortsSlowFetch();
 await testManualTestRouteAwaitsPipeline();
 await testMapWithConcurrencyLimitsParallelWork();
-await testScheduledPipelineSavesReportThenSendsFeishu();
+await testScheduledPipelineSendsFeishuWithoutHtmlReport();
 await testManualTestRouteRecordsFailure();
 testNormalizeUrl();
 testHtmlToText();
@@ -908,8 +852,6 @@ testFilterReportQualityKeepsLeadBasedBeautyAndImportSignals();
 testNormalizeReportForValidationFillsDynamicAnalysisFields();
 testLimitReportSectionsKeepsEnterpriseModuleDepth();
 testLimitReportSectionsAcceptsQualityLimit();
-testRenderReportHtml();
-testRenderReportHtmlShowsEvidenceImageWhenAvailable();
 testRenderFeishuSummary();
 testRenderDingTalkMarkdownUsesModuleRegionCountryStructure();
 testRenderDingTalkMarkdownShowsAllModulesWhenEmpty();
@@ -928,7 +870,6 @@ testFilterReportToObservedSourcesDropsFabricatedUrls();
 testAttachReportImagesUsesObservedCandidateImages();
 testEnterprisePromptRequiresGlobalLegalIntelligence();
 testCandidateFreshnessAndInfluenceRanking();
-testReportKeys();
 testDedupeReportRemovesRepeatedItems();
 testExtractReportFingerprintsUsesItems();
 testSplitSourcesSeparatesWechatLeads();

@@ -803,12 +803,9 @@ export async function runPipeline(env, requestUrl = 'https://beauty-legal-bot.wo
     const itemCount = (report.sections || []).flatMap(section => section.items || []).length;
     console.log(`[stage 2/5] 完成，模块 ${report.sections.length} 个，去重后 ${itemCount} 条`);
 
-    console.log("[stage 3/5] 生成并保存 HTML 周报...");
+    console.log("[stage 3/5] 生成风险雷达并写入钉钉文档...");
     const generatedAt = new Date().toISOString();
-    const html = renderReportHtml(report, { generatedAt, failures });
     const reportDate = report.period.end;
-    await saveReport(kv, reportDate, html, { period: report.period, generatedAt, itemCount });
-    console.log(`[stage 3/5] 已保存 /report/${reportDate} 和 /report/latest`);
     const decisionMapSvg = buildDecisionMapSvg(verifiedReportItems(report).sort((a, b) => rankReportItem(b) - rankReportItem(a)));
     await saveDecisionMap(kv, reportDate, decisionMapSvg);
     const decisionMapPng = env.CREATE_DECISION_MAP_PNG
@@ -816,7 +813,7 @@ export async function runPipeline(env, requestUrl = 'https://beauty-legal-bot.wo
       : null;
     if (decisionMapPng) await saveDecisionMapPng(kv, decisionMapPng);
     const decisionMapUrl = decisionMapPng ? reportUrl(requestUrl, '/assets/decision-map.png') : reportUrl(requestUrl, '/assets/decision-map.svg');
-    let fullReportUrl = reportUrl(requestUrl, '/report/latest');
+    let fullReportUrl = '';
     let dingTalkDocReady = false;
     try {
       const doc = await publishDingTalkDocument({
@@ -840,7 +837,7 @@ export async function runPipeline(env, requestUrl = 'https://beauty-legal-bot.wo
     console.log("[stage 4/5] 内容去重检查...");
     const { isDup, seen, fps } = await isDuplicateFingerprints(extractReportFingerprints(report), kv);
     if (isDup) {
-      console.log("[stage 4/5] 报告条目 30 天内已全部推送过，保留页面但跳过飞书推送");
+      console.log("[stage 4/5] 报告条目 30 天内已全部推送过，跳过摘要推送");
       return { stage: 'dedupe', status: 'skipped', message: 'all report items were already pushed in 30 days' };
     }
 
@@ -1656,302 +1653,6 @@ function isWatchlistItem(item) {
     || /待核验|信息源入口|线索/.test(text);
 }
 
-export function renderReportHtml(report, { generatedAt = new Date().toISOString(), failures = [] } = {}) {
-  validateReport(report);
-  const sections = report.sections || [];
-  const allItems = sections.flatMap(section => section.items || []);
-  const verifiedItems = allItems.filter(item => !isWatchlistItem(item));
-  const watchlistItems = allItems.filter(isWatchlistItem);
-  const displaySections = sections.map(section => ({
-    ...section,
-    items: (section.items || []).filter(item => !isWatchlistItem(item)),
-  }));
-  const countries = [...new Set(verifiedItems.map(item => item.country).filter(Boolean))];
-  const directCount = verifiedItems.filter(item => item.relevance === 'direct').length;
-  const highImpactCount = verifiedItems.filter(item => item.industry_impact === 'high').length;
-  const sourceCount = new Set(verifiedItems.map(item => item.source_url).filter(isHttpUrl)).size;
-  const topItems = verifiedItems
-    .filter(item => item.risk_level === 'high' || item.industry_impact === 'high' || item.relevance === 'direct')
-    .slice(0, 3);
-
-  const moduleNav = displaySections.map(section => `<a href="#${moduleId(section.module)}">${escapeHtml(section.module)}<span>${(section.items || []).length}</span></a>`).join('');
-  const elevatorNav = [
-    '<a href="#top">Top</a>',
-    '<a href="#decision">三件事</a>',
-    '<a href="#actions">行动板</a>',
-    ...displaySections.map(section => `<a href="#${moduleId(section.module)}">${escapeHtml(section.module.replace(/动态|案例/g, ''))}</a>`),
-    '<a href="#sources">证据</a>',
-  ].join('');
-
-  const sectionHtml = displaySections.map((section, sectionIndex) => {
-    const items = section.items || [];
-    const itemHtml = items.length ? items.map((item, itemIndex) => `
-      <article class="intel-row">
-        <div class="row-index">${String(sectionIndex + 1).padStart(2, '0')}.${String(itemIndex + 1).padStart(2, '0')}</div>
-        <div class="row-main">
-          <div class="row-meta">
-            <span class="pill ${levelClass('severity', item.risk_level)}">${escapeHtml(riskLabel(item.risk_level))}</span>
-            <span class="pill ${levelClass('relevance', item.relevance, 'indirect')}">${item.relevance === 'direct' ? '直接相关' : '间接相关'}</span>
-            <span class="pill impact-${escapeHtml(item.industry_impact || 'medium')}">行业影响力${escapeHtml(impactLabel(item.industry_impact))}</span>
-            <span>${escapeHtml(item.country || item.region)} · ${escapeHtml(item.published_at || '未知日期')}</span>
-          </div>
-          <h3>${escapeHtml(item.title)}</h3>
-          <p class="lead">${escapeHtml(item.why_it_matters || '该条信息需要相关团队结合业务覆盖范围判断影响。')}</p>
-          ${renderEvidenceImage(item)}
-          <div class="answer-grid">
-            <section>
-              <h4>业务影响</h4>
-              ${renderList(item.business_impact, 'plain-list')}
-            </section>
-            <section>
-              <h4>建议动作</h4>
-              ${renderList(item.recommended_actions, 'plain-list')}
-            </section>
-          </div>
-          <details class="deep-dive" open>
-            <summary>法务拆解</summary>
-            ${renderItemAnalysis(item)}
-          </details>
-          <div class="source-line">
-            <span>Source Evidence</span>
-            ${renderSourceAnchor(item)}
-            <em class="${levelClass('confidence', item.confidence)}">${escapeHtml(item.confidence || 'medium')} confidence</em>
-          </div>
-        </div>
-      </article>
-    `).join('') : '<p class="empty">本周无高价值更新</p>';
-    return `
-      <section class="theme-section" id="${moduleId(section.module)}">
-        <header class="section-heading">
-          <p>分类情报 ${String(sectionIndex + 1).padStart(2, '0')}</p>
-          <h2>${escapeHtml(section.module)}</h2>
-          <span>${items.length} 条入选 · 按时效性、权威性、行业影响力筛选</span>
-        </header>
-        ${itemHtml}
-      </section>
-    `;
-  }).join('');
-
-  const executiveConclusion = report.summary?.[0] || `本期共筛选 ${verifiedItems.length} 条可核验美妆法务情报，建议集团法务按市场和业务线优先处理高风险事项。`;
-  const executiveBullets = (report.summary || []).slice(0, 4).map(item => `<li>${escapeHtml(item)}</li>`).join('');
-  const marketRiskHtml = countries.map(country => {
-    const countryItems = verifiedItems.filter(item => item.country === country);
-    const high = countryItems.filter(item => item.risk_level === 'high').length;
-    const medium = countryItems.filter(item => item.risk_level === 'medium').length;
-    const level = high ? 'high' : (medium ? 'medium' : 'low');
-    return `<div class="market-chip severity-${level}"><strong>${escapeHtml(country)}</strong><span>${countryItems.length} 条 · ${high} 高风险 · ${medium} 中风险</span></div>`;
-  }).join('');
-
-  const actionTeams = ['法务', '注册', '市场', '电商', '供应链', '品牌/IP', '客服'];
-  const actionBoardHtml = actionTeams.map(team => {
-    const actions = verifiedItems
-      .filter(item => (item.owner_teams || []).some(owner => String(owner).includes(team.replace('/IP', ''))))
-      .flatMap(item => item.recommended_actions || [])
-      .slice(0, 2);
-    if (!actions.length) return '';
-    return `<section class="action-block"><h3>${escapeHtml(team)}</h3>${renderList(actions, 'plain-list')}</section>`;
-  }).filter(Boolean).join('');
-
-  const topThreeHtml = topItems.length ? topItems.map((item, index) => `
-    <article class="decision-item">
-      <span>${index + 1}</span>
-      <div>
-        <h3>${escapeHtml(item.country)}｜${escapeHtml(item.title)}</h3>
-        <p>${escapeHtml(item.why_it_matters)}</p>
-        ${renderSourceAnchor(item)}
-      </div>
-    </article>
-  `).join('') : '<p class="empty">本周无需要优先处理的高风险事项。</p>';
-
-  const evidenceRows = verifiedItems.map((item, index) => `
-    <tr>
-      <td>${String(index + 1).padStart(2, '0')}</td>
-      <td>${renderSourceAnchor(item)}</td>
-      <td>${escapeHtml(item.title)}</td>
-      <td>${escapeHtml(item.country || item.region)}</td>
-      <td><span class="${levelClass('confidence', item.confidence)}">${escapeHtml(item.confidence || 'medium')}</span></td>
-    </tr>
-  `).join('');
-
-  const watchlistRows = watchlistItems.map((item, index) => `
-    <tr>
-      <td>${String(index + 1).padStart(2, '0')}</td>
-      <td>${escapeHtml(item.source_name || '线索来源')}</td>
-      <td>${escapeHtml(item.title)}</td>
-      <td>${escapeHtml(item.country || item.region)}</td>
-      <td>${escapeHtml(item.confidence || 'low')}</td>
-    </tr>
-  `).join('');
-
-  return `<!doctype html>
-<html lang="zh-CN">
-<head>
-  <meta charset="utf-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>Global Beauty Legal Intelligence</title>
-  <style>
-    :root { color-scheme: light; --paper: #f7f4ef; --surface: #fffdfa; --ink: #161412; --muted: #6d6860; --line: #e2d8ca; --line-strong: #b9aa96; --rose: #9f5964; --rose-soft: #f5e9e8; --gold: #8a642d; --green: #286c58; --blue: #2b5878; --red: #9c3934; --amber: #94651f; --shadow: 0 22px 60px rgba(54, 42, 29, .09); }
-    * { box-sizing: border-box; }
-    html { scroll-behavior: smooth; }
-    body { margin: 0; background: linear-gradient(180deg, #f8f4ed 0%, #fbfaf7 44%, #f4efe7 100%); color: var(--ink); font-family: Georgia, "Times New Roman", "Songti SC", "SimSun", serif; font-size: 16px; line-height: 1.72; }
-    a { color: var(--blue); text-decoration-thickness: 0.08em; text-underline-offset: 0.2em; }
-    a:focus-visible { outline: 3px solid rgba(181, 107, 117, .35); outline-offset: 3px; border-radius: 4px; }
-    .brief-shell { max-width: 1160px; margin: 0 auto; padding: 42px 24px 64px; }
-    .brief-hero { display: grid; grid-template-columns: minmax(0, 1fr) 330px; gap: 34px; align-items: end; padding: 38px 0 32px; border-bottom: 1px solid var(--line-strong); }
-    .eyebrow, .section-heading p, .panel-kicker { margin: 0 0 8px; color: var(--rose); font: 800 11px/1.3 -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; letter-spacing: .12em; text-transform: uppercase; }
-    h1 { margin: 0; max-width: 780px; font-size: 46px; line-height: 1.12; font-weight: 700; letter-spacing: 0; }
-    .hero-copy { margin: 14px 0 0; max-width: 760px; color: var(--muted); font: 400 16px/1.75 -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; }
-    .metric-grid { display: grid; grid-template-columns: repeat(2, minmax(0,1fr)); gap: 10px; }
-    .metric { min-height: 92px; padding: 15px; background: rgba(255,253,250,.86); border: 1px solid var(--line); border-radius: 8px; box-shadow: var(--shadow); }
-    .metric strong { display: block; font: 700 30px/1 Georgia, "Times New Roman", serif; color: var(--rose); }
-    .metric span { display: block; margin-top: 8px; color: var(--muted); font: 700 13px/1.45 -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; }
-    .module-nav { display: flex; flex-wrap: wrap; gap: 8px; margin: 18px 0 0; }
-    .module-nav a { display: inline-flex; align-items: center; gap: 8px; min-height: 44px; padding: 8px 12px; border: 1px solid var(--line); border-radius: 999px; background: rgba(255,255,255,.7); color: var(--ink); font: 700 13px/1.4 -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; text-decoration: none; }
-    .module-nav span { min-width: 22px; height: 22px; display: inline-grid; place-items: center; border-radius: 999px; background: var(--rose-soft); color: var(--rose); }
-    .elevator { position: fixed; right: 18px; top: 50%; transform: translateY(-50%); z-index: 20; display: grid; gap: 7px; width: 118px; padding: 10px; border: 1px solid rgba(185,170,150,.72); border-radius: 8px; background: rgba(255,253,250,.88); box-shadow: 0 18px 44px rgba(54,42,29,.12); backdrop-filter: blur(12px); }
-    .elevator a { min-height: 34px; display: flex; align-items: center; justify-content: center; padding: 5px 8px; border-radius: 6px; color: var(--muted); font: 800 12px/1.25 -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; text-align: center; text-decoration: none; }
-    .elevator a:hover, .elevator a:focus-visible { background: var(--rose-soft); color: var(--rose); }
-    .reading-flow { display: grid; gap: 26px; margin-top: 28px; }
-    .brief-panel, .decision-panel, .action-board, .market-panel, .source-panel, .theme-section { background: rgba(255,253,250,.95); border: 1px solid var(--line); border-radius: 8px; box-shadow: var(--shadow); }
-    .brief-panel, .decision-panel, .action-board, .market-panel, .source-panel { padding: 26px; }
-    .split { display: grid; grid-template-columns: minmax(0, 1.08fr) minmax(320px, .92fr); gap: 20px; }
-    h2 { margin: 0; font-size: 27px; line-height: 1.25; font-weight: 700; letter-spacing: 0; }
-    .subhead { margin: 16px 0 0; color: var(--rose); font: 800 13px/1.35 -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; }
-    .executive-conclusion { margin: 14px 0 14px; padding-left: 16px; border-left: 4px solid var(--rose); font-size: 20px; line-height: 1.68; font-weight: 700; }
-    .summary-list, .plain-list, .compact-list, .scope-list, .impact-list { margin: 0; padding-left: 20px; }
-    .summary-list { display: grid; gap: 8px; color: var(--muted); font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; }
-    .decision-list { display: grid; gap: 14px; margin-top: 14px; }
-    .decision-item { display: grid; grid-template-columns: 42px minmax(0,1fr); gap: 14px; padding: 16px 0; border-top: 1px solid var(--line); }
-    .decision-item > span { width: 36px; height: 36px; display: grid; place-items: center; border: 1px solid var(--rose); border-radius: 999px; color: var(--rose); font-weight: 800; }
-    .decision-item h3 { margin: 0 0 6px; font-size: 18px; line-height: 1.45; }
-    .decision-item p { margin: 0 0 8px; color: var(--muted); font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; }
-    .market-grid, .action-grid { display: grid; gap: 10px; }
-    .market-chip, .action-block { padding: 14px 15px; border: 1px solid var(--line); border-radius: 8px; background: #fff; }
-    .market-chip strong { display: block; font-size: 17px; }
-    .market-chip span { display: block; color: var(--muted); font: 700 12px/1.5 -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; }
-    .action-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); margin-top: 12px; }
-    .action-block h3 { margin: 0 0 8px; color: var(--rose); font: 800 14px/1.3 -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; }
-    .theme-section { padding: 0; overflow: hidden; scroll-margin-top: 18px; }
-    .section-heading { padding: 24px 28px 18px; border-bottom: 1px solid var(--line); background: linear-gradient(90deg, #fffdfa 0%, #fbf2ee 100%); }
-    .section-heading span { display: block; margin-top: 8px; color: var(--muted); font: 700 13px/1.5 -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; }
-    .intel-row { display: grid; grid-template-columns: 78px minmax(0,1fr); gap: 22px; padding: 28px; border-top: 1px solid var(--line); }
-    .intel-row:first-of-type { border-top: 0; }
-    .row-index { color: var(--rose); font: 700 18px/1 Georgia, "Times New Roman", serif; }
-    .row-meta { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; color: var(--muted); font: 700 12px/1.4 -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; }
-    .pill { display: inline-flex; align-items: center; min-height: 27px; padding: 4px 10px; border: 1px solid var(--line); border-radius: 999px; background: #fff; }
-    .severity-high { border-color: #e4aaa7 !important; background: #fff1f0 !important; color: var(--red) !important; }
-    .severity-medium { border-color: #e5c992 !important; background: #fff8ea !important; color: var(--amber) !important; }
-    .severity-low { border-color: #bed8cf !important; background: #f0faf6 !important; color: var(--green) !important; }
-    .relevance-direct { border-color: #b9cce0 !important; background: #f0f6fb !important; color: var(--blue) !important; }
-    .relevance-indirect { border-color: #ded2c1 !important; background: #fbf7f0 !important; color: var(--gold) !important; }
-    .impact-high { color: var(--red); } .impact-medium { color: var(--amber); } .impact-low { color: var(--green); }
-    .row-main h3 { margin: 12px 0 10px; font-size: 24px; line-height: 1.35; letter-spacing: 0; }
-    .lead { margin: 0 0 14px; max-width: 820px; color: #332f2a; font-size: 17px; line-height: 1.75; }
-    .answer-grid { display: grid; grid-template-columns: minmax(0,.9fr) minmax(0,1.1fr); gap: 14px; margin-top: 14px; }
-    .answer-grid section, .deep-dive { border: 1px solid var(--line); border-radius: 8px; background: #fff; padding: 14px; }
-    .answer-grid h4, .analysis-block h4, .deep-dive summary { margin: 0 0 8px; color: var(--rose); font: 800 13px/1.35 -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; }
-    .deep-dive { margin-top: 14px; }
-    .deep-dive summary { cursor: pointer; min-height: 32px; }
-    .analysis-block { margin-top: 13px; }
-    .analysis-block:first-child { margin-top: 0; }
-    .source-line { display: flex; flex-wrap: wrap; gap: 10px 14px; align-items: center; margin-top: 14px; padding-top: 13px; border-top: 1px solid var(--line); color: var(--muted); font: 700 13px/1.4 -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; }
-    .source-line > span { color: var(--gold); text-transform: uppercase; letter-spacing: .04em; }
-    .source-note { color: var(--muted); font-weight: 800; }
-    .evidence-link { font-weight: 900; }
-    .confidence-high { color: var(--green); } .confidence-medium { color: var(--amber); } .confidence-low { color: var(--red); }
-    .evidence-image { width: min(360px, 100%); margin: 10px 0 0; border: 1px solid var(--line); border-radius: 8px; overflow: hidden; background: #fff; aspect-ratio: 16 / 9; }
-    .evidence-image img { width: 100%; height: 100%; object-fit: cover; display: block; }
-    .source-panel { overflow-x: auto; }
-    .watchlist-panel { background: transparent; border-style: dashed; box-shadow: none; }
-    .evidence-table { width: 100%; border-collapse: collapse; min-width: 760px; margin-top: 12px; font: 14px/1.55 -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; }
-    .evidence-table th, .evidence-table td { padding: 11px 10px; border-bottom: 1px solid var(--line); text-align: left; vertical-align: top; }
-    .evidence-table th { color: var(--muted); font-size: 12px; text-transform: uppercase; letter-spacing: .04em; }
-    .empty { margin: 0; color: var(--muted); font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; }
-    .footer { margin-top: 28px; padding-top: 18px; border-top: 1px solid var(--line); color: var(--muted); font: 13px/1.7 -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; }
-    @media (prefers-reduced-motion: reduce) { html { scroll-behavior: auto; } }
-    @media (max-width: 1280px) { .elevator { right: 8px; width: 96px; } }
-    @media (max-width: 1060px) { .elevator { position: sticky; top: 0; transform: none; width: auto; display: flex; overflow-x: auto; margin: 0 -24px 18px; padding: 10px 24px; border-left: 0; border-right: 0; border-radius: 0; } .elevator a { flex: 0 0 auto; } }
-    @media (max-width: 940px) { .brief-hero, .split, .answer-grid, .action-grid { grid-template-columns: 1fr; } .brief-hero { align-items: start; } }
-    @media (max-width: 680px) { .brief-shell { padding: 22px 14px 42px; } h1 { font-size: 32px; } .metric-grid { grid-template-columns: 1fr 1fr; } .intel-row { grid-template-columns: 1fr; gap: 8px; padding: 18px; } .section-heading { padding: 18px; } .row-main h3 { font-size: 21px; } }
-  </style>
-</head>
-<body>
-  <main class="brief-shell" id="top">
-    <nav class="elevator" aria-label="模块电梯导航">${elevatorNav}</nav>
-    <header class="brief-hero">
-      <div>
-      <p class="eyebrow">Global Beauty Legal Intelligence</p>
-      <h1>国际美妆法务情报周报</h1>
-        <p class="hero-copy">周期：${escapeHtml(report.period.start)} 至 ${escapeHtml(report.period.end)}。本页主阅读流仅展示可核验公开来源；公众号、泛首页和低可信待核验线索统一下沉至 Watchlist，避免干扰集团决策。</p>
-        <nav class="module-nav" aria-label="报告模块">${moduleNav}</nav>
-      </div>
-      <div class="metric-grid" aria-label="风险统计">
-        <div class="metric"><strong>${verifiedItems.length}</strong><span>Verified Intelligence</span></div>
-        <div class="metric"><strong>${countries.length}</strong><span>市场覆盖</span></div>
-        <div class="metric"><strong>${directCount}</strong><span>直接相关</span></div>
-        <div class="metric"><strong>${sourceCount}</strong><span>Source Evidence</span></div>
-      </div>
-    </header>
-
-    <div class="reading-flow">
-      <div class="split">
-        <section class="brief-panel" aria-labelledby="summary-title">
-          <p class="panel-kicker">Executive Brief</p>
-          <h2 id="summary-title">Executive Brief</h2>
-          <h3 class="subhead">核心结论</h3>
-          <p class="executive-conclusion">${escapeHtml(executiveConclusion)}</p>
-          ${executiveBullets ? `<ul class="summary-list">${executiveBullets}</ul>` : '<p class="empty">本周无高价值更新</p>'}
-        </section>
-        <section class="decision-panel" id="decision">
-          <p class="panel-kicker">Decision First</p>
-          <h2>本周先看这三件事</h2>
-          <div class="decision-list">${topThreeHtml}</div>
-        </section>
-      </div>
-
-      <section class="action-board" id="actions" aria-labelledby="action-title">
-        <p class="panel-kicker">Action Board</p>
-        <h2 id="action-title">集团行动板</h2>
-        <div class="action-grid">${actionBoardHtml || '<p class="empty">暂无明确团队动作。</p>'}</div>
-      </section>
-
-      <section class="market-panel">
-        <p class="panel-kicker">Market Risk Map</p>
-        <h2>市场风险地图</h2>
-        <div class="market-grid">${marketRiskHtml}</div>
-      </section>
-
-      ${sectionHtml}
-
-      <section class="source-panel" id="sources">
-        <p class="panel-kicker">Source Evidence</p>
-        <h2>Source Evidence｜原文证据索引</h2>
-        <table class="evidence-table">
-          <thead><tr><th>#</th><th>来源链接</th><th>主题</th><th>市场</th><th>可信度</th></tr></thead>
-          <tbody>${evidenceRows}</tbody>
-        </table>
-      </section>
-
-      ${watchlistRows ? `<section class="source-panel watchlist-panel">
-        <p class="panel-kicker">Watchlist</p>
-        <h2>待核验线索附录</h2>
-        <table class="evidence-table">
-          <thead><tr><th>#</th><th>来源</th><th>线索主题</th><th>市场</th><th>可信度</th></tr></thead>
-          <tbody>${watchlistRows}</tbody>
-        </table>
-      </section>` : ''}
-    </div>
-
-    <footer class="footer">
-    <p>生成时间：${escapeHtml(generatedAt)}</p>
-      <p>信息源说明：公开网页优先展示原文链接；公众号类来源仅作线索，最终以可核验原文为准。主题图仅在可识别为正文相关图片时展示，站点 logo、头像、二维码和低清占位图不会进入报告。</p>
-    ${failures.length ? `<p>部分源抓取失败：${escapeHtml(failures.slice(0, 12).join('、'))}</p>` : ''}
-  </footer>
-  </main>
-</body>
-</html>`;
-}
-
 export function renderFeishuSummary(report, reportUrl) {
   validateReport(report);
   const items = (report.sections || []).flatMap(section => section.items || []);
@@ -1972,16 +1673,9 @@ export function renderFeishuSummary(report, reportUrl) {
     const action = Array.isArray(item.recommended_actions) ? item.recommended_actions[0] : '';
     return `• **${item.country}｜${riskLabel(item.risk_level)}**｜${item.title}\n  **建议**：${suggest(action)}`;
   }).join('\n') || '• 本周暂无需要立即处理的高风险事项。';
-  const evidence = priorityItems.slice(0, 3).map(item => `• ${mdLink(item.source_name, item.source_url)}｜${item.country}｜${riskLabel(item.risk_level)}`).join('\n') || '• 完整来源见网页版。';
-  return `**美妆法务周报｜${report.period.end}**\n\n**Executive Brief｜核心判断**\n**${executive}**\n\n**导读｜先看这三件事**\n${guide}\n\n**风险提示**\n${risks}\n\n**Action Board｜建议优先动作**\n${actionLines}\n\n**Source Evidence｜来源证据**\n${evidence}\n\n**阅读全文｜打开网页版情报中心**\n${mdLink('查看完整法务情报周报 →', reportUrl)}`;
-}
-
-export function reportKeyForDate(date) {
-  return `report:${date}`;
-}
-
-export function latestReportKey() {
-  return 'report:latest';
+  const evidence = priorityItems.slice(0, 3).map(item => `• ${mdLink(item.source_name, item.source_url)}｜${item.country}｜${riskLabel(item.risk_level)}`).join('\n') || '• 本期暂无可核验的高优先级来源。';
+  const fullText = reportUrl ? `\n\n**查看完整版本**\n${mdLink('打开完整法务情报周报 →', reportUrl)}` : '';
+  return `**美妆法务周报｜${report.period.end}**\n\n**Executive Brief｜核心判断**\n**${executive}**\n\n**导读｜先看这三件事**\n${guide}\n\n**风险提示**\n${risks}\n\n**Action Board｜建议优先动作**\n${actionLines}\n\n**Source Evidence｜来源证据**\n${evidence}${fullText}`;
 }
 
 function reportUrl(requestUrl, pathname) {
@@ -2004,28 +1698,6 @@ async function saveDecisionMap(kv, date, svg) {
 async function saveDecisionMapPng(kv, png) {
   if (!png) return;
   await kv.put(LATEST_DECISION_MAP_PNG_KEY, png, { metadata: { contentType: 'image/png' } });
-}
-
-async function saveReport(kv, date, html, metadata) {
-  await kv.put(reportKeyForDate(date), html, { metadata });
-  await kv.put(latestReportKey(), html, { metadata: { ...metadata, date } });
-
-  const raw = await kv.get(REPORT_INDEX_KEY);
-  const index = raw ? JSON.parse(raw) : [];
-  const next = [{ date, ...metadata }, ...index.filter(item => item.date !== date)].slice(0, 24);
-  await kv.put(REPORT_INDEX_KEY, JSON.stringify(next));
-}
-
-async function loadReport(kv, key) {
-  if (!kv) return null;
-  return kv.get(key);
-}
-
-async function renderReportIndex(kv) {
-  const raw = kv ? await kv.get(REPORT_INDEX_KEY) : null;
-  const index = raw ? JSON.parse(raw) : [];
-  const links = index.map(item => `<li><a href="/report/${escapeHtml(item.date)}">${escapeHtml(item.date)}</a><span>${escapeHtml(item.itemCount ?? 0)} 条资讯</span></li>`).join('');
-  return `<!doctype html><html lang="zh-CN"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><title>往期美妆法务周报</title><style>body{margin:0;background:#F8FAFC;color:#0F172A;font-family:-apple-system,BlinkMacSystemFont,"Segoe UI","PingFang SC","Microsoft YaHei",sans-serif;font-size:16px;line-height:1.7}.shell{max-width:820px;margin:0 auto;padding:32px 18px}h1{color:#1E3A8A}ul{list-style:none;padding:0;display:grid;gap:12px}li{display:flex;justify-content:space-between;gap:12px;background:#fff;border:1px solid #E2E8F0;border-radius:16px;padding:16px;box-shadow:0 10px 28px rgba(15,23,42,.05)}a{color:#1E40AF;font-weight:700;min-height:44px;display:inline-flex;align-items:center}</style></head><body><main class="shell"><h1>往期美妆法务周报</h1>${links ? `<ul>${links}</ul>` : '<p>暂无往期周报。</p>'}</main></body></html>`;
 }
 
 async function fetchSourceCandidates(source) {
@@ -2231,10 +1903,8 @@ async function runFinalizePhase(date, env, requestUrl) {
 
   const generatedAt = new Date().toISOString();
   const failures = candidatesMeta.failures || [];
-  const html = renderReportHtml(report, { generatedAt, failures });
   const reportDate = report.period.end;
   const itemCount = (report.sections || []).flatMap(s => s.items || []).length;
-  await saveReport(kv, reportDate, html, { period: report.period, generatedAt, itemCount });
   const decisionMapSvg = buildDecisionMapSvg(verifiedReportItems(report).sort((a, b) => rankReportItem(b) - rankReportItem(a)));
   await saveDecisionMap(kv, reportDate, decisionMapSvg);
   const decisionMapPng = env.CREATE_DECISION_MAP_PNG
@@ -2242,7 +1912,7 @@ async function runFinalizePhase(date, env, requestUrl) {
     : null;
   if (decisionMapPng) await saveDecisionMapPng(kv, decisionMapPng);
   const decisionMapUrl = decisionMapPng ? reportUrl(requestUrl, '/assets/decision-map.png') : reportUrl(requestUrl, '/assets/decision-map.svg');
-  let fullReportUrl = reportUrl(requestUrl, '/report/latest');
+  let fullReportUrl = '';
   let dingTalkDocReady = false;
   try {
     const doc = await publishDingTalkDocument({
@@ -2338,7 +2008,7 @@ export default {
           await recordLastRun(env.SEEN_NEWS, { trigger: 'manual', status: 'started' });
           const result = await env.__TEST_RUN_PIPELINE__(env, request.url);
           await recordLastRun(env.SEEN_NEWS, { trigger: 'manual', status: result?.status || 'done', stage: result?.stage || 'pipeline' });
-          return new Response(`OK — weekly pipeline finished\nstatus: ${result?.status || 'done'}\nlatest_report: ${url.origin}/report/latest`, { status: 200, headers: { "Content-Type": "text/plain; charset=utf-8" } });
+          return new Response(`OK — weekly pipeline finished\nstatus: ${result?.status || 'done'}\nfull_version: DingTalk document`, { status: 200, headers: { "Content-Type": "text/plain; charset=utf-8" } });
         } catch (error) {
           await recordLastRun(env.SEEN_NEWS, { trigger: 'manual', status: 'failed', error: error.stack || error.message });
           return new Response(`FAILED — weekly pipeline error\n${error.stack || error.message}`, { status: 500, headers: { "Content-Type": "text/plain; charset=utf-8" } });
@@ -2349,7 +2019,7 @@ export default {
         await recordLastRun(env.SEEN_NEWS, { trigger: 'manual', status: 'started' });
         const result = await runPipeline(env, request.url);
         await recordLastRun(env.SEEN_NEWS, { trigger: 'manual', status: result?.status || 'done', stage: result?.stage || 'pipeline' });
-        return new Response(`OK — pipeline finished\nstatus: ${result?.status || 'done'}\nlatest_report: ${url.origin}/report/latest`, { status: 200, headers: { "Content-Type": "text/plain; charset=utf-8" } });
+        return new Response(`OK — pipeline finished\nstatus: ${result?.status || 'done'}\nfull_version: DingTalk document`, { status: 200, headers: { "Content-Type": "text/plain; charset=utf-8" } });
       } catch (error) {
         await recordLastRun(env.SEEN_NEWS, { trigger: 'manual', status: 'failed', error: error.stack || error.message });
         return new Response(`FAILED — pipeline error\n${error.stack || error.message}`, { status: 500, headers: { "Content-Type": "text/plain; charset=utf-8" } });
@@ -2357,18 +2027,15 @@ export default {
     }
 
     if (url.pathname === "/report") {
-      return new Response(await renderReportIndex(env.SEEN_NEWS), { headers: { "Content-Type": "text/html; charset=utf-8" } });
+      return new Response("Online HTML reports have been retired. Full reports are published to DingTalk documents.", { status: 410, headers: { "Content-Type": "text/plain; charset=utf-8" } });
     }
 
     if (url.pathname === "/report/latest") {
-      const html = await loadReport(env.SEEN_NEWS, latestReportKey());
-      return html
-        ? new Response(html, { headers: { "Content-Type": "text/html; charset=utf-8" } })
-        : new Response("No report generated yet", { status: 404 });
+      return new Response("Online HTML reports have been retired. Full reports are published to DingTalk documents.", { status: 410, headers: { "Content-Type": "text/plain; charset=utf-8" } });
     }
 
     if (url.pathname === "/assets/decision-map.svg") {
-      const svg = await loadReport(env.SEEN_NEWS, LATEST_DECISION_MAP_KEY);
+      const svg = await env.SEEN_NEWS?.get(LATEST_DECISION_MAP_KEY);
       return svg
         ? new Response(svg, { headers: { "Content-Type": "image/svg+xml; charset=utf-8", "Cache-Control": "public, max-age=300" } })
         : new Response("Decision map not found", { status: 404 });
@@ -2383,10 +2050,7 @@ export default {
 
     const match = url.pathname.match(/^\/report\/(\d{4}-\d{2}-\d{2})$/);
     if (match) {
-      const html = await loadReport(env.SEEN_NEWS, reportKeyForDate(match[1]));
-      return html
-        ? new Response(html, { headers: { "Content-Type": "text/html; charset=utf-8" } })
-        : new Response("Report not found", { status: 404 });
+      return new Response("Online HTML reports have been retired. Full reports are published to DingTalk documents.", { status: 410, headers: { "Content-Type": "text/plain; charset=utf-8" } });
     }
 
     return new Response("beauty-legal-bot v3 — weekly DeepSeek legal intelligence", { status: 200 });
