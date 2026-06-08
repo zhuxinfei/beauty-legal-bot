@@ -815,11 +815,15 @@ export async function runPipeline(env, requestUrl = 'https://beauty-legal-bot.wo
     const decisionMapUrl = env.DECISION_MAP_PUBLIC_URL || env.DECISION_MAP_URL || (decisionMapPng ? reportUrl(requestUrl, '/assets/decision-map.png') : reportUrl(requestUrl, '/assets/decision-map.svg'));
     let fullReportUrl = '';
     let dingTalkDocReady = false;
+    const markdown = renderDingTalkMarkdown(report, { decisionMapUrl });
+    if (typeof env.ON_REPORT_READY === 'function') {
+      await env.ON_REPORT_READY({ report, markdown, decisionMapUrl, generatedAt, failures });
+    }
     try {
       const doc = await publishDingTalkDocument({
         env,
         title: `${reportDate} 美妆法务资讯周报`,
-        markdown: renderDingTalkMarkdown(report, { decisionMapUrl }),
+        markdown,
       });
       if (doc?.url) {
         fullReportUrl = doc.url;

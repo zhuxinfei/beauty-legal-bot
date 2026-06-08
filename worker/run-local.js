@@ -41,6 +41,12 @@ const env = {
   SEEN_NEWS: kv,
 };
 
+env.ON_REPORT_READY = async ({ report, markdown }) => {
+  await mkdir('out', { recursive: true });
+  await writeFile('out/latest-report.md', markdown, 'utf8');
+  await writeFile('out/latest-report.json', JSON.stringify(report, null, 2), 'utf8');
+};
+
 async function renderDecisionMapPng({ svg }) {
   await mkdir('out', { recursive: true });
   await writeFile('out/decision-map.svg', svg, 'utf8');
@@ -79,5 +85,7 @@ if (decisionMapSvg) await writeFile('out/decision-map.svg', decisionMapSvg, 'utf
 if (decisionMapPng) await writeFile('out/decision-map.png', decisionMapPng);
 if (decisionMapSvg) console.log('Generated out/decision-map.svg');
 if (decisionMapPng) console.log('Generated out/decision-map.png');
+console.log('Generated out/latest-report.md');
+console.log('Generated out/latest-report.json');
 console.log(process.env.DINGTALK_WEBHOOK_URL ? 'DingTalk webhook was called.' : 'DingTalk webhook was not configured.');
 console.log(process.env.FEISHU_WEBHOOK_URL ? 'Feishu webhook was called.' : 'Feishu webhook skipped locally because FEISHU_WEBHOOK_URL is not set.');
