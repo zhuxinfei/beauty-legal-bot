@@ -1,4 +1,5 @@
 import assert from 'node:assert/strict';
+import { readFileSync } from 'node:fs';
 import sampleReport from './sample-report.json' with { type: 'json' };
 import sourceCatalog from './sources.json' with { type: 'json' };
 import {
@@ -832,6 +833,15 @@ function testSelectSourcesForWorkerBudgetKeepsImportantCoverageUnderLimit() {
   }
 }
 
+function testWeeklyWorkflowRunsWorkerScriptAndPublishesDecisionMap() {
+  const workflow = readFileSync(new URL('../.github/workflows/weekly.yml', import.meta.url), 'utf8');
+  assert.ok(workflow.includes('node worker/run-local.js'));
+  assert.equal(workflow.includes('node run-local.js'), false);
+  assert.ok(workflow.includes('npx wrangler deploy'));
+  assert.ok(workflow.includes('"asset:decision-map:latest.png"'));
+  assert.ok(workflow.includes('--path ../out/decision-map.png'));
+}
+
 await testFetchWithTimeoutAbortsSlowFetch();
 await testManualTestRouteAwaitsPipeline();
 await testMapWithConcurrencyLimitsParallelWork();
@@ -877,4 +887,5 @@ testSourceLeadCandidateKeepsWeaklyFetchableModulesAnalyzable();
 testSourceCatalogUsesWorkbookModulesAndGlobalMarkets();
 testSelectSourcesForWorkerBudgetKeepsImportantCoverageUnderLimit();
 testPromptIncludesProductQualityRecallModule();
+testWeeklyWorkflowRunsWorkerScriptAndPublishesDecisionMap();
 console.log('worker pure function tests ok');

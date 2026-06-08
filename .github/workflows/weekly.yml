@@ -41,4 +41,18 @@ jobs:
         run: npm ci
 
       - name: Run pipeline
-        run: FULL_SOURCE_SCAN=1 node run-local.js
+        run: FULL_SOURCE_SCAN=1 node worker/run-local.js
+
+      - name: Deploy worker routes
+        working-directory: worker
+        run: npx wrangler deploy
+
+      - name: Publish decision map asset
+        working-directory: worker
+        run: |
+          if [ -f "../out/decision-map.svg" ]; then
+            npx wrangler kv key put --remote --namespace-id=3b38ee9b31b74c4faee81ee5b92b3bdb "asset:decision-map:latest" --path ../out/decision-map.svg
+          fi
+          if [ -f "../out/decision-map.png" ]; then
+            npx wrangler kv key put --remote --namespace-id=3b38ee9b31b74c4faee81ee5b92b3bdb "asset:decision-map:latest.png" --path ../out/decision-map.png
+          fi
