@@ -2,7 +2,9 @@ name: Beauty Legal Weekly Report
 
 on:
   schedule:
-    - cron: '0 0 * * 1'
+    # GitHub may delay or drop schedules at the top of the hour.
+    # 00:17 UTC = Monday 08:17 in Asia/Shanghai.
+    - cron: '17 0 * * 1'
   workflow_dispatch:
 
 permissions:
