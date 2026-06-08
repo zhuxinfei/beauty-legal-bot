@@ -812,7 +812,7 @@ export async function runPipeline(env, requestUrl = 'https://beauty-legal-bot.wo
       ? await env.CREATE_DECISION_MAP_PNG({ svg: decisionMapSvg, date: reportDate, requestUrl })
       : null;
     if (decisionMapPng) await saveDecisionMapPng(kv, decisionMapPng);
-    const decisionMapUrl = decisionMapPng ? reportUrl(requestUrl, '/assets/decision-map.png') : reportUrl(requestUrl, '/assets/decision-map.svg');
+    const decisionMapUrl = env.DECISION_MAP_PUBLIC_URL || env.DECISION_MAP_URL || (decisionMapPng ? reportUrl(requestUrl, '/assets/decision-map.png') : reportUrl(requestUrl, '/assets/decision-map.svg'));
     let fullReportUrl = '';
     let dingTalkDocReady = false;
     try {
@@ -1911,7 +1911,7 @@ async function runFinalizePhase(date, env, requestUrl) {
     ? await env.CREATE_DECISION_MAP_PNG({ svg: decisionMapSvg, date: reportDate, requestUrl })
     : null;
   if (decisionMapPng) await saveDecisionMapPng(kv, decisionMapPng);
-  const decisionMapUrl = decisionMapPng ? reportUrl(requestUrl, '/assets/decision-map.png') : reportUrl(requestUrl, '/assets/decision-map.svg');
+  const decisionMapUrl = env.DECISION_MAP_PUBLIC_URL || env.DECISION_MAP_URL || (decisionMapPng ? reportUrl(requestUrl, '/assets/decision-map.png') : reportUrl(requestUrl, '/assets/decision-map.svg'));
   let fullReportUrl = '';
   let dingTalkDocReady = false;
   try {

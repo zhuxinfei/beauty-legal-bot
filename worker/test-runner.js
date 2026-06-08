@@ -842,6 +842,11 @@ function testWeeklyWorkflowRunsWorkerScriptAndPublishesDecisionMap() {
   assert.ok(workflow.includes('--path ../out/decision-map.png'));
 }
 
+function testDecisionMapPublicUrlCanOverrideWorkerAssetUrl() {
+  const source = readFileSync(new URL('./index.js', import.meta.url), 'utf8');
+  assert.ok(source.includes('env.DECISION_MAP_PUBLIC_URL || env.DECISION_MAP_URL'));
+}
+
 await testFetchWithTimeoutAbortsSlowFetch();
 await testManualTestRouteAwaitsPipeline();
 await testMapWithConcurrencyLimitsParallelWork();
@@ -888,4 +893,5 @@ testSourceCatalogUsesWorkbookModulesAndGlobalMarkets();
 testSelectSourcesForWorkerBudgetKeepsImportantCoverageUnderLimit();
 testPromptIncludesProductQualityRecallModule();
 testWeeklyWorkflowRunsWorkerScriptAndPublishesDecisionMap();
+testDecisionMapPublicUrlCanOverrideWorkerAssetUrl();
 console.log('worker pure function tests ok');
