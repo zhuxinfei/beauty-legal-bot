@@ -23,6 +23,7 @@ import {
   getDingTalkAccessToken,
   createDingTalkDocument,
   overwriteDingTalkDocument,
+  uploadDingTalkImage,
   publishDingTalkDocument,
   requestAiChat,
   dedupeReport,
@@ -458,6 +459,25 @@ async function testDingTalkDocumentPublishCreatesAndWritesMarkdown() {
   assert.equal(calls[2].body.contentType, 'markdown');
 }
 
+async function testUploadDingTalkImageReturnsMediaId() {
+  let calledUrl = '';
+  let method = '';
+  const mediaId = await uploadDingTalkImage({
+    accessToken: 'token',
+    image: new Uint8Array([1, 2, 3]),
+    fetcher: async (url, init) => {
+      calledUrl = String(url);
+      method = init.method;
+      assert.ok(init.body instanceof FormData);
+      return new Response(JSON.stringify({ errcode: 0, errmsg: 'ok', media_id: '@media-id' }), { status: 200 });
+    },
+  });
+  assert.equal(mediaId, '@media-id');
+  assert.ok(calledUrl.includes('/media/upload'));
+  assert.ok(calledUrl.includes('type=image'));
+  assert.equal(method, 'POST');
+}
+
 function testBuildAnalysisPromptIncludesLeads() {
   const prompt = buildAnalysisPrompt({
     candidates: [{ title: '法规候选', url: 'https://example.com/a', source_name: '官方源' }],
@@ -879,6 +899,7 @@ await testNotifyReportPrefersDingTalkWhenConfigured();
 await testRequestAiChatUsesOpenAiCompatibleBaseUrl();
 testBuildAnalysisPromptUsesConfigurableInputLimits();
 await testDingTalkDocumentPublishCreatesAndWritesMarkdown();
+await testUploadDingTalkImageReturnsMediaId();
 testBuildAnalysisPromptIncludesLeads();
 testBuildAnalysisPromptUsesModuleTarget();
 testNormalizeModuleReportForcesTargetWorkbookModule();

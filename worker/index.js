@@ -722,6 +722,20 @@ export async function overwriteDingTalkDocument({ accessToken, docKey, operatorI
   return parseJsonResponse(resp, 'DingTalk overwrite doc');
 }
 
+export async function uploadDingTalkImage({ accessToken, image, filename = 'decision-map.png', fetcher = fetch }) {
+  if (!accessToken || !image) return '';
+  const form = new FormData();
+  const blob = image instanceof Blob ? image : new Blob([image], { type: 'image/png' });
+  form.append('media', blob, filename);
+  const resp = await fetcher(`https://oapi.dingtalk.com/media/upload?access_token=${encodeURIComponent(accessToken)}&type=image`, {
+    method: 'POST',
+    body: form,
+  });
+  const data = await parseJsonResponse(resp, 'DingTalk upload image');
+  if (!data.media_id) throw new Error('DingTalk upload image response missing media_id');
+  return data.media_id;
+}
+
 export async function publishDingTalkDocument({ env, title, markdown, fetcher = fetch }) {
   const clientId = env.DINGTALK_CLIENT_ID || env.DINGTALK_APP_KEY;
   const clientSecret = env.DINGTALK_CLIENT_SECRET || env.DINGTALK_APP_SECRET;
@@ -735,6 +749,24 @@ export async function publishDingTalkDocument({ env, title, markdown, fetcher = 
   const doc = await createDingTalkDocument({ accessToken, workspaceId, operatorId, title, fetcher });
   await overwriteDingTalkDocument({ accessToken, docKey: doc.docKey, operatorId, markdown, fetcher });
   return doc;
+}
+
+async function resolveDecisionMapUrl({ env, requestUrl, decisionMapPng, fetcher = fetch }) {
+  if (env.DECISION_MAP_PUBLIC_URL || env.DECISION_MAP_URL) return env.DECISION_MAP_PUBLIC_URL || env.DECISION_MAP_URL;
+  if (decisionMapPng && (env.DINGTALK_CLIENT_ID || env.DINGTALK_APP_KEY) && (env.DINGTALK_CLIENT_SECRET || env.DINGTALK_APP_SECRET)) {
+    try {
+      const accessToken = await getDingTalkAccessToken({
+        clientId: env.DINGTALK_CLIENT_ID || env.DINGTALK_APP_KEY,
+        clientSecret: env.DINGTALK_CLIENT_SECRET || env.DINGTALK_APP_SECRET,
+        fetcher,
+      });
+      const mediaId = await uploadDingTalkImage({ accessToken, image: decisionMapPng, fetcher });
+      if (mediaId) return mediaId;
+    } catch (error) {
+      console.warn(`钉钉图片上传失败，回退外链图片: ${error.message}`);
+    }
+  }
+  return decisionMapPng ? reportUrl(requestUrl, '/assets/decision-map.png') : reportUrl(requestUrl, '/assets/decision-map.svg');
 }
 
 export async function notifyReport({ report, reportUrl: latestUrl, env, sendDingTalk = sendToDingTalk, sendFeishu = sendToFeishu }) {
@@ -812,7 +844,7 @@ export async function runPipeline(env, requestUrl = 'https://beauty-legal-bot.wo
       ? await env.CREATE_DECISION_MAP_PNG({ svg: decisionMapSvg, date: reportDate, requestUrl })
       : null;
     if (decisionMapPng) await saveDecisionMapPng(kv, decisionMapPng);
-    const decisionMapUrl = env.DECISION_MAP_PUBLIC_URL || env.DECISION_MAP_URL || (decisionMapPng ? reportUrl(requestUrl, '/assets/decision-map.png') : reportUrl(requestUrl, '/assets/decision-map.svg'));
+    const decisionMapUrl = await resolveDecisionMapUrl({ env, requestUrl, decisionMapPng });
     let fullReportUrl = '';
     let dingTalkDocReady = false;
     const markdown = renderDingTalkMarkdown(report, { decisionMapUrl });
@@ -1915,7 +1947,7 @@ async function runFinalizePhase(date, env, requestUrl) {
     ? await env.CREATE_DECISION_MAP_PNG({ svg: decisionMapSvg, date: reportDate, requestUrl })
     : null;
   if (decisionMapPng) await saveDecisionMapPng(kv, decisionMapPng);
-  const decisionMapUrl = env.DECISION_MAP_PUBLIC_URL || env.DECISION_MAP_URL || (decisionMapPng ? reportUrl(requestUrl, '/assets/decision-map.png') : reportUrl(requestUrl, '/assets/decision-map.svg'));
+  const decisionMapUrl = await resolveDecisionMapUrl({ env, requestUrl, decisionMapPng });
   let fullReportUrl = '';
   let dingTalkDocReady = false;
   try {
