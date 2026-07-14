@@ -2024,9 +2024,9 @@ async function fetchSourceCandidates(source, {
   });
   const items = recovery.html ? extractSourceCandidatesFromHtml(source, recovery.html, recovery.finalUrl || source.url) : [];
   const result = { ...recovery, candidate_count: items.length, items };
-  if (!items.length) {
-    result.status = 'failed';
-    result.final_error ||= 'no relevant public candidates found';
+  if (!items.length && recovery.status !== 'failed') {
+    result.status = 'empty';
+    result.empty_reason = 'no relevant public candidates found';
   }
   if (result.status === 'failed') console.warn(`fetch failed: ${source.name} ${result.final_error}`);
   return result;
