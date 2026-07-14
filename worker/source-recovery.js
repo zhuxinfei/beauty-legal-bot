@@ -154,26 +154,37 @@ function isChinaCritical(source) {
 }
 
 function isCovered(result) {
-  return ['ok', 'recovered'].includes(result?.status) && Number(result?.candidate_count || 0) > 0;
+  return result?.status === 'empty'
+    || (['ok', 'recovered'].includes(result?.status) && Number(result?.candidate_count || 0) > 0);
 }
 
 export function calculateSourceCoverage(sources = [], sourceResults = []) {
   const resultByName = new Map(sourceResults.map(result => [result?.source?.name || result?.source_name, result]));
-  const coveredSources = sources.filter(source => isCovered(resultByName.get(source.name)));
-  const criticalSources = sources.filter(isChinaCritical);
+  const requiredSources = sources.filter(source => !source?.monitor_only);
+  const monitoredSources = sources.filter(source => source?.monitor_only);
+  const coveredSources = requiredSources.filter(source => isCovered(resultByName.get(source.name)));
+  const criticalSources = requiredSources.filter(isChinaCritical);
   const coveredCritical = criticalSources.filter(source => isCovered(resultByName.get(source.name)));
-  const failedSources = sources
+  const failedSources = requiredSources
+    .filter(source => !isCovered(resultByName.get(source.name)))
+    .map(source => source.name);
+  const monitoredRecovered = monitoredSources.filter(source => isCovered(resultByName.get(source.name)));
+  const monitoredFailedSources = monitoredSources
     .filter(source => !isCovered(resultByName.get(source.name)))
     .map(source => source.name);
 
   return {
-    overall: sources.length ? coveredSources.length / sources.length : 1,
+    overall: requiredSources.length ? coveredSources.length / requiredSources.length : 1,
     chinaCritical: criticalSources.length ? coveredCritical.length / criticalSources.length : 1,
     covered: coveredSources.length,
-    total: sources.length,
+    total: requiredSources.length,
     chinaCriticalCovered: coveredCritical.length,
     chinaCriticalTotal: criticalSources.length,
     failedSources,
+    attemptedTotal: sources.length,
+    monitoredTotal: monitoredSources.length,
+    monitoredRecovered: monitoredRecovered.length,
+    monitoredFailedSources,
   };
 }
 
