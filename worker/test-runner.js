@@ -134,6 +134,16 @@ function testSourceCoverageGatesChinaCriticalAndOverallCoverage() {
 
   const belowOverall = passingResults.map((result, index) => index >= 7 ? { ...result, status: 'failed', candidate_count: 0 } : result);
   assert.throws(() => assertSourceCoverage(calculateSourceCoverage(sources, belowOverall)), SourceCoverageError);
+
+  const monitored = { name: '中国受控监测源', country: '中国', priority: 'high', monitor_only: true };
+  const monitoredCoverage = calculateSourceCoverage(
+    [...sources, monitored],
+    [...passingResults, { source: monitored, status: 'failed', candidate_count: 0 }]
+  );
+  assert.equal(monitoredCoverage.overall, 1);
+  assert.equal(monitoredCoverage.chinaCritical, 1);
+  assert.equal(monitoredCoverage.monitoredTotal, 1);
+  assert.deepEqual(monitoredCoverage.monitoredFailedSources, ['中国受控监测源']);
 }
 
 async function testBrowserSourceFetcherReusesBrowserAndClosesPages() {
@@ -368,10 +378,11 @@ async function testCollectCandidatesReturnsRecoveryEvidenceAndRealCoverage() {
   assert.equal(result.sourceResults.length, 3);
   assert.equal(result.sourceResults[0].status, 'ok');
   assert.equal(result.sourceResults[1].recovery_method, 'browser');
-  assert.equal(result.sourceResults[2].status, 'failed');
+  assert.equal(result.sourceResults[2].status, 'empty');
   assert.equal(result.sourceResults[2].candidate_count, 0);
   assert.equal(result.coverage.chinaCritical, 1);
-  assert.equal(result.coverage.overall, 2 / 3);
+  assert.equal(result.coverage.overall, 1);
+  assert.deepEqual(result.failures, []);
   assert.ok(result.candidates.some(candidate => candidate.url === 'https://direct.test/notice'));
   assert.ok(result.candidates.some(candidate => candidate.url === 'https://browser.test/case'));
   assert.ok(result.candidates.some(candidate => candidate.title.includes('行业线索')));
@@ -1522,6 +1533,11 @@ function testSourceCatalogUsesWorkbookModulesAndGlobalMarkets() {
   assert.equal(bpom.country, '印尼');
   assert.equal(bpom.module, '新规及案例动态');
   assert.equal(bpom.priority, 'high');
+
+  const monitoredSources = sources.filter(source => source.monitor_only);
+  assert.ok(monitoredSources.length >= 12);
+  assert.ok(monitoredSources.filter(source => source.country === '中国' && source.priority === 'high').length >= 9);
+  assert.ok(monitoredSources.every(source => source.monitor_reason && /^\d{4}-\d{2}-\d{2}$/.test(source.monitor_reviewed_at)));
 }
 
 function testPromptIncludesProductQualityRecallModule() {
