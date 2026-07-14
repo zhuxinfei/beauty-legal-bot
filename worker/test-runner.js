@@ -172,6 +172,44 @@ async function testBrowserSourceFetcherReusesBrowserAndClosesPages() {
   assert.equal(second.finalUrl, 'https://example.com/final');
 }
 
+async function testBrowserSourceFetcherUsesGovernmentSiteCompatibleNavigation() {
+  let pageOptions;
+  let gotoOptions;
+  const chromium = {
+    async launch() {
+      return {
+        async newPage(options) {
+          pageOptions = options;
+          return {
+            async setExtraHTTPHeaders() {},
+            async goto(_url, options) {
+              gotoOptions = options;
+              return { status: () => 200 };
+            },
+            async title() { return '监管公开信息'; },
+            async content() { return '<html><body>化妆品监管公开正文</body></html>'; },
+            url() { return 'https://official.example.cn/notices'; },
+            locator() { return { innerText: async () => '化妆品监管公开正文' }; },
+            async close() {},
+          };
+        },
+        async close() {},
+      };
+    },
+  };
+
+  const browserFetcher = await createBrowserSourceFetcher({ chromium });
+  const result = await browserFetcher.fetchHtml('https://official.example.cn/');
+  await browserFetcher.close();
+
+  assert.equal(result.ok, true);
+  assert.ok(pageOptions.userAgent.includes('Chrome/'));
+  assert.equal(pageOptions.userAgent.includes('HeadlessChrome'), false);
+  assert.equal(pageOptions.locale, 'zh-CN');
+  assert.deepEqual(pageOptions.viewport, { width: 1365, height: 900 });
+  assert.equal(gotoOptions.waitUntil, 'commit');
+}
+
 async function testBrowserSourceFetcherRejectsAccessControlPages() {
   const chromium = {
     async launch() {
@@ -1548,6 +1586,7 @@ await testRecoverPublicSourceRetriesAndRecordsAttempts();
 await testRecoverPublicSourceUsesBrowserThenOfficialAlternate();
 testSourceCoverageGatesChinaCriticalAndOverallCoverage();
 await testBrowserSourceFetcherReusesBrowserAndClosesPages();
+await testBrowserSourceFetcherUsesGovernmentSiteCompatibleNavigation();
 await testBrowserSourceFetcherRejectsAccessControlPages();
 await testPublishVersionedPngUploadsBeforeHealthCheck();
 await testCollectCandidatesReturnsRecoveryEvidenceAndRealCoverage();
