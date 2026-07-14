@@ -24,11 +24,6 @@ const env = {
   AI_MAX_TOKENS: process.env.AI_MAX_TOKENS,
   DINGTALK_WEBHOOK_URL: process.env.DINGTALK_WEBHOOK_URL,
   DINGTALK_SECRET: process.env.DINGTALK_SECRET,
-  DINGTALK_DOC_URL: process.env.DINGTALK_DOC_URL || 'https://alidocs.dingtalk.com/i/spaces/3YxXA9e5bv7NDXNy/overview',
-  DINGTALK_CLIENT_ID: process.env.DINGTALK_CLIENT_ID || process.env.DINGTALK_APP_KEY,
-  DINGTALK_CLIENT_SECRET: process.env.DINGTALK_CLIENT_SECRET || process.env.DINGTALK_APP_SECRET,
-  DINGTALK_OPERATOR_ID: process.env.DINGTALK_OPERATOR_ID,
-  DINGTALK_WORKSPACE_ID: process.env.DINGTALK_WORKSPACE_ID,
   FEISHU_WEBHOOK_URL: process.env.FEISHU_WEBHOOK_URL || 'https://example.com/skip-feishu',
   QUALITY_MODE: process.env.QUALITY_MODE || '0',
   REPORT_QUALITY_MODE: process.env.REPORT_QUALITY_MODE,
@@ -75,7 +70,11 @@ if (!process.env.FEISHU_WEBHOOK_URL) {
   });
 }
 
-await runPipeline(env, 'https://beauty-legal-bot.ai-cf.workers.dev/');
+const result = await runPipeline(env, 'https://beauty-legal-bot.ai-cf.workers.dev/');
+if (!result || result.status === 'failed') {
+  throw new Error(`Pipeline failed at ${result?.stage || 'unknown'}: ${result?.message || 'pipeline returned no result'}`);
+}
+console.log(`Pipeline ${result.status}: ${result.message}`);
 
 const decisionMapSvg = store.get('asset:decision-map:latest');
 const decisionMapPng = store.get('asset:decision-map:latest.png');
@@ -87,5 +86,6 @@ if (decisionMapSvg) console.log('Generated out/decision-map.svg');
 if (decisionMapPng) console.log('Generated out/decision-map.png');
 console.log('Generated out/latest-report.md');
 console.log('Generated out/latest-report.json');
-console.log(process.env.DINGTALK_WEBHOOK_URL ? 'DingTalk webhook was called.' : 'DingTalk webhook was not configured.');
-console.log(process.env.FEISHU_WEBHOOK_URL ? 'Feishu webhook was called.' : 'Feishu webhook skipped locally because FEISHU_WEBHOOK_URL is not set.');
+if (result.delivery) {
+  console.log(`Delivery ${result.delivery.channel || result.stage}: ${result.delivery.sent || 0}/${result.delivery.total || 0}, retries=${result.delivery.retries || 0}`);
+}
