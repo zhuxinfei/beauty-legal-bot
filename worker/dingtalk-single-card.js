@@ -98,7 +98,7 @@ function renderMessage(report, sections, tiers, removed, { imageUrl, coverage, o
   const itemCount = sections.reduce((sum, section) => sum + section.items.length, 0);
   const date = report.period?.end || '本期';
   const coverageLine = coverage
-    ? `> 来源覆盖：${(Number(coverage.overall || 0) * 100).toFixed(1)}%｜中国关键源：${(Number(coverage.chinaCritical || 0) * 100).toFixed(1)}%｜正式条目：${itemCount}`
+    ? `> 来源覆盖：${(Number(coverage.overall || 0) * 100).toFixed(1)}%｜中国关键源：${(Number(coverage.chinaCritical || 0) * 100).toFixed(1)}%｜受限监测源：${(coverage.monitoredFailedSources || []).length}｜正式条目：${itemCount}`
     : `> 正式条目：${itemCount}｜中国信息优先｜来源均保留原文链接`;
   const chinaItems = sections.flatMap(section => section.items).filter(item => item.country === '中国').slice(0, 3);
   const lines = [
