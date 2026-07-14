@@ -1,5 +1,8 @@
 import { readFile, writeFile, mkdir } from 'node:fs/promises';
+import { chromium } from 'playwright';
 import sharp from 'sharp';
+import { createBrowserSourceFetcher } from './browser-fetch.js';
+import { publishVersionedPng } from './cloudflare-assets.js';
 import { runPipeline } from './index.js';
 
 const store = new Map();
@@ -33,8 +36,15 @@ const env = {
   ANALYSIS_CANDIDATE_LIMIT: process.env.ANALYSIS_CANDIDATE_LIMIT,
   ANALYSIS_LEAD_LIMIT: process.env.ANALYSIS_LEAD_LIMIT,
   REPORT_ITEMS_PER_MODULE: process.env.REPORT_ITEMS_PER_MODULE,
+  MIN_SOURCE_COVERAGE: process.env.MIN_SOURCE_COVERAGE || '0.9',
+  MIN_CHINA_CRITICAL_COVERAGE: process.env.MIN_CHINA_CRITICAL_COVERAGE || '1',
   SEEN_NEWS: kv,
 };
+
+const publicWorkerBaseUrl = process.env.PUBLIC_WORKER_BASE_URL || 'https://beauty-legal-bot.ai-cf.workers.dev';
+if (env.DINGTALK_WEBHOOK_URL && !process.env.CLOUDFLARE_API_TOKEN) {
+  throw new Error('CLOUDFLARE_API_TOKEN is required to publish the dashboard before DingTalk delivery');
+}
 
 env.ON_REPORT_READY = async ({ report, markdown }) => {
   await mkdir('out', { recursive: true });
@@ -45,11 +55,21 @@ env.ON_REPORT_READY = async ({ report, markdown }) => {
 async function renderDecisionMapPng({ svg }) {
   await mkdir('out', { recursive: true });
   await writeFile('out/decision-map.svg', svg, 'utf8');
-  await sharp(Buffer.from(svg), { density: 180 }).png().toFile('out/decision-map.png');
+  await sharp(Buffer.from(svg)).png().toFile('out/decision-map.png');
   return new Uint8Array(await readFile('out/decision-map.png'));
 }
 
 env.CREATE_DECISION_MAP_PNG = renderDecisionMapPng;
+if (process.env.CLOUDFLARE_API_TOKEN) {
+  env.PUBLISH_DECISION_MAP = ({ date, png }) => publishVersionedPng({
+    accountId: process.env.CLOUDFLARE_ACCOUNT_ID || '34ddeeabd234776dc7c0f144257ecb7c',
+    namespaceId: process.env.CLOUDFLARE_KV_NAMESPACE_ID || '3b38ee9b31b74c4faee81ee5b92b3bdb',
+    apiToken: process.env.CLOUDFLARE_API_TOKEN,
+    date,
+    png,
+    publicBaseUrl: publicWorkerBaseUrl,
+  });
+}
 
 if (!env.AI_API_KEY) {
   throw new Error('AI_API_KEY is required');
@@ -70,11 +90,19 @@ if (!process.env.FEISHU_WEBHOOK_URL) {
   });
 }
 
-const result = await runPipeline(env, 'https://beauty-legal-bot.ai-cf.workers.dev/');
-if (!result || result.status === 'failed') {
-  throw new Error(`Pipeline failed at ${result?.stage || 'unknown'}: ${result?.message || 'pipeline returned no result'}`);
+const browserSourceFetcher = await createBrowserSourceFetcher({ chromium });
+env.BROWSER_FETCH_HTML = browserSourceFetcher.fetchHtml;
+
+let result;
+try {
+  result = await runPipeline(env, `${publicWorkerBaseUrl}/`);
+  if (!result || result.status === 'failed') {
+    throw new Error(`Pipeline failed at ${result?.stage || 'unknown'}: ${result?.message || 'pipeline returned no result'}`);
+  }
+  console.log(`Pipeline ${result.status}: ${result.message}`);
+} finally {
+  await browserSourceFetcher.close();
 }
-console.log(`Pipeline ${result.status}: ${result.message}`);
 
 const decisionMapSvg = store.get('asset:decision-map:latest');
 const decisionMapPng = store.get('asset:decision-map:latest.png');
