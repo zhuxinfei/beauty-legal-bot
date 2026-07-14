@@ -3,6 +3,13 @@ const BROWSER_HEADERS = {
   'Cache-Control': 'no-cache',
 };
 
+const PUBLIC_PAGE_OPTIONS = {
+  userAgent: 'Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/126.0.0.0 Safari/537.36',
+  locale: 'zh-CN',
+  timezoneId: 'Asia/Shanghai',
+  viewport: { width: 1365, height: 900 },
+};
+
 function accessControlKind(title, body) {
   const text = `${title}\n${body}`.toLowerCase();
   if (/captcha|验证码|人机验证|verify you are human/.test(text)) return 'captcha';
@@ -24,10 +31,10 @@ export async function createBrowserSourceFetcher({ chromium, launchOptions = {} 
   return {
     async fetchHtml(url, { timeoutMs = 45000 } = {}) {
       if (closed) throw new Error('browser source fetcher is closed');
-      const page = await browser.newPage();
+      const page = await browser.newPage(PUBLIC_PAGE_OPTIONS);
       try {
         await page.setExtraHTTPHeaders(BROWSER_HEADERS);
-        const response = await page.goto(url, { waitUntil: 'domcontentloaded', timeout: timeoutMs });
+        const response = await page.goto(url, { waitUntil: 'commit', timeout: timeoutMs });
         const status = Number(response?.status?.() || 0);
         const title = await page.title();
         const body = await page.locator('body').innerText({ timeout: Math.min(timeoutMs, 10000) }).catch(() => '');
