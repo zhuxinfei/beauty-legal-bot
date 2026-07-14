@@ -13,6 +13,13 @@
  */
 
 import sourceCatalog from './sources.json' with { type: 'json' };
+import { buildSingleDingTalkMessage } from './dingtalk-single-card.js';
+import { buildActionDashboardSvg } from './action-dashboard.js';
+import {
+  assertSourceCoverage,
+  calculateSourceCoverage,
+  recoverPublicSource,
+} from './source-recovery.js';
 
 // ---------------------------------------------------------------------------
 // 配置
@@ -281,7 +288,7 @@ function verifiedReportItems(report) {
     .filter(item => isHttpUrl(item.source_url));
 }
 
-export function buildDecisionMapSvg(items) {
+function buildLegacyDecisionMapSvg(items) {
   const graphItems = (items || []).slice(0, 10);
   const width = 1600;
   const height = 1180;
@@ -371,6 +378,10 @@ export function buildDecisionMapSvg(items) {
       <text x="${center.x}" y="${center.y + 74}" text-anchor="middle" font-size="14" fill="#94A3B8">AI distilled map</text>
     </g>
   </svg>`;
+}
+
+export function buildDecisionMapSvg(items, options = {}) {
+  return buildActionDashboardSvg(items, options);
 }
 
 function renderWholeReportInsights(report) {
@@ -590,30 +601,15 @@ function renderDingTalkModuleDelivery(report, module, maxBytes) {
 }
 
 /**
- * 将一份已验证周报转换为群机器人消息。总览固定在前，随后按六大模块输出；
- * 模块内优先展示中国事项，再沿用现有风险评分排序。
+ * 将已验证周报压缩为一条群机器人消息。
+ * 字节预算由单卡渲染器统一负责，发送层不能再把超长报告静默拆成多张卡。
  */
 export function buildDingTalkWebhookMessages(report, options = {}) {
-  const maxBytes = Math.max(512, Number(options.maxBytes || 18000));
-  const contentLimit = Math.max(448, maxBytes - 64);
-  const overview = renderDingTalkSummaryCard(report, '', options)
-    .replace('完整版本：待接入钉钉文档后提供链接。', '完整内容将按六个模块分段推送。');
-  const logicalMessages = [
-    { id: 'overview', title: `美妆法务资讯｜${report.period?.end || '本期'}｜总览`, markdown: overview },
-    ...REPORT_MODULES.flatMap(module => renderDingTalkModuleDelivery(report, module, contentLimit)
-      .map((markdown, partIndex, parts) => ({
-        id: `${moduleCode(module).toLowerCase()}-${partIndex + 1}`,
-        module,
-        title: `美妆法务资讯｜${report.period?.end || '本期'}｜${module}${parts.length > 1 ? ` ${partIndex + 1}/${parts.length}` : ''}`,
-        markdown,
-      }))),
-  ];
-  const total = logicalMessages.length;
-  return logicalMessages.map((message, index) => ({
-    ...message,
-    title: `[${index + 1}/${total}] ${message.title}`,
-    markdown: `> ${index + 1}/${total}\n\n${message.markdown}`,
-  }));
+  return [buildSingleDingTalkMessage(report, {
+    imageUrl: options.decisionMapUrl || options.imageUrl || '',
+    coverage: options.coverage,
+    maxBytes: options.maxBytes,
+  })];
 }
 
 export function renderDingTalkMarkdown(report, options = {}) {
@@ -853,7 +849,7 @@ export async function sendDingTalkMessages({
         : rawResult;
       if (lastResult.ok) {
         sent += 1;
-        console.log(`钉钉分段推送成功: ${message.id} (${sent}/${messages.length})`);
+        console.log(`钉钉推送成功: ${message.id} (${sent}/${messages.length})`);
         if (sent < messages.length && interMessageDelayMs > 0) {
           await sleepFn(interMessageDelayMs);
         }
@@ -864,7 +860,7 @@ export async function sendDingTalkMessages({
       await sleepFn(750 * attempt);
     }
     if (!lastResult.ok) {
-      console.error(`钉钉分段推送失败: ${message.id}: ${lastResult.error}`);
+      console.error(`钉钉推送失败: ${message.id}: ${lastResult.error}`);
       return {
         ok: false,
         sent,
@@ -968,22 +964,25 @@ export async function publishDingTalkDocument({ env, title, markdown, fetcher = 
   return doc;
 }
 
-async function resolveDecisionMapUrl({ env, requestUrl, decisionMapPng }) {
+async function resolveDecisionMapUrl({ env, requestUrl, decisionMapPng, date }) {
   if (env.DECISION_MAP_PUBLIC_URL || env.DECISION_MAP_URL) return env.DECISION_MAP_PUBLIC_URL || env.DECISION_MAP_URL;
-  return decisionMapPng ? reportUrl(requestUrl, '/assets/decision-map.png') : reportUrl(requestUrl, '/assets/decision-map.svg');
+  return decisionMapPng
+    ? reportUrl(requestUrl, `/assets/decision-map/${date}.png`)
+    : reportUrl(requestUrl, '/assets/decision-map.svg');
 }
 
 export async function notifyReport({ report, reportUrl: latestUrl, env, sendDingTalk = sendToDingTalk, sendFeishu = sendToFeishu }) {
   if (env.DINGTALK_WEBHOOK_URL) {
     const messages = buildDingTalkWebhookMessages(report, {
       decisionMapUrl: env.DECISION_MAP_URL || '',
+      coverage: env.SOURCE_COVERAGE,
       maxBytes: env.DINGTALK_MAX_BYTES,
     });
     const delivery = await sendDingTalkMessages({
       messages,
       webhookUrl: env.DINGTALK_WEBHOOK_URL,
       secret: env.DINGTALK_SECRET || '',
-      interMessageDelayMs: Number(env.DINGTALK_MESSAGE_DELAY_MS ?? 3100),
+      interMessageDelayMs: 0,
       sendMessage: sendDingTalk === sendToDingTalk ? undefined : message => sendDingTalk({
         webhookUrl: env.DINGTALK_WEBHOOK_URL,
         secret: env.DINGTALK_SECRET || '',
@@ -1035,8 +1034,18 @@ export async function runPipeline(env, requestUrl = 'https://beauty-legal-bot.wo
       : selectSourcesForWorkerBudget(sourceCatalog.sources, Number(env.WORKER_FETCH_SOURCE_BUDGET || WORKER_FETCH_SOURCE_BUDGET));
     const { fetchableSources } = splitSources(sources);
     console.log(`[stage 1/5] Worker 抓取预算：${fetchableSources.length} 个可抓取源，${sources.length - fetchableSources.length} 个线索源`);
-    const { candidates, leads, failures } = await collectCandidates(sources);
-    console.log(`[stage 1/5] 完成，候选 ${candidates.length} 条，线索 ${leads.length} 条，失败源 ${failures.length} 个`);
+    const { candidates, leads, failures, sourceResults, coverage } = await collectCandidates(sources, async () => {}, {
+      fetcher: env.SOURCE_FETCH || fetch,
+      browserFetcher: env.BROWSER_FETCH_HTML,
+      timeoutMs: Number(env.SOURCE_FETCH_TIMEOUT_MS || SOURCE_FETCH_TIMEOUT_MS),
+      sleepFn: env.SOURCE_RETRY_SLEEP,
+      jitter: env.SOURCE_RETRY_JITTER,
+    });
+    assertSourceCoverage(coverage, {
+      minOverall: Number(env.MIN_SOURCE_COVERAGE || 0.9),
+      minChinaCritical: Number(env.MIN_CHINA_CRITICAL_COVERAGE || 1),
+    });
+    console.log(`[stage 1/5] 完成，候选 ${candidates.length} 条，线索 ${leads.length} 条，恢复源 ${sourceResults.filter(result => result.status === 'recovered').length} 个，失败源 ${failures.length} 个，覆盖率 ${(coverage.overall * 100).toFixed(1)}%`);
 
     console.log("[stage 2/5] AI 结构化分析...");
     const period = getPeriod();
@@ -1048,19 +1057,25 @@ export async function runPipeline(env, requestUrl = 'https://beauty-legal-bot.wo
     const itemCount = (report.sections || []).flatMap(section => section.items || []).length;
     console.log(`[stage 2/5] 完成，模块 ${report.sections.length} 个，去重后 ${itemCount} 条`);
 
-    console.log("[stage 3/5] 生成风险雷达并保存报告...");
+    console.log("[stage 3/5] 生成管理层行动看板并保存报告...");
     const generatedAt = new Date().toISOString();
     const reportDate = report.period.end;
-    const decisionMapSvg = buildDecisionMapSvg(verifiedReportItems(report).sort((a, b) => rankReportItem(b) - rankReportItem(a)));
+    const decisionMapSvg = buildDecisionMapSvg(
+      verifiedReportItems(report).sort((a, b) => rankReportItem(b) - rankReportItem(a)),
+      { period: report.period, coverage, generatedAt }
+    );
     await saveDecisionMap(kv, reportDate, decisionMapSvg);
     const decisionMapPng = env.CREATE_DECISION_MAP_PNG
       ? await env.CREATE_DECISION_MAP_PNG({ svg: decisionMapSvg, date: reportDate, requestUrl })
       : null;
-    if (decisionMapPng) await saveDecisionMapPng(kv, decisionMapPng);
-    const decisionMapUrl = await resolveDecisionMapUrl({ env, requestUrl, decisionMapPng });
+    if (decisionMapPng) await saveDecisionMapPng(kv, reportDate, decisionMapPng);
+    const decisionMapUrl = decisionMapPng && typeof env.PUBLISH_DECISION_MAP === 'function'
+      ? await env.PUBLISH_DECISION_MAP({ date: reportDate, png: decisionMapPng, svg: decisionMapSvg, requestUrl })
+      : await resolveDecisionMapUrl({ env, requestUrl, decisionMapPng, date: reportDate });
+    if (!decisionMapUrl) throw new Error('Decision map publication returned no public URL');
     const markdown = renderDingTalkMarkdown(report, { decisionMapUrl });
     if (typeof env.ON_REPORT_READY === 'function') {
-      await env.ON_REPORT_READY({ report, markdown, decisionMapUrl, generatedAt, failures });
+      await env.ON_REPORT_READY({ report, markdown, decisionMapUrl, generatedAt, failures, sourceResults, coverage });
     }
     console.log("[stage 4/5] 内容去重检查...");
     const { isDup, seen, fps } = await isDuplicateFingerprints(extractReportFingerprints(report), kv);
@@ -1070,7 +1085,11 @@ export async function runPipeline(env, requestUrl = 'https://beauty-legal-bot.wo
     }
 
     console.log("[stage 5/5] 推送协作平台摘要...");
-    const notification = await notifyReport({ report, reportUrl: '', env: { ...env, DECISION_MAP_URL: decisionMapUrl } });
+    const notification = await notifyReport({
+      report,
+      reportUrl: '',
+      env: { ...env, DECISION_MAP_URL: decisionMapUrl, SOURCE_COVERAGE: coverage },
+    });
     const ok = notification.ok;
     if (ok) await markSeen(fps, seen, kv);
     console.log(ok ? "=== 周报管道完成 ===" : "=== 周报管道失败 ===");
@@ -1930,75 +1949,106 @@ async function saveDecisionMap(kv, date, svg) {
   await kv.put(LATEST_DECISION_MAP_KEY, svg, { metadata: { contentType: 'image/svg+xml', date } });
 }
 
-async function saveDecisionMapPng(kv, png) {
+function decisionMapPngKeyForDate(date) {
+  return `asset:decision-map:${date}.png`;
+}
+
+async function saveDecisionMapPng(kv, date, png) {
   if (!png) return;
+  await kv.put(decisionMapPngKeyForDate(date), png, { metadata: { contentType: 'image/png', date } });
   await kv.put(LATEST_DECISION_MAP_PNG_KEY, png, { metadata: { contentType: 'image/png' } });
 }
 
-async function fetchSourceCandidates(source) {
-  if (!source.url || !source.url.startsWith('http')) return [];
+const SOURCE_REQUEST_HEADERS = {
+  'User-Agent': 'Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 Chrome/126 Safari/537.36 beauty-legal-bot/2.0',
+  'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8',
+  'Accept-Language': 'zh-CN,zh;q=0.9,en;q=0.7',
+  'Accept-Encoding': 'gzip, deflate, br',
+  'Cache-Control': 'no-cache',
+};
 
-  try {
-    let response = await fetchWithTimeout(source.url, {
-      headers: {
-        'User-Agent': 'beauty-legal-bot/1.0 (+legal intelligence monitor)',
-        'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8',
-      },
-      redirect: 'manual',
-    });
-    // 手动跟随一次重定向（避免自动重定向链消耗过多 subrequest）
-    if ([301, 302, 303, 307, 308].includes(response.status)) {
-      const location = response.headers.get('Location');
-      if (location) {
-        const redirectUrl = new URL(location, source.url).toString();
-        response = await fetchWithTimeout(redirectUrl, {
-          headers: {
-            'User-Agent': 'beauty-legal-bot/1.0 (+legal intelligence monitor)',
-            'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8',
-          },
-          redirect: 'manual',
-        });
-      }
-    }
-    if (!response.ok) return [];
-
-    const html = await response.text();
-    const linkLimit = ['美妆动态', '进出口动态'].includes(source.module) ? 14 : 8;
-    const snippetLimit = ['美妆动态', '进出口动态'].includes(source.module) ? 1500 : 800;
-    const links = extractLinks(html, source.url).filter(link => isRelevantTitle(link.title)).slice(0, linkLimit);
-    const imageUrl = extractImageUrl(html, source.url);
-    const pageText = htmlToText(html).slice(0, snippetLimit);
-    const linkCandidates = links.map(link => makeCandidate(source, { ...link, snippet: pageText, image_url: imageUrl }));
-    const sourceText = `${source.name} ${(source.topics || []).join(' ')} ${pageText}`;
-    const shouldKeepSourcePage = source.priority === 'high' || BEAUTY_KEYWORDS.some(keyword => sourceText.toLowerCase().includes(keyword.toLowerCase()));
-    const sourceCandidate = shouldKeepSourcePage
-      ? [makeCandidate(source, {
-        title: `${source.name}：${source.module}信息源入口`,
-        url: source.url,
-        image_url: imageUrl,
-        snippet: pageText || `${source.name} ${source.module} ${(source.topics || []).join(' ')}`,
-      })]
-      : [];
-    return [...linkCandidates, ...sourceCandidate];
-  } catch (error) {
-    console.warn(`fetch failed: ${source.name} ${error.message}`);
-    return [];
+async function requestSourceHtml(source, url, fetcher, timeoutMs) {
+  const response = await fetchWithTimeout(url, {
+    headers: SOURCE_REQUEST_HEADERS,
+    redirect: 'follow',
+  }, timeoutMs, fetcher);
+  if (!response.ok) {
+    return { ok: false, status: response.status, kind: 'http', error: `HTTP ${response.status}` };
   }
+  const html = await response.text();
+  if (htmlToText(html).trim().length < 8) {
+    return { ok: false, status: response.status, kind: 'empty-shell', error: 'public page returned no readable text' };
+  }
+  return { ok: true, status: response.status, html, finalUrl: response.url || url };
 }
 
-export async function collectCandidates(sources = sourceCatalog.sources, onProgress = async () => {}) {
+function extractSourceCandidatesFromHtml(source, html, finalUrl = source.url) {
+  const linkLimit = ['美妆动态', '进出口动态'].includes(source.module) ? 14 : 8;
+  const snippetLimit = ['美妆动态', '进出口动态'].includes(source.module) ? 1500 : 800;
+  const links = extractLinks(html, finalUrl).filter(link => isRelevantTitle(link.title)).slice(0, linkLimit);
+  const imageUrl = extractImageUrl(html, finalUrl);
+  const pageText = htmlToText(html).slice(0, snippetLimit);
+  const linkCandidates = links.map(link => makeCandidate(source, { ...link, snippet: pageText, image_url: imageUrl }));
+  const sourceText = `${source.name} ${(source.topics || []).join(' ')} ${pageText}`;
+  const shouldKeepSourcePage = source.priority === 'high' || BEAUTY_KEYWORDS.some(keyword => sourceText.toLowerCase().includes(keyword.toLowerCase()));
+  const sourceCandidate = shouldKeepSourcePage
+    ? [makeCandidate(source, {
+      title: `${source.name}：${source.module}信息源入口`,
+      url: finalUrl,
+      image_url: imageUrl,
+      snippet: pageText || `${source.name} ${source.module} ${(source.topics || []).join(' ')}`,
+    })]
+    : [];
+  return [...linkCandidates, ...sourceCandidate];
+}
+
+/**
+ * 为单个公开来源保留完整恢复证据，并让所有恢复方式复用同一套候选解析规则。
+ * 候选为空会被视为采集失败，避免行业线索占位被误计为成功覆盖。
+ */
+async function fetchSourceCandidates(source, {
+  fetcher = fetch,
+  browserFetcher,
+  timeoutMs = SOURCE_FETCH_TIMEOUT_MS,
+  sleepFn,
+  jitter,
+} = {}) {
+  const recovery = await recoverPublicSource(source, {
+    direct: (_source) => requestSourceHtml(source, source.url, fetcher, timeoutMs),
+    browser: typeof browserFetcher === 'function'
+      ? () => browserFetcher(source.url, { source, timeoutMs: Math.max(timeoutMs, 45000) })
+      : undefined,
+    alternate: (_source, url) => requestSourceHtml(source, url, fetcher, timeoutMs),
+    sleep: sleepFn,
+    jitter,
+  });
+  const items = recovery.html ? extractSourceCandidatesFromHtml(source, recovery.html, recovery.finalUrl || source.url) : [];
+  const result = { ...recovery, candidate_count: items.length, items };
+  if (!items.length) {
+    result.status = 'failed';
+    result.final_error ||= 'no relevant public candidates found';
+  }
+  if (result.status === 'failed') console.warn(`fetch failed: ${source.name} ${result.final_error}`);
+  return result;
+}
+
+export async function collectCandidates(sources = sourceCatalog.sources, onProgress = async () => {}, options = {}) {
   const { fetchableSources, leadSources } = splitSources(sources);
   const leads = leadSources.map(makeLead);
   const leadCandidates = leadSources.map(makeSourceLeadCandidate);
 
   const results = await mapWithConcurrency(fetchableSources, SOURCE_FETCH_CONCURRENCY, async (source, index) => {
     await onProgress({ index: index + 1, total: fetchableSources.length, source: source.name });
-    const items = await fetchSourceCandidates(source);
-    return { source, items: items.length ? items : [makeSourceLeadCandidate(source)] };
+    return fetchSourceCandidates(source, options);
   });
 
-  const failures = results.filter(result => result.items.length === 1 && result.items[0].title.includes('行业线索')).map(result => result.source.name);
-  const candidates = [...results.flatMap(result => result.items), ...leadCandidates];
+  const sourceResults = results.map(({ items: _items, html: _html, ...result }) => result);
+  const coverage = calculateSourceCoverage(fetchableSources, sourceResults);
+  const failures = sourceResults.filter(result => result.status === 'failed').map(result => result.source.name);
+  const candidates = [
+    ...results.flatMap(result => result.items.length ? result.items : [makeSourceLeadCandidate(result.source)]),
+    ...leadCandidates,
+  ];
 
   const seen = new Set();
   const unique = [];
@@ -2009,7 +2059,7 @@ export async function collectCandidates(sources = sourceCatalog.sources, onProgr
       unique.push(item);
     }
   }
-  return { candidates: unique, leads, failures };
+  return { candidates: unique, leads, failures, sourceResults, coverage };
 }
 
 // ---------------------------------------------------------------------------
@@ -2067,12 +2117,18 @@ async function fetchSelf(env, pathname, body, retries = 2) {
 
 async function runCollectPhase(sources, batchId, date, env) {
   if (!env?.SEEN_NEWS) throw new Error('SEEN_NEWS KV binding required');
-  const { candidates, leads, failures } = await collectCandidates(sources);
+  const { candidates, leads, failures, sourceResults, coverage } = await collectCandidates(sources, async () => {}, {
+    fetcher: env.SOURCE_FETCH || fetch,
+    browserFetcher: env.BROWSER_FETCH_HTML,
+    timeoutMs: Number(env.SOURCE_FETCH_TIMEOUT_MS || SOURCE_FETCH_TIMEOUT_MS),
+    sleepFn: env.SOURCE_RETRY_SLEEP,
+    jitter: env.SOURCE_RETRY_JITTER,
+  });
   await env.SEEN_NEWS.put(
     `pipeline:${date}:batch:${batchId}`,
-    JSON.stringify({ candidates, leads, failures })
+    JSON.stringify({ candidates, leads, failures, sourceResults, coverage })
   );
-  return { batchId, candidateCount: candidates.length, leadCount: leads.length, failures };
+  return { batchId, candidateCount: candidates.length, leadCount: leads.length, failures, coverage };
 }
 
 async function runAnalysisPhase(date, env, additionalCandidates = []) {
@@ -2082,6 +2138,7 @@ async function runAnalysisPhase(date, env, additionalCandidates = []) {
   const allCandidates = [...additionalCandidates];
   const allLeads = [];
   const allFailures = [];
+  const allSourceResults = [];
 
   for (const batchId of ['1', '2', '3']) {
     const raw = await kv.get(`pipeline:${date}:batch:${batchId}`);
@@ -2090,7 +2147,15 @@ async function runAnalysisPhase(date, env, additionalCandidates = []) {
     allCandidates.push(...(data.candidates || []));
     allLeads.push(...(data.leads || []));
     allFailures.push(...(data.failures || []));
+    allSourceResults.push(...(data.sourceResults || []));
   }
+
+  const coverageSources = allSourceResults.map(result => result.source).filter(Boolean);
+  const coverage = calculateSourceCoverage(coverageSources, allSourceResults);
+  assertSourceCoverage(coverage, {
+    minOverall: Number(env.MIN_SOURCE_COVERAGE || 0.9),
+    minChinaCritical: Number(env.MIN_CHINA_CRITICAL_COVERAGE || 1),
+  });
 
   const model = env.AI_MODEL || env.DEEPSEEK_MODEL || 'deepseek-chat';
   const baseUrl = env.AI_API_BASE_URL || env.DEEPSEEK_API_BASE_URL || DEFAULT_AI_API_BASE_URL;
@@ -2110,10 +2175,16 @@ async function runAnalysisPhase(date, env, additionalCandidates = []) {
   });
 
   await kv.put(`pipeline:${date}:rawReport`, JSON.stringify(rawReport));
-  await kv.put(`pipeline:${date}:candidates`, JSON.stringify({ candidates: allCandidates, leads: allLeads, failures: allFailures }));
+  await kv.put(`pipeline:${date}:candidates`, JSON.stringify({
+    candidates: allCandidates,
+    leads: allLeads,
+    failures: allFailures,
+    sourceResults: allSourceResults,
+    coverage,
+  }));
 
   const itemCount = (rawReport.sections || []).flatMap(s => s.items || []).length;
-  return { modules: (rawReport.sections || []).length, itemCount, failures: allFailures };
+  return { modules: (rawReport.sections || []).length, itemCount, failures: allFailures, coverage };
 }
 
 async function runFinalizePhase(date, env, requestUrl) {
@@ -2140,17 +2211,27 @@ async function runFinalizePhase(date, env, requestUrl) {
   const failures = candidatesMeta.failures || [];
   const reportDate = report.period.end;
   const itemCount = (report.sections || []).flatMap(s => s.items || []).length;
-  const decisionMapSvg = buildDecisionMapSvg(verifiedReportItems(report).sort((a, b) => rankReportItem(b) - rankReportItem(a)));
+  const decisionMapSvg = buildDecisionMapSvg(
+    verifiedReportItems(report).sort((a, b) => rankReportItem(b) - rankReportItem(a)),
+    { period: report.period, coverage: candidatesMeta.coverage, generatedAt }
+  );
   await saveDecisionMap(kv, reportDate, decisionMapSvg);
   const decisionMapPng = env.CREATE_DECISION_MAP_PNG
     ? await env.CREATE_DECISION_MAP_PNG({ svg: decisionMapSvg, date: reportDate, requestUrl })
     : null;
-  if (decisionMapPng) await saveDecisionMapPng(kv, decisionMapPng);
-  const decisionMapUrl = await resolveDecisionMapUrl({ env, requestUrl, decisionMapPng });
+  if (decisionMapPng) await saveDecisionMapPng(kv, reportDate, decisionMapPng);
+  const decisionMapUrl = decisionMapPng && typeof env.PUBLISH_DECISION_MAP === 'function'
+    ? await env.PUBLISH_DECISION_MAP({ date: reportDate, png: decisionMapPng, svg: decisionMapSvg, requestUrl })
+    : await resolveDecisionMapUrl({ env, requestUrl, decisionMapPng, date: reportDate });
+  if (!decisionMapUrl) throw new Error('Decision map publication returned no public URL');
   const { isDup, seen, fps } = await isDuplicateFingerprints(extractReportFingerprints(report), kv);
   if (isDup) return { stage: 'dedupe', status: 'skipped', message: '30-day duplicate' };
 
-  const notification = await notifyReport({ report, reportUrl: '', env: { ...env, DECISION_MAP_URL: decisionMapUrl } });
+  const notification = await notifyReport({
+    report,
+    reportUrl: '',
+    env: { ...env, DECISION_MAP_URL: decisionMapUrl, SOURCE_COVERAGE: candidatesMeta.coverage },
+  });
   const ok = notification.ok;
   if (ok) await markSeen(fps, seen, kv);
   return {
@@ -2271,6 +2352,14 @@ export default {
       const png = await env.SEEN_NEWS?.get(LATEST_DECISION_MAP_PNG_KEY, 'arrayBuffer');
       return png
         ? new Response(png, { headers: { "Content-Type": "image/png", "Cache-Control": "public, max-age=300" } })
+        : new Response("Decision map PNG not found", { status: 404 });
+    }
+
+    const decisionMapPngMatch = url.pathname.match(/^\/assets\/decision-map\/(\d{4}-\d{2}-\d{2})\.png$/);
+    if (decisionMapPngMatch) {
+      const png = await env.SEEN_NEWS?.get(decisionMapPngKeyForDate(decisionMapPngMatch[1]), 'arrayBuffer');
+      return png
+        ? new Response(png, { headers: { "Content-Type": "image/png", "Cache-Control": "public, max-age=31536000, immutable" } })
         : new Response("Decision map PNG not found", { status: 404 });
     }
 
