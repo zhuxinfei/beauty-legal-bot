@@ -17,8 +17,10 @@ import {
   renderFeishuSummary,
   renderDingTalkMarkdown,
   renderDingTalkSummaryCard,
+  buildDingTalkWebhookMessages,
   buildDingTalkWebhookUrl,
   sendToDingTalk,
+  sendDingTalkMessages,
   notifyReport,
   getDingTalkAccessToken,
   createDingTalkDocument,
@@ -319,6 +321,94 @@ function testRenderDingTalkSummaryCardIsConciseAndIncludesKeyword() {
   assert.equal(markdown.includes('**为什么值得关注**'), false);
 }
 
+function testBuildDingTalkWebhookMessagesUsesOverviewAndSixModules() {
+  const messages = buildDingTalkWebhookMessages(sampleReport, { maxBytes: 18000 });
+  assert.equal(messages.length, 7);
+  assert.ok(messages[0].title.includes('总览'));
+  assert.deepEqual(messages.slice(1).map(message => message.module), [
+    '广告合规及处罚案例',
+    '美妆动态',
+    '知识产权动态',
+    '新规及案例动态',
+    '进出口动态',
+    '产品质量/召回与安全风险',
+  ]);
+  assert.ok(messages[0].markdown.includes('本周最值得看'));
+  assert.ok(messages[1].markdown.includes('直播功效宣称与备案资料不一致被处罚'));
+  assert.ok(messages[2].markdown.includes('本周无高置信更新'));
+  assert.ok(messages.every(message => new TextEncoder().encode(message.markdown).length <= 18000));
+}
+
+function testBuildDingTalkWebhookMessagesPutsChinaFirstWithinModule() {
+  const chinaItem = structuredClone(sampleReport.sections[1].items[0]);
+  chinaItem.title = '中国事项';
+  chinaItem.country = '中国';
+  chinaItem.source_url = 'https://example.com/china';
+
+  const overseasItem = structuredClone(sampleReport.sections[0].items[0]);
+  overseasItem.title = '海外事项';
+  overseasItem.module = '广告合规及处罚案例';
+  overseasItem.source_url = 'https://example.com/overseas';
+
+  const report = {
+    period: sampleReport.period,
+    summary: sampleReport.summary,
+    risk_alerts: sampleReport.risk_alerts,
+    sections: [{ module: '广告合规及处罚案例', items: [overseasItem, chinaItem] }],
+  };
+  const moduleMessage = buildDingTalkWebhookMessages(report).find(message => message.module === '广告合规及处罚案例');
+  assert.ok(moduleMessage);
+  assert.ok(moduleMessage.markdown.indexOf('中国事项') < moduleMessage.markdown.indexOf('海外事项'));
+}
+
+function testBuildDingTalkWebhookMessagesSplitsOversizedModulesWithoutDroppingItems() {
+  const baseItem = sampleReport.sections[1].items[0];
+  const items = Array.from({ length: 6 }, (_, index) => ({
+    ...structuredClone(baseItem),
+    title: `长内容事项${index + 1}`,
+    source_url: `https://example.com/long-${index + 1}`,
+    why_it_matters: `业务影响说明${index + 1}`.repeat(12),
+  }));
+  const report = {
+    period: sampleReport.period,
+    summary: sampleReport.summary,
+    risk_alerts: sampleReport.risk_alerts,
+    sections: [{ module: '广告合规及处罚案例', items }],
+  };
+  const maxBytes = 1400;
+  const messages = buildDingTalkWebhookMessages(report, { maxBytes });
+  const moduleMessages = messages.filter(message => message.module === '广告合规及处罚案例');
+  assert.ok(moduleMessages.length > 1);
+  assert.ok(moduleMessages.every(message => new TextEncoder().encode(message.markdown).length <= maxBytes));
+  const combined = moduleMessages.map(message => message.markdown).join('\n');
+  for (let index = 1; index <= items.length; index++) {
+    assert.ok(combined.includes(`长内容事项${index}`));
+  }
+}
+
+function testBuildDingTalkWebhookMessagesSplitsOneOversizedItem() {
+  const item = structuredClone(sampleReport.sections[1].items[0]);
+  item.title = '单条超长事项';
+  item.source_url = 'https://example.com/oversized-item';
+  item.violation_logic = [Array.from({ length: 120 }, (_, index) => `拆解点${index + 1}`).join('；')];
+  const report = {
+    period: sampleReport.period,
+    summary: [],
+    risk_alerts: [],
+    sections: [{ module: '广告合规及处罚案例', items: [item] }],
+  };
+  const maxBytes = 800;
+  const moduleMessages = buildDingTalkWebhookMessages(report, { maxBytes })
+    .filter(message => message.module === '广告合规及处罚案例');
+  assert.ok(moduleMessages.length > 1);
+  assert.ok(moduleMessages.every(message => new TextEncoder().encode(message.markdown).length <= maxBytes));
+  const combined = moduleMessages.map(message => message.markdown).join('\n');
+  assert.ok(combined.includes('单条超长事项'));
+  assert.ok(combined.includes('拆解点1'));
+  assert.ok(combined.includes('拆解点120'));
+  assert.ok(combined.includes('https://example.com/oversized-item'));
+}
+
 async function testBuildDingTalkWebhookUrlSignsSecret() {
   const url = await buildDingTalkWebhookUrl('https://oapi.dingtalk.com/robot/send?access_token=abc', 'secret', 1700000000000);
   assert.ok(url.startsWith('https://oapi.dingtalk.com/robot/send?access_token=abc&timestamp=1700000000000&sign='));
@@ -347,6 +437,75 @@ async function testSendToDingTalkPostsMarkdownPayload() {
   });
 }
 
+async function testSendDingTalkMessagesRetriesTransientFailuresInOrder() {
+  const messages = [
+    { id: 'overview', title: '总览', markdown: '# 总览' },
+    { id: 'm1-1', title: '模块一', markdown: '# 模块一' },
+  ];
+  const calls = [];
+  let overviewAttempts = 0;
+  const result = await sendDingTalkMessages({
+    messages,
+    maxAttempts: 3,
+    sleepFn: async () => {},
+    sendMessage: async message => {
+      calls.push(message.id);
+      if (message.id === 'overview' && overviewAttempts++ === 0) {
+        return { ok: false, retryable: true, error: 'timeout' };
+      }
+      return { ok: true, retryable: false };
+    },
+  });
+
+  assert.deepEqual(calls, ['overview', 'overview', 'm1-1']);
+  assert.deepEqual(result, {
+    ok: true,
+    sent: 2,
+    total: 2,
+    retries: 1,
+    failedMessageId: '',
+    error: '',
+  });
+}
+
+async function testSendDingTalkMessagesThrottlesBetweenSuccessfulSegments() {
+  const waits = [];
+  const result = await sendDingTalkMessages({
+    messages: [
+      { id: 'overview', title: '总览', markdown: '# 总览' },
+      { id: 'm1-1', title: '模块一', markdown: '# 模块一' },
+    ],
+    interMessageDelayMs: 3100,
+    sleepFn: async delay => { waits.push(delay); },
+    sendMessage: async () => ({ ok: true, retryable: false }),
+  });
+  assert.equal(result.ok, true);
+  assert.deepEqual(waits, [3100]);
+}
+
+async function testSendDingTalkMessagesStopsAfterTerminalFailure() {
+  const calls = [];
+  const result = await sendDingTalkMessages({
+    messages: [
+      { id: 'overview', title: '总览', markdown: '# 总览' },
+      { id: 'm1-1', title: '模块一', markdown: '# 模块一' },
+    ],
+    sleepFn: async () => {},
+    sendMessage: async message => {
+      calls.push(message.id);
+      return { ok: false, retryable: false, error: 'invalid signature' };
+    },
+  });
+
+  assert.deepEqual(calls, ['overview']);
+  assert.equal(result.ok, false);
+  assert.equal(result.sent, 0);
+  assert.equal(result.total, 2);
+  assert.equal(result.retries, 0);
+  assert.equal(result.failedMessageId, 'overview');
+  assert.equal(result.error, 'invalid signature');
+}
+
 async function testNotifyReportPrefersDingTalkWhenConfigured() {
   let dingTalkCalls = 0;
   let feishuCalls = 0;
@@ -357,6 +516,7 @@ async function testNotifyReportPrefersDingTalkWhenConfigured() {
     reportUrl: 'https://example.com/doc/latest',
     env: {
       DINGTALK_WEBHOOK_URL: 'https://oapi.dingtalk.com/robot/send?access_token=abc',
+      DINGTALK_MESSAGE_DELAY_MS: 0,
       DINGTALK_DOC_URL: 'https://example.com/doc/latest',
       FEISHU_WEBHOOK_URL: 'https://open.feishu.cn/test',
     },
@@ -369,12 +529,13 @@ async function testNotifyReportPrefersDingTalkWhenConfigured() {
     sendFeishu: async () => { feishuCalls += 1; return true; },
   });
   assert.equal(ok.channel, 'dingtalk');
-  assert.equal(dingTalkCalls, 1);
+  assert.equal(dingTalkCalls, 7);
   assert.equal(feishuCalls, 0);
+  assert.equal(ok.ok, true);
+  assert.equal(ok.sent, 7);
+  assert.equal(ok.total, 7);
   assert.ok(sentTitle.includes('美妆法务资讯'));
-  assert.ok(sentMarkdown.includes('## 本周最值得看'));
-  assert.ok(sentMarkdown.includes('[查看完整版本](https://example.com/doc/latest)'));
-  assert.equal(sentMarkdown.includes('#### 印尼'), false);
+  assert.ok(sentMarkdown.includes('产品质量/召回与安全风险'));
 }
 
 async function testRequestAiChatUsesOpenAiCompatibleBaseUrl() {
@@ -655,7 +816,8 @@ async function testManualTestRouteAwaitsPipeline() {
   assert.equal(pipelineStarted, true);
   assert.ok(text.includes('weekly pipeline finished'));
   assert.ok(text.includes('status: done'));
-  assert.ok(text.includes('full_version: DingTalk document'));
+  assert.ok(text.includes('delivery: DingTalk webhook'));
+  assert.equal(text.includes('DingTalk document'), false);
   assert.equal(text.includes('/report/latest'), false);
 }
 
@@ -722,6 +884,134 @@ async function testScheduledPipelineSendsFeishuWithoutHtmlReport() {
   assert.equal([...store.keys()].some(key => /^report:\d{4}-\d{2}-\d{2}$/.test(key)), false);
   assert.ok(store.has('asset:decision-map:latest'));
   assert.equal(feishuSent, true);
+}
+
+async function testScheduledPipelineSendsDingTalkWithoutDocumentCredentials() {
+  const originalFetch = globalThis.fetch;
+  const store = new Map();
+  const kv = {
+    async get(key) { return store.get(key) || null; },
+    async put(key, value) { store.set(key, value); },
+  };
+  let dingTalkMessages = 0;
+  let dingTalkDocumentCalls = 0;
+
+  globalThis.fetch = async (url, init = {}) => {
+    const href = String(url);
+    if (href.includes('/chat/completions')) {
+      return new Response(JSON.stringify({
+        choices: [{ message: { content: JSON.stringify(sampleReport) } }],
+      }), { status: 200, headers: { 'Content-Type': 'application/json' } });
+    }
+    if (href.startsWith('https://oapi.dingtalk.com/robot/send')) {
+      dingTalkMessages += 1;
+      const body = JSON.parse(init.body);
+      assert.equal(body.msgtype, 'markdown');
+      assert.ok(body.markdown.title.includes('美妆法务资讯'));
+      assert.ok(body.markdown.text.startsWith('> '));
+      return new Response(JSON.stringify({ errcode: 0, errmsg: 'ok' }), { status: 200 });
+    }
+    if (href.includes('api.dingtalk.com') || href.includes('/media/upload')) {
+      dingTalkDocumentCalls += 1;
+      return new Response(JSON.stringify({ code: 'should-not-be-called' }), { status: 500 });
+    }
+    return new Response('<a href="/cosmetic-rule">化妆品安全评估技术导则征求意见</a>', {
+      status: 200,
+      headers: { 'Content-Type': 'text/html' },
+    });
+  };
+
+  try {
+    await worker.scheduled({}, {
+      AI_API_KEY: 'test-key',
+      DINGTALK_WEBHOOK_URL: 'https://oapi.dingtalk.com/robot/send?access_token=test',
+      DINGTALK_MESSAGE_DELAY_MS: 0,
+      DINGTALK_CLIENT_ID: 'legacy-client',
+      DINGTALK_CLIENT_SECRET: 'legacy-secret',
+      DINGTALK_OPERATOR_ID: 'legacy-operator',
+      DINGTALK_WORKSPACE_ID: 'legacy-workspace',
+      AI_MODEL: 'test-model',
+      SEEN_NEWS: kv,
+    }, {});
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+
+  const lastRun = JSON.parse(store.get('run:last'));
+  assert.equal(dingTalkMessages, 7);
+  assert.equal(dingTalkDocumentCalls, 0);
+  assert.equal(lastRun.status, 'done');
+  assert.equal(lastRun.stage, 'dingtalk');
+}
+
+async function testScheduledPipelineRejectsDingTalkFailureWithoutMarkingSeen() {
+  const originalFetch = globalThis.fetch;
+  const store = new Map();
+  const kv = {
+    async get(key) { return store.get(key) || null; },
+    async put(key, value) { store.set(key, value); },
+  };
+  let dingTalkAttempts = 0;
+
+  globalThis.fetch = async url => {
+    const href = String(url);
+    if (href.includes('/chat/completions')) {
+      return new Response(JSON.stringify({
+        choices: [{ message: { content: JSON.stringify(sampleReport) } }],
+      }), { status: 200, headers: { 'Content-Type': 'application/json' } });
+    }
+    if (href.startsWith('https://oapi.dingtalk.com/robot/send')) {
+      dingTalkAttempts += 1;
+      return new Response(JSON.stringify({ errcode: 310000, errmsg: 'keywords not in content' }), { status: 200 });
+    }
+    return new Response('<a href="/cosmetic-rule">化妆品安全评估技术导则征求意见</a>', {
+      status: 200,
+      headers: { 'Content-Type': 'text/html' },
+    });
+  };
+
+  try {
+    await assert.rejects(
+      worker.scheduled({}, {
+        AI_API_KEY: 'test-key',
+        DINGTALK_WEBHOOK_URL: 'https://oapi.dingtalk.com/robot/send?access_token=test',
+        DINGTALK_MESSAGE_DELAY_MS: 0,
+        AI_MODEL: 'test-model',
+        SEEN_NEWS: kv,
+      }, {}),
+      /DingTalk delivery failed/
+    );
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+
+  const lastRun = JSON.parse(store.get('run:last'));
+  assert.equal(dingTalkAttempts, 1);
+  assert.equal(lastRun.status, 'failed');
+  assert.equal(store.has('seen_v3_report_items'), false);
+}
+
+async function testScheduledPipelineRejectsMissingAiKey() {
+  const store = new Map();
+  const kv = {
+    async get(key) { return store.get(key) || null; },
+    async put(key, value) { store.set(key, value); },
+  };
+  await assert.rejects(
+    worker.scheduled({}, {
+      DINGTALK_WEBHOOK_URL: 'https://oapi.dingtalk.com/robot/send?access_token=test',
+      SEEN_NEWS: kv,
+    }, {}),
+    /AI_API_KEY is required/
+  );
+  assert.equal(JSON.parse(store.get('run:last')).status, 'failed');
+}
+
+function testRunLocalPropagatesPipelineFailure() {
+  const source = readFileSync(new URL('./run-local.js', import.meta.url), 'utf8');
+  assert.ok(source.includes('const result = await runPipeline'));
+  assert.ok(source.includes("result.status === 'failed'"));
+  assert.equal(source.includes("process.env.DINGTALK_WEBHOOK_URL ? 'DingTalk webhook was called.'"), false);
 }
 
 async function testManualTestRouteRecordsFailure() {
@@ -862,6 +1152,17 @@ function testWeeklyWorkflowRunsWorkerScriptAndPublishesDecisionMap() {
   assert.ok(workflow.includes('npx wrangler deploy'));
   assert.ok(workflow.includes('"asset:decision-map:latest.png"'));
   assert.ok(workflow.includes('--path ../out/decision-map.png'));
+  assert.ok(workflow.includes('DINGTALK_WEBHOOK_URL: ${{ secrets.DINGTALK_WEBHOOK_URL }}'));
+  assert.ok(workflow.includes('DINGTALK_SECRET: ${{ secrets.DINGTALK_SECRET }}'));
+  for (const documentSetting of [
+    'DINGTALK_DOC_URL',
+    'DINGTALK_CLIENT_ID',
+    'DINGTALK_CLIENT_SECRET',
+    'DINGTALK_OPERATOR_ID',
+    'DINGTALK_WORKSPACE_ID',
+  ]) {
+    assert.equal(workflow.includes(documentSetting), false, `workflow should not require ${documentSetting}`);
+  }
 }
 
 function testDecisionMapPublicUrlCanOverrideWorkerAssetUrl() {
@@ -873,6 +1174,9 @@ await testFetchWithTimeoutAbortsSlowFetch();
 await testManualTestRouteAwaitsPipeline();
 await testMapWithConcurrencyLimitsParallelWork();
 await testScheduledPipelineSendsFeishuWithoutHtmlReport();
+await testScheduledPipelineSendsDingTalkWithoutDocumentCredentials();
+await testScheduledPipelineRejectsDingTalkFailureWithoutMarkingSeen();
+await testScheduledPipelineRejectsMissingAiKey();
 await testManualTestRouteRecordsFailure();
 testNormalizeUrl();
 testHtmlToText();
@@ -893,8 +1197,15 @@ testRenderFeishuSummary();
 testRenderDingTalkMarkdownUsesModuleRegionCountryStructure();
 testRenderDingTalkMarkdownShowsAllModulesWhenEmpty();
 testRenderDingTalkSummaryCardIsConciseAndIncludesKeyword();
+testBuildDingTalkWebhookMessagesUsesOverviewAndSixModules();
+testBuildDingTalkWebhookMessagesPutsChinaFirstWithinModule();
+testBuildDingTalkWebhookMessagesSplitsOversizedModulesWithoutDroppingItems();
+testBuildDingTalkWebhookMessagesSplitsOneOversizedItem();
 await testBuildDingTalkWebhookUrlSignsSecret();
 await testSendToDingTalkPostsMarkdownPayload();
+await testSendDingTalkMessagesRetriesTransientFailuresInOrder();
+await testSendDingTalkMessagesThrottlesBetweenSuccessfulSegments();
+await testSendDingTalkMessagesStopsAfterTerminalFailure();
 await testNotifyReportPrefersDingTalkWhenConfigured();
 await testRequestAiChatUsesOpenAiCompatibleBaseUrl();
 testBuildAnalysisPromptUsesConfigurableInputLimits();
@@ -917,4 +1228,5 @@ testSelectSourcesForWorkerBudgetKeepsImportantCoverageUnderLimit();
 testPromptIncludesProductQualityRecallModule();
 testWeeklyWorkflowRunsWorkerScriptAndPublishesDecisionMap();
 testDecisionMapPublicUrlCanOverrideWorkerAssetUrl();
+testRunLocalPropagatesPipelineFailure();
 console.log('worker pure function tests ok');
