@@ -4,6 +4,7 @@
     "render:decision-map": "node scripts/render-decision-map-png.js"
   },
   "devDependencies": {
+    "playwright": "^1.61.1",
     "sharp": "^0.34.5"
   }
 }
