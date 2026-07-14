@@ -2,6 +2,17 @@ import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import sampleReport from './sample-report.json' with { type: 'json' };
 import sourceCatalog from './sources.json' with { type: 'json' };
+import { createBrowserSourceFetcher } from './browser-fetch.js';
+import { buildSingleDingTalkMessage } from './dingtalk-single-card.js';
+import { buildActionDashboardSvg } from './action-dashboard.js';
+import { publishVersionedPng } from './cloudflare-assets.js';
+import {
+  SourceCoverageError,
+  assertSourceCoverage,
+  calculateSourceCoverage,
+  classifyFetchFailure,
+  recoverPublicSource,
+} from './source-recovery.js';
 import {
   default as worker,
   normalizeUrl,
@@ -41,12 +52,292 @@ import {
   enrichReportWithSourceSignals,
   filterReportToObservedSources,
   attachReportImages,
+  collectCandidates,
   fetchWithTimeout,
   selectSourcesForWorkerBudget,
   mapWithConcurrency,
   extractPublishedDate,
   sortCandidatesForAnalysis,
+  runPipeline,
 } from './index.js';
+
+function testClassifySourceFetchFailures() {
+  assert.deepEqual(classifyFetchFailure({ status: 429 }), { retryable: true, terminal: false, reason: 'http-429' });
+  assert.deepEqual(classifyFetchFailure({ status: 503 }), { retryable: true, terminal: false, reason: 'http-503' });
+  assert.deepEqual(classifyFetchFailure({ status: 401 }), { retryable: false, terminal: true, reason: 'http-401' });
+  assert.deepEqual(classifyFetchFailure({ kind: 'captcha' }), { retryable: false, terminal: true, reason: 'captcha' });
+  assert.deepEqual(classifyFetchFailure({ kind: 'timeout' }), { retryable: true, terminal: false, reason: 'timeout' });
+}
+
+async function testRecoverPublicSourceRetriesAndRecordsAttempts() {
+  let calls = 0;
+  const result = await recoverPublicSource({ name: '测试监管源', url: 'https://example.com' }, {
+    direct: async () => {
+      calls += 1;
+      if (calls < 3) return { ok: false, status: 503, error: 'upstream unavailable' };
+      return { ok: true, status: 200, html: '<h1>化妆品监管公告</h1>', finalUrl: 'https://example.com/notices' };
+    },
+    sleep: async () => {},
+    jitter: () => 0,
+  });
+
+  assert.equal(result.status, 'recovered');
+  assert.equal(result.recovery_method, 'retry');
+  assert.equal(result.finalUrl, 'https://example.com/notices');
+  assert.equal(result.attempts.length, 3);
+  assert.deepEqual(result.attempts.map(attempt => attempt.status), [503, 503, 200]);
+}
+
+async function testRecoverPublicSourceUsesBrowserThenOfficialAlternate() {
+  const methods = [];
+  const browserRecovered = await recoverPublicSource({ name: '动态监管源', url: 'https://example.com' }, {
+    direct: async () => ({ ok: false, status: 403, error: 'forbidden' }),
+    browser: async () => {
+      methods.push('browser');
+      return { ok: true, status: 200, html: '<main>化妆品动态正文</main>', finalUrl: 'https://example.com/dynamic' };
+    },
+    sleep: async () => {},
+    jitter: () => 0,
+  });
+  assert.equal(browserRecovered.status, 'recovered');
+  assert.equal(browserRecovered.recovery_method, 'browser');
+  assert.deepEqual(methods, ['browser']);
+
+  const alternateRecovered = await recoverPublicSource({
+    name: '备用监管源',
+    url: 'https://example.com',
+    alternate_urls: ['https://official.example.com/notices'],
+  }, {
+    direct: async () => ({ ok: false, status: 401, error: 'login required' }),
+    alternate: async (_source, url) => ({ ok: true, status: 200, html: '<main>官方备用入口</main>', finalUrl: url }),
+    sleep: async () => {},
+  });
+  assert.equal(alternateRecovered.status, 'recovered');
+  assert.equal(alternateRecovered.recovery_method, 'alternate');
+  assert.equal(alternateRecovered.finalUrl, 'https://official.example.com/notices');
+}
+
+function testSourceCoverageGatesChinaCriticalAndOverallCoverage() {
+  const sources = [
+    { name: '中国关键一', country: '中国', priority: 'high' },
+    { name: '中国关键二', country: '中国', priority: 'high' },
+    ...Array.from({ length: 8 }, (_, index) => ({ name: `海外${index + 1}`, country: '美国', priority: 'medium' })),
+  ];
+  const passingResults = sources.map(source => ({ source, status: 'ok', candidate_count: 1 }));
+  const passing = calculateSourceCoverage(sources, passingResults);
+  assert.equal(passing.chinaCritical, 1);
+  assert.equal(passing.overall, 1);
+  assert.equal(assertSourceCoverage(passing), true);
+
+  const missingChina = passingResults.map((result, index) => index === 0 ? { ...result, status: 'failed', candidate_count: 0 } : result);
+  assert.throws(() => assertSourceCoverage(calculateSourceCoverage(sources, missingChina)), SourceCoverageError);
+
+  const belowOverall = passingResults.map((result, index) => index >= 7 ? { ...result, status: 'failed', candidate_count: 0 } : result);
+  assert.throws(() => assertSourceCoverage(calculateSourceCoverage(sources, belowOverall)), SourceCoverageError);
+}
+
+async function testBrowserSourceFetcherReusesBrowserAndClosesPages() {
+  let launchCalls = 0;
+  let browserCloseCalls = 0;
+  let pageCloseCalls = 0;
+  const chromium = {
+    async launch() {
+      launchCalls += 1;
+      return {
+        async newPage() {
+          return {
+            async setExtraHTTPHeaders() {},
+            async goto() { return { status: () => 200 }; },
+            async title() { return '化妆品监管公告'; },
+            async content() { return '<html><body>公开化妆品监管正文</body></html>'; },
+            url() { return 'https://example.com/final'; },
+            locator() { return { innerText: async () => '公开化妆品监管正文' }; },
+            async close() { pageCloseCalls += 1; },
+          };
+        },
+        async close() { browserCloseCalls += 1; },
+      };
+    },
+  };
+
+  const browserFetcher = await createBrowserSourceFetcher({ chromium });
+  const first = await browserFetcher.fetchHtml('https://example.com/a');
+  const second = await browserFetcher.fetchHtml('https://example.com/b');
+  await browserFetcher.close();
+
+  assert.equal(launchCalls, 1);
+  assert.equal(pageCloseCalls, 2);
+  assert.equal(browserCloseCalls, 1);
+  assert.equal(first.ok, true);
+  assert.equal(second.finalUrl, 'https://example.com/final');
+}
+
+async function testBrowserSourceFetcherRejectsAccessControlPages() {
+  const chromium = {
+    async launch() {
+      return {
+        async newPage() {
+          return {
+            async setExtraHTTPHeaders() {},
+            async goto() { return { status: () => 200 }; },
+            async title() { return 'Sign in'; },
+            async content() { return '<html><body>Login required</body></html>'; },
+            url() { return 'https://example.com/login'; },
+            locator() { return { innerText: async () => 'Login required' }; },
+            async close() {},
+          };
+        },
+        async close() {},
+      };
+    },
+  };
+  const browserFetcher = await createBrowserSourceFetcher({ chromium });
+  const result = await browserFetcher.fetchHtml('https://example.com/private');
+  await browserFetcher.close();
+  assert.equal(result.ok, false);
+  assert.equal(result.kind, 'login');
+}
+
+async function testPublishVersionedPngUploadsBeforeHealthCheck() {
+  const calls = [];
+  const png = new Uint8Array(2048).fill(7);
+  const url = await publishVersionedPng({
+    accountId: 'account',
+    namespaceId: 'namespace',
+    apiToken: 'secret-token',
+    date: '2026-07-14',
+    png,
+    publicBaseUrl: 'https://worker.test',
+    sleepFn: async () => {},
+    fetcher: async (href, init = {}) => {
+      calls.push({ href: String(href), method: init.method || 'GET', auth: init.headers?.Authorization });
+      if ((init.method || 'GET') === 'GET') {
+        return new Response(png, { status: 200, headers: { 'Content-Type': 'image/png', 'Content-Length': String(png.length) } });
+      }
+      return new Response(JSON.stringify({ success: true }), { status: 200, headers: { 'Content-Type': 'application/json' } });
+    },
+  });
+
+  assert.equal(url, 'https://worker.test/assets/decision-map/2026-07-14.png');
+  assert.deepEqual(calls.map(call => call.method), ['PUT', 'PUT', 'GET']);
+  assert.ok(calls[0].href.includes('/values/asset%3Adecision-map%3A2026-07-14.png'));
+  assert.ok(calls[1].href.includes('/values/asset%3Adecision-map%3Alatest.png'));
+  assert.equal(calls[0].auth, 'Bearer secret-token');
+  assert.equal(calls[2].auth, undefined);
+}
+
+async function testPipelinePublishesHealthyImageBeforeDingTalkAndDedupe() {
+  const originalFetch = globalThis.fetch;
+  const calls = [];
+  const store = new Map();
+  const kv = {
+    async get(key) { return store.get(key) || null; },
+    async put(key, value) {
+      store.set(key, value);
+      if (key === 'seen_v3_report_items') calls.push('mark-seen');
+    },
+  };
+  globalThis.fetch = async (url, init = {}) => {
+    const href = String(url);
+    if (href.includes('/chat/completions')) {
+      return new Response(JSON.stringify({ choices: [{ message: { content: JSON.stringify(sampleReport) } }] }), { status: 200 });
+    }
+    if (href.startsWith('https://oapi.dingtalk.com/robot/send')) {
+      calls.push('send-dingtalk');
+      const payload = JSON.parse(init.body);
+      assert.ok(payload.markdown.text.includes('https://worker.test/assets/decision-map/2026-07-14.png'));
+      return new Response(JSON.stringify({ errcode: 0, errmsg: 'ok' }), { status: 200 });
+    }
+    return new Response(`<html><body><a href="/notice">化妆品监管新规</a><p>${'公开监管正文。'.repeat(8)}</p></body></html>`, { status: 200 });
+  };
+
+  try {
+    const result = await runPipeline({
+      AI_API_KEY: 'test-key',
+      AI_MODEL: 'test-model',
+      DINGTALK_WEBHOOK_URL: 'https://oapi.dingtalk.com/robot/send?access_token=test',
+      DINGTALK_MESSAGE_DELAY_MS: 0,
+      SEEN_NEWS: kv,
+      CREATE_DECISION_MAP_PNG: async () => {
+        calls.push('render-image');
+        return new Uint8Array(2048).fill(1);
+      },
+      PUBLISH_DECISION_MAP: async () => {
+        calls.push('publish-versioned-image');
+        calls.push('health-check-image');
+        return 'https://worker.test/assets/decision-map/2026-07-14.png';
+      },
+    });
+    assert.equal(result.status, 'done');
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+  assert.deepEqual(calls, ['render-image', 'publish-versioned-image', 'health-check-image', 'send-dingtalk', 'mark-seen']);
+}
+
+async function testVersionedDecisionMapRouteUsesImmutableCache() {
+  const png = new Uint8Array(2048).fill(3);
+  const response = await worker.fetch(
+    new Request('https://worker.test/assets/decision-map/2026-07-14.png'),
+    {
+      SEEN_NEWS: {
+        async get(key, type) {
+          assert.equal(key, 'asset:decision-map:2026-07-14.png');
+          assert.equal(type, 'arrayBuffer');
+          return png.buffer;
+        },
+      },
+    },
+    {}
+  );
+  assert.equal(response.status, 200);
+  assert.equal(response.headers.get('Content-Type'), 'image/png');
+  assert.ok(response.headers.get('Cache-Control').includes('immutable'));
+  assert.equal((await response.arrayBuffer()).byteLength, png.byteLength);
+}
+
+async function testCollectCandidatesReturnsRecoveryEvidenceAndRealCoverage() {
+  const sources = [
+    {
+      name: '直接监管源', url: 'https://direct.test', module: '新规及案例动态',
+      country: '中国', region: '亚洲', priority: 'high', source_type: 'official_site', topics: ['化妆品'],
+    },
+    {
+      name: '动态监管源', url: 'https://browser.test', module: '广告合规及处罚案例',
+      country: '中国', region: '亚洲', priority: 'high', source_type: 'official_site', topics: ['广告处罚'],
+    },
+    {
+      name: '空白行业源', url: 'https://empty.test', module: '美妆动态',
+      country: '美国', region: '北美', priority: 'medium', source_type: 'industry_site', topics: [],
+    },
+  ];
+  const result = await collectCandidates(sources, async () => {}, {
+    fetcher: async url => {
+      if (url === 'https://browser.test') return new Response('forbidden', { status: 403 });
+      if (url === 'https://empty.test') return new Response(`<html><body>${'公司招聘和融资信息。'.repeat(8)}</body></html>`, { status: 200 });
+      return new Response(`<html><body><a href="/notice">化妆品监督管理新规</a><p>${'官方发布化妆品监督管理政策说明。'.repeat(3)}</p></body></html>`, { status: 200 });
+    },
+    browserFetcher: async url => ({
+      ok: true,
+      status: 200,
+      html: '<html><body><a href="/case">化妆品广告违法处罚案例</a></body></html>',
+      finalUrl: url,
+    }),
+    sleepFn: async () => {},
+    jitter: () => 0,
+  });
+
+  assert.equal(result.sourceResults.length, 3);
+  assert.equal(result.sourceResults[0].status, 'ok');
+  assert.equal(result.sourceResults[1].recovery_method, 'browser');
+  assert.equal(result.sourceResults[2].status, 'failed');
+  assert.equal(result.sourceResults[2].candidate_count, 0);
+  assert.equal(result.coverage.chinaCritical, 1);
+  assert.equal(result.coverage.overall, 2 / 3);
+  assert.ok(result.candidates.some(candidate => candidate.url === 'https://direct.test/notice'));
+  assert.ok(result.candidates.some(candidate => candidate.url === 'https://browser.test/case'));
+  assert.ok(result.candidates.some(candidate => candidate.title.includes('行业线索')));
+}
 
 function testNormalizeUrl() {
   assert.equal(normalizeUrl('/path', 'https://example.com/base'), 'https://example.com/path');
@@ -321,22 +612,109 @@ function testRenderDingTalkSummaryCardIsConciseAndIncludesKeyword() {
   assert.equal(markdown.includes('**为什么值得关注**'), false);
 }
 
-function testBuildDingTalkWebhookMessagesUsesOverviewAndSixModules() {
+function testBuildDingTalkWebhookMessagesUsesOneCardWithSixModules() {
   const messages = buildDingTalkWebhookMessages(sampleReport, { maxBytes: 18000 });
-  assert.equal(messages.length, 7);
-  assert.ok(messages[0].title.includes('总览'));
-  assert.deepEqual(messages.slice(1).map(message => message.module), [
-    '广告合规及处罚案例',
-    '美妆动态',
-    '知识产权动态',
-    '新规及案例动态',
-    '进出口动态',
-    '产品质量/召回与安全风险',
-  ]);
-  assert.ok(messages[0].markdown.includes('本周最值得看'));
-  assert.ok(messages[1].markdown.includes('直播功效宣称与备案资料不一致被处罚'));
-  assert.ok(messages[2].markdown.includes('本周无高置信更新'));
+  assert.equal(messages.length, 1);
+  assert.equal(messages[0].id, 'weekly-report');
+  assert.ok(messages[0].title.includes('美妆法务资讯'));
+  assert.ok(messages[0].markdown.includes('直播功效宣称与备案资料不一致被处罚'));
+  for (const [index, module] of [
+    '广告合规及处罚案例', '美妆动态', '知识产权动态',
+    '新规及案例动态', '进出口动态', '产品质量/召回与安全风险',
+  ].entries()) assert.ok(messages[0].markdown.includes(`## M${index + 1} ${module}`));
   assert.ok(messages.every(message => new TextEncoder().encode(message.markdown).length <= 18000));
+}
+
+function testBuildSingleDingTalkMessageContainsWholeReportInOneCard() {
+  const chinaItem = structuredClone(sampleReport.sections[1].items[0]);
+  chinaItem.title = '中国监管事项';
+  chinaItem.country = '中国';
+  chinaItem.source_url = 'https://example.com/china';
+  const overseasItem = structuredClone(sampleReport.sections[0].items[0]);
+  overseasItem.title = '海外监管事项';
+  overseasItem.country = '美国';
+  overseasItem.source_url = 'https://example.com/overseas';
+  const report = structuredClone(sampleReport);
+  report.sections[0].items = [overseasItem, chinaItem];
+
+  const message = buildSingleDingTalkMessage(report, {
+    imageUrl: 'https://worker.test/assets/decision-map/2026-07-14.png',
+    coverage: { overall: 0.95, chinaCritical: 1, failedSources: ['失败源'] },
+    maxBytes: 18000,
+  });
+
+  assert.equal(message.id, 'weekly-report');
+  assert.ok(message.title.includes('美妆法务资讯'));
+  assert.ok(message.markdown.includes('![管理层行动看板](https://worker.test/assets/decision-map/2026-07-14.png)'));
+  assert.ok(message.markdown.indexOf('中国监管事项') < message.markdown.indexOf('海外监管事项'));
+  for (const [index, module] of [
+    '广告合规及处罚案例', '美妆动态', '知识产权动态',
+    '新规及案例动态', '进出口动态', '产品质量/召回与安全风险',
+  ].entries()) {
+    assert.ok(message.markdown.includes(`## M${index + 1} ${module}`));
+  }
+  assert.equal(message.bytes, new TextEncoder().encode(message.markdown).length);
+  assert.ok(message.bytes <= 18000);
+}
+
+function testBuildSingleDingTalkMessageCompactsOversizedReportWithoutSplitting() {
+  const base = structuredClone(sampleReport.sections[0].items[0]);
+  const report = structuredClone(sampleReport);
+  report.sections[0].items = Array.from({ length: 24 }, (_, index) => ({
+    ...structuredClone(base),
+    title: `超长监管事项 ${index + 1}`,
+    country: index % 3 === 0 ? '中国' : '美国',
+    source_url: `https://example.com/item-${index + 1}`,
+    why_it_matters: `这是一段需要压缩的业务影响说明 ${index + 1}。`.repeat(16),
+    recommended_actions: [`立即完成第 ${index + 1} 项合规核验。`.repeat(8)],
+  }));
+
+  const message = buildSingleDingTalkMessage(report, { maxBytes: 2200 });
+  assert.equal(Array.isArray(message), false);
+  assert.ok(message.bytes <= 2200);
+  assert.ok(message.markdown.includes('## M1 广告合规及处罚案例'));
+  assert.ok(message.markdown.includes('## M6 产品质量/召回与安全风险'));
+  assert.ok(message.markdown.includes('受单卡上限影响'));
+  assert.ok(message.omittedItemCount > 0);
+}
+
+function testActionDashboardUsesReadableChineseManagementLayout() {
+  const fixtureItems = sampleReport.sections.flatMap(section => section.items || []);
+  const items = Array.from({ length: 16 }, (_, index) => {
+    const source = structuredClone(fixtureItems[index % fixtureItems.length]);
+    return {
+      ...source,
+      title: `${index < 4 ? '中国' : '海外'}监管事项 ${index + 1}`,
+      country: index < 4 ? '中国' : '美国',
+      module: sampleReport.sections[index % sampleReport.sections.length].module,
+      source_url: `https://example.com/dashboard-${index + 1}`,
+      owner_teams: [`责任团队${index + 1}`],
+      recommended_actions: [`完成第${index + 1}项核验`],
+      risk_level: index < 5 ? 'high' : 'medium',
+    };
+  });
+  const svg = buildActionDashboardSvg(items, {
+    period: { start: '2026-07-06', end: '2026-07-12' },
+    coverage: { overall: 0.95, chinaCritical: 1, failedSources: ['失败源'] },
+    generatedAt: '2026-07-14T08:00:00.000Z',
+  });
+
+  assert.ok(svg.includes('width="1080" height="1440"'));
+  assert.ok(svg.includes('font-family="Noto Sans CJK SC, PingFang SC, Microsoft YaHei, sans-serif"'));
+  assert.ok(svg.includes('正式情报'));
+  assert.ok(svg.includes('>16<'));
+  assert.ok(svg.includes('中国监管重点'));
+  assert.ok(svg.indexOf('中国监管事项 1') < svg.indexOf('海外监管事项'));
+  assert.ok(svg.includes('六模块风险分布'));
+  assert.ok(svg.includes('本周优先行动'));
+  for (const module of [
+    '广告合规及处罚案例', '美妆动态', '知识产权动态',
+    '新规及案例动态', '进出口动态', '产品质量/召回与安全风险',
+  ]) assert.ok(svg.includes(module));
+
+  for (const match of svg.matchAll(/<rect[^>]*\sy="([\d.]+)"[^>]*\sheight="([\d.]+)"/g)) {
+    assert.ok(Number(match[1]) + Number(match[2]) <= 1440, `rect outside canvas: ${match[0]}`);
+  }
 }
 
 function testBuildDingTalkWebhookMessagesPutsChinaFirstWithinModule() {
@@ -356,12 +734,11 @@ function testBuildDingTalkWebhookMessagesPutsChinaFirstWithinModule() {
     risk_alerts: sampleReport.risk_alerts,
     sections: [{ module: '广告合规及处罚案例', items: [overseasItem, chinaItem] }],
   };
-  const moduleMessage = buildDingTalkWebhookMessages(report).find(message => message.module === '广告合规及处罚案例');
-  assert.ok(moduleMessage);
-  assert.ok(moduleMessage.markdown.indexOf('中国事项') < moduleMessage.markdown.indexOf('海外事项'));
+  const [message] = buildDingTalkWebhookMessages(report);
+  assert.ok(message.markdown.indexOf('中国事项') < message.markdown.indexOf('海外事项'));
 }
 
-function testBuildDingTalkWebhookMessagesSplitsOversizedModulesWithoutDroppingItems() {
+function testBuildDingTalkWebhookMessagesCompactsOversizedModulesWithoutSplitting() {
   const baseItem = sampleReport.sections[1].items[0];
   const items = Array.from({ length: 6 }, (_, index) => ({
     ...structuredClone(baseItem),
@@ -375,18 +752,15 @@ function testBuildDingTalkWebhookMessagesSplitsOversizedModulesWithoutDroppingIt
     risk_alerts: sampleReport.risk_alerts,
     sections: [{ module: '广告合规及处罚案例', items }],
   };
-  const maxBytes = 1400;
+  const maxBytes = 1800;
   const messages = buildDingTalkWebhookMessages(report, { maxBytes });
-  const moduleMessages = messages.filter(message => message.module === '广告合规及处罚案例');
-  assert.ok(moduleMessages.length > 1);
-  assert.ok(moduleMessages.every(message => new TextEncoder().encode(message.markdown).length <= maxBytes));
-  const combined = moduleMessages.map(message => message.markdown).join('\n');
-  for (let index = 1; index <= items.length; index++) {
-    assert.ok(combined.includes(`长内容事项${index}`));
-  }
+  assert.equal(messages.length, 1);
+  assert.ok(new TextEncoder().encode(messages[0].markdown).length <= maxBytes);
+  assert.ok(messages[0].markdown.includes('## M1 广告合规及处罚案例'));
+  assert.ok(messages[0].markdown.includes('## M6 产品质量/召回与安全风险'));
 }
 
-function testBuildDingTalkWebhookMessagesSplitsOneOversizedItem() {
+function testBuildDingTalkWebhookMessagesKeepsOversizedItemSourceInOneCard() {
   const item = structuredClone(sampleReport.sections[1].items[0]);
   item.title = '单条超长事项';
   item.source_url = 'https://example.com/oversized-item';
@@ -397,16 +771,11 @@ function testBuildDingTalkWebhookMessagesSplitsOneOversizedItem() {
     risk_alerts: [],
     sections: [{ module: '广告合规及处罚案例', items: [item] }],
   };
-  const maxBytes = 800;
-  const moduleMessages = buildDingTalkWebhookMessages(report, { maxBytes })
-    .filter(message => message.module === '广告合规及处罚案例');
-  assert.ok(moduleMessages.length > 1);
-  assert.ok(moduleMessages.every(message => new TextEncoder().encode(message.markdown).length <= maxBytes));
-  const combined = moduleMessages.map(message => message.markdown).join('\n');
-  assert.ok(combined.includes('单条超长事项'));
-  assert.ok(combined.includes('拆解点1'));
-  assert.ok(combined.includes('拆解点120'));
-  assert.ok(combined.includes('https://example.com/oversized-item'));
+  const maxBytes = 1800;
+  const [message] = buildDingTalkWebhookMessages(report, { maxBytes });
+  assert.ok(new TextEncoder().encode(message.markdown).length <= maxBytes);
+  assert.ok(message.markdown.includes('单条超长事项'));
+  assert.ok(message.markdown.includes('https://example.com/oversized-item'));
 }
 
 async function testBuildDingTalkWebhookUrlSignsSecret() {
@@ -529,11 +898,11 @@ async function testNotifyReportPrefersDingTalkWhenConfigured() {
     sendFeishu: async () => { feishuCalls += 1; return true; },
   });
   assert.equal(ok.channel, 'dingtalk');
-  assert.equal(dingTalkCalls, 7);
+  assert.equal(dingTalkCalls, 1);
   assert.equal(feishuCalls, 0);
   assert.equal(ok.ok, true);
-  assert.equal(ok.sent, 7);
-  assert.equal(ok.total, 7);
+  assert.equal(ok.sent, 1);
+  assert.equal(ok.total, 1);
   assert.ok(sentTitle.includes('美妆法务资讯'));
   assert.ok(sentMarkdown.includes('产品质量/召回与安全风险'));
 }
@@ -908,7 +1277,7 @@ async function testScheduledPipelineSendsDingTalkWithoutDocumentCredentials() {
       const body = JSON.parse(init.body);
       assert.equal(body.msgtype, 'markdown');
       assert.ok(body.markdown.title.includes('美妆法务资讯'));
-      assert.ok(body.markdown.text.startsWith('> '));
+      assert.ok(body.markdown.text.startsWith('# 美妆法务资讯'));
       return new Response(JSON.stringify({ errcode: 0, errmsg: 'ok' }), { status: 200 });
     }
     if (href.includes('api.dingtalk.com') || href.includes('/media/upload')) {
@@ -938,7 +1307,7 @@ async function testScheduledPipelineSendsDingTalkWithoutDocumentCredentials() {
   }
 
   const lastRun = JSON.parse(store.get('run:last'));
-  assert.equal(dingTalkMessages, 7);
+  assert.equal(dingTalkMessages, 1);
   assert.equal(dingTalkDocumentCalls, 0);
   assert.equal(lastRun.status, 'done');
   assert.equal(lastRun.stage, 'dingtalk');
@@ -1009,8 +1378,9 @@ async function testScheduledPipelineRejectsMissingAiKey() {
 
 function testRunLocalPropagatesPipelineFailure() {
   const source = readFileSync(new URL('./run-local.js', import.meta.url), 'utf8');
-  assert.ok(source.includes('const result = await runPipeline'));
+  assert.ok(source.includes('result = await runPipeline'));
   assert.ok(source.includes("result.status === 'failed'"));
+  assert.ok(source.includes('await browserSourceFetcher.close()'));
   assert.equal(source.includes("process.env.DINGTALK_WEBHOOK_URL ? 'DingTalk webhook was called.'"), false);
 }
 
@@ -1143,15 +1513,18 @@ function testSelectSourcesForWorkerBudgetKeepsImportantCoverageUnderLimit() {
   }
 }
 
-function testWeeklyWorkflowRunsWorkerScriptAndPublishesDecisionMap() {
+function testWeeklyWorkflowDeploysRoutesBeforeVersionedAssetPipeline() {
   const workflow = readFileSync(new URL('../.github/workflows/weekly.yml', import.meta.url), 'utf8');
   assert.ok(workflow.includes('node worker/run-local.js'));
   assert.equal(workflow.includes('node run-local.js'), false);
   assert.ok(workflow.includes("cron: '17 0 * * 1'"));
   assert.equal(workflow.includes("cron: '0 0 * * 1'"), false);
   assert.ok(workflow.includes('npx wrangler deploy'));
-  assert.ok(workflow.includes('"asset:decision-map:latest.png"'));
-  assert.ok(workflow.includes('--path ../out/decision-map.png'));
+  assert.ok(workflow.indexOf('npx wrangler deploy') < workflow.indexOf('node worker/run-local.js'));
+  assert.ok(workflow.includes('npx playwright install --with-deps chromium'));
+  assert.ok(workflow.includes('fonts-noto-cjk'));
+  assert.ok(workflow.includes('CLOUDFLARE_KV_NAMESPACE_ID'));
+  assert.equal(workflow.includes('wrangler kv key put'), false);
   assert.ok(workflow.includes('DINGTALK_WEBHOOK_URL: ${{ secrets.DINGTALK_WEBHOOK_URL }}'));
   assert.ok(workflow.includes('DINGTALK_SECRET: ${{ secrets.DINGTALK_SECRET }}'));
   for (const documentSetting of [
@@ -1170,6 +1543,16 @@ function testDecisionMapPublicUrlCanOverrideWorkerAssetUrl() {
   assert.ok(source.includes('env.DECISION_MAP_PUBLIC_URL || env.DECISION_MAP_URL'));
 }
 
+testClassifySourceFetchFailures();
+await testRecoverPublicSourceRetriesAndRecordsAttempts();
+await testRecoverPublicSourceUsesBrowserThenOfficialAlternate();
+testSourceCoverageGatesChinaCriticalAndOverallCoverage();
+await testBrowserSourceFetcherReusesBrowserAndClosesPages();
+await testBrowserSourceFetcherRejectsAccessControlPages();
+await testPublishVersionedPngUploadsBeforeHealthCheck();
+await testCollectCandidatesReturnsRecoveryEvidenceAndRealCoverage();
+await testPipelinePublishesHealthyImageBeforeDingTalkAndDedupe();
+await testVersionedDecisionMapRouteUsesImmutableCache();
 await testFetchWithTimeoutAbortsSlowFetch();
 await testManualTestRouteAwaitsPipeline();
 await testMapWithConcurrencyLimitsParallelWork();
@@ -1197,10 +1580,13 @@ testRenderFeishuSummary();
 testRenderDingTalkMarkdownUsesModuleRegionCountryStructure();
 testRenderDingTalkMarkdownShowsAllModulesWhenEmpty();
 testRenderDingTalkSummaryCardIsConciseAndIncludesKeyword();
-testBuildDingTalkWebhookMessagesUsesOverviewAndSixModules();
+testBuildSingleDingTalkMessageContainsWholeReportInOneCard();
+testBuildSingleDingTalkMessageCompactsOversizedReportWithoutSplitting();
+testActionDashboardUsesReadableChineseManagementLayout();
+testBuildDingTalkWebhookMessagesUsesOneCardWithSixModules();
 testBuildDingTalkWebhookMessagesPutsChinaFirstWithinModule();
-testBuildDingTalkWebhookMessagesSplitsOversizedModulesWithoutDroppingItems();
-testBuildDingTalkWebhookMessagesSplitsOneOversizedItem();
+testBuildDingTalkWebhookMessagesCompactsOversizedModulesWithoutSplitting();
+testBuildDingTalkWebhookMessagesKeepsOversizedItemSourceInOneCard();
 await testBuildDingTalkWebhookUrlSignsSecret();
 await testSendToDingTalkPostsMarkdownPayload();
 await testSendDingTalkMessagesRetriesTransientFailuresInOrder();
@@ -1226,7 +1612,7 @@ testSourceLeadCandidateKeepsWeaklyFetchableModulesAnalyzable();
 testSourceCatalogUsesWorkbookModulesAndGlobalMarkets();
 testSelectSourcesForWorkerBudgetKeepsImportantCoverageUnderLimit();
 testPromptIncludesProductQualityRecallModule();
-testWeeklyWorkflowRunsWorkerScriptAndPublishesDecisionMap();
+testWeeklyWorkflowDeploysRoutesBeforeVersionedAssetPipeline();
 testDecisionMapPublicUrlCanOverrideWorkerAssetUrl();
 testRunLocalPropagatesPipelineFailure();
 console.log('worker pure function tests ok');
