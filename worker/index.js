@@ -473,6 +473,149 @@ export function renderDingTalkSummaryCard(report, docUrl = '', options = {}) {
   return lines.join('\n').replace(/\n{3,}/g, '\n\n').trim();
 }
 
+function sortReportItemsForDelivery(items = []) {
+  return [...items].sort((a, b) => {
+    const chinaPriority = Number(String(b.country || '').trim() === '中国')
+      - Number(String(a.country || '').trim() === '中国');
+    if (chinaPriority) return chinaPriority;
+    return rankReportItem(b) - rankReportItem(a)
+      || String(a.title || '').localeCompare(String(b.title || ''), 'zh-Hans-CN');
+  });
+}
+
+function renderDingTalkDeliveryItem(item, index) {
+  const happened = firstText(
+    item.what_changed,
+    item.facts,
+    item.regulatory_signal,
+    item.compliance_meaning,
+    item.title
+  );
+  const legalAnalysis = firstText(
+    item.legal_obligation,
+    item.violation_logic,
+    item.dispute_focus,
+    item.market_access_change,
+    item.analysis
+  ) || item.why_it_matters || '需由法务结合原文和业务场景进一步核验。';
+  const teams = (item.owner_teams || ['法务']).join('、');
+  const source = isHttpUrl(item.source_url)
+    ? `[${item.source_name || '查看原文'}](${item.source_url})`
+    : (item.source_name || '来源待核验');
+  const deadline = item.next_deadline || item.effective_date || item.feedback_deadline || '';
+  return [
+    `### ${index + 1}. [${riskLabel(item.risk_level)}] ${item.country || item.region || '全球'}｜${item.title}`,
+    `- **来源**：${source}`,
+    `- **事实摘要**：${happened}`,
+    `- **法务拆解**：${legalAnalysis}`,
+    `- **业务影响**：${compactImpact(item)}`,
+    `- **责任团队**：${teams}`,
+    `- **具体动作**：${compactAction(item)}`,
+    ...(deadline ? [`- **关键节点**：${deadline}`] : []),
+  ].join('\n');
+}
+
+function markdownByteLength(value) {
+  return new TextEncoder().encode(String(value || '')).length;
+}
+
+function splitTextByBytes(text, maxBytes) {
+  const chunks = [];
+  let current = '';
+  for (const character of String(text || '')) {
+    if (current && markdownByteLength(`${current}${character}`) > maxBytes) {
+      chunks.push(current);
+      current = character;
+    } else {
+      current += character;
+    }
+  }
+  if (current) chunks.push(current);
+  return chunks;
+}
+
+function splitOversizedMarkdownBlock(block, maxBytes) {
+  const segments = [];
+  let current = '';
+  for (const line of String(block || '').split('\n')) {
+    const candidate = current ? `${current}\n${line}` : line;
+    if (current && markdownByteLength(candidate) > maxBytes) {
+      segments.push(current);
+      current = '';
+    }
+    if (markdownByteLength(line) > maxBytes) {
+      if (current) {
+        segments.push(current);
+        current = '';
+      }
+      segments.push(...splitTextByBytes(line, maxBytes));
+    } else {
+      current = current ? `${current}\n${line}` : line;
+    }
+  }
+  if (current) segments.push(current);
+  return segments;
+}
+
+function splitDingTalkMessageBlocks(header, blocks, maxBytes) {
+  const separator = '\n\n---\n\n';
+  const blockLimit = Math.max(128, maxBytes - markdownByteLength(header) - markdownByteLength(separator));
+  const chunks = [];
+  let current = header;
+  const safeBlocks = blocks.flatMap(block => markdownByteLength(`${header}${separator}${block}`) > maxBytes
+    ? splitOversizedMarkdownBlock(block, blockLimit)
+    : [block]);
+  for (const block of safeBlocks) {
+    const candidate = `${current}${current ? separator : ''}${block}`;
+    if (current !== header && markdownByteLength(candidate) > maxBytes) {
+      chunks.push(current);
+      current = `${header}\n\n${block}`;
+    } else {
+      current = candidate;
+    }
+  }
+  if (current) chunks.push(current);
+  return chunks;
+}
+
+function renderDingTalkModuleDelivery(report, module, maxBytes) {
+  const section = (report.sections || []).find(candidate => candidate.module === module);
+  const items = sortReportItemsForDelivery(section?.items || []).filter(item => isHttpUrl(item.source_url));
+  const header = `# ${moduleCode(module)} ${module}`;
+  if (!items.length) {
+    return [`${header}\n\n本周无高置信更新。`];
+  }
+  const blocks = items.map((item, index) => renderDingTalkDeliveryItem(item, index));
+  return splitDingTalkMessageBlocks(header, blocks, maxBytes);
+}
+
+/**
+ * 将一份已验证周报转换为群机器人消息。总览固定在前，随后按六大模块输出；
+ * 模块内优先展示中国事项，再沿用现有风险评分排序。
+ */
+export function buildDingTalkWebhookMessages(report, options = {}) {
+  const maxBytes = Math.max(512, Number(options.maxBytes || 18000));
+  const contentLimit = Math.max(448, maxBytes - 64);
+  const overview = renderDingTalkSummaryCard(report, '', options)
+    .replace('完整版本：待接入钉钉文档后提供链接。', '完整内容将按六个模块分段推送。');
+  const logicalMessages = [
+    { id: 'overview', title: `美妆法务资讯｜${report.period?.end || '本期'}｜总览`, markdown: overview },
+    ...REPORT_MODULES.flatMap(module => renderDingTalkModuleDelivery(report, module, contentLimit)
+      .map((markdown, partIndex, parts) => ({
+        id: `${moduleCode(module).toLowerCase()}-${partIndex + 1}`,
+        module,
+        title: `美妆法务资讯｜${report.period?.end || '本期'}｜${module}${parts.length > 1 ? ` ${partIndex + 1}/${parts.length}` : ''}`,
+        markdown,
+      }))),
+  ];
+  const total = logicalMessages.length;
+  return logicalMessages.map((message, index) => ({
+    ...message,
+    title: `[${index + 1}/${total}] ${message.title}`,
+    markdown: `> ${index + 1}/${total}\n\n${message.markdown}`,
+  }));
+}
+
 export function renderDingTalkMarkdown(report, options = {}) {
   const sectionByModule = new Map((report.sections || []).map(section => [section.module, section]));
   const lines = [
@@ -638,8 +781,8 @@ export async function buildDingTalkWebhookUrl(webhookUrl, secret = '', timestamp
   return url.toString();
 }
 
-export async function sendToDingTalk({ webhookUrl, secret = '', title, markdown, fetcher = fetch }) {
-  if (!webhookUrl) return false;
+async function sendToDingTalkResult({ webhookUrl, secret = '', title, markdown, fetcher = fetch }) {
+  if (!webhookUrl) return { ok: false, retryable: false, error: 'DINGTALK_WEBHOOK_URL is required' };
   try {
     const url = await buildDingTalkWebhookUrl(webhookUrl, secret);
     const resp = await fetcher(url, {
@@ -652,20 +795,94 @@ export async function sendToDingTalk({ webhookUrl, secret = '', title, markdown,
     });
     const bodyText = await resp.text();
     if (!resp.ok) {
-      console.error(`钉钉 ${resp.status}: ${bodyText.slice(0, 200)}`);
-      return false;
+      return {
+        ok: false,
+        retryable: resp.status === 408 || resp.status === 429 || resp.status >= 500,
+        error: `DingTalk HTTP ${resp.status}: ${bodyText.slice(0, 200)}`,
+      };
     }
-    const body = bodyText ? JSON.parse(bodyText) : {};
+    let body = {};
+    try {
+      body = bodyText ? JSON.parse(bodyText) : {};
+    } catch {
+      return { ok: false, retryable: true, error: `DingTalk invalid JSON: ${bodyText.slice(0, 200)}` };
+    }
     if (body.errcode === 0 || body.code === 0) {
-      console.log('钉钉推送成功');
-      return true;
+      return { ok: true, retryable: false, error: '' };
     }
-    console.error(`钉钉错误: ${bodyText.slice(0, 300)}`);
-    return false;
+    return { ok: false, retryable: false, error: `DingTalk error: ${bodyText.slice(0, 300)}` };
   } catch (error) {
-    console.error(`钉钉异常: ${error.message}`);
-    return false;
+    return { ok: false, retryable: true, error: `DingTalk network error: ${error.message}` };
   }
+}
+
+export async function sendToDingTalk(options) {
+  const result = await sendToDingTalkResult(options);
+  if (result.ok) console.log('钉钉推送成功');
+  else console.error(result.error);
+  return result.ok;
+}
+
+/**
+ * 顺序发送钉钉消息。每个分段独立重试，终止后返回准确的发送数量和失败位置，
+ * 供流水线决定是否写入去重状态以及是否以失败退出。
+ */
+export async function sendDingTalkMessages({
+  messages,
+  webhookUrl = '',
+  secret = '',
+  sendMessage,
+  maxAttempts = 3,
+  interMessageDelayMs = 0,
+  sleepFn = sleep,
+}) {
+  const delivery = sendMessage || (message => sendToDingTalkResult({
+    webhookUrl,
+    secret,
+    title: message.title,
+    markdown: message.markdown,
+  }));
+  let sent = 0;
+  let retries = 0;
+  for (const message of messages || []) {
+    let lastResult = { ok: false, retryable: false, error: 'unknown delivery error' };
+    for (let attempt = 1; attempt <= maxAttempts; attempt++) {
+      const rawResult = await delivery(message);
+      lastResult = typeof rawResult === 'boolean'
+        ? { ok: rawResult, retryable: !rawResult, error: rawResult ? '' : 'DingTalk send failed' }
+        : rawResult;
+      if (lastResult.ok) {
+        sent += 1;
+        console.log(`钉钉分段推送成功: ${message.id} (${sent}/${messages.length})`);
+        if (sent < messages.length && interMessageDelayMs > 0) {
+          await sleepFn(interMessageDelayMs);
+        }
+        break;
+      }
+      if (!lastResult.retryable || attempt === maxAttempts) break;
+      retries += 1;
+      await sleepFn(750 * attempt);
+    }
+    if (!lastResult.ok) {
+      console.error(`钉钉分段推送失败: ${message.id}: ${lastResult.error}`);
+      return {
+        ok: false,
+        sent,
+        total: messages.length,
+        retries,
+        failedMessageId: message.id,
+        error: lastResult.error || 'DingTalk send failed',
+      };
+    }
+  }
+  return {
+    ok: true,
+    sent,
+    total: (messages || []).length,
+    retries,
+    failedMessageId: '',
+    error: '',
+  };
 }
 
 async function parseJsonResponse(resp, label) {
@@ -751,34 +968,30 @@ export async function publishDingTalkDocument({ env, title, markdown, fetcher = 
   return doc;
 }
 
-async function resolveDecisionMapUrl({ env, requestUrl, decisionMapPng, fetcher = fetch }) {
+async function resolveDecisionMapUrl({ env, requestUrl, decisionMapPng }) {
   if (env.DECISION_MAP_PUBLIC_URL || env.DECISION_MAP_URL) return env.DECISION_MAP_PUBLIC_URL || env.DECISION_MAP_URL;
-  if (decisionMapPng && (env.DINGTALK_CLIENT_ID || env.DINGTALK_APP_KEY) && (env.DINGTALK_CLIENT_SECRET || env.DINGTALK_APP_SECRET)) {
-    try {
-      const accessToken = await getDingTalkAccessToken({
-        clientId: env.DINGTALK_CLIENT_ID || env.DINGTALK_APP_KEY,
-        clientSecret: env.DINGTALK_CLIENT_SECRET || env.DINGTALK_APP_SECRET,
-        fetcher,
-      });
-      const mediaId = await uploadDingTalkImage({ accessToken, image: decisionMapPng, fetcher });
-      if (mediaId) return mediaId;
-    } catch (error) {
-      console.warn(`钉钉图片上传失败，回退外链图片: ${error.message}`);
-    }
-  }
   return decisionMapPng ? reportUrl(requestUrl, '/assets/decision-map.png') : reportUrl(requestUrl, '/assets/decision-map.svg');
 }
 
 export async function notifyReport({ report, reportUrl: latestUrl, env, sendDingTalk = sendToDingTalk, sendFeishu = sendToFeishu }) {
   if (env.DINGTALK_WEBHOOK_URL) {
-    const markdown = renderDingTalkSummaryCard(report, latestUrl || '', { decisionMapUrl: env.DECISION_MAP_URL || '' });
-    const ok = await sendDingTalk({
+    const messages = buildDingTalkWebhookMessages(report, {
+      decisionMapUrl: env.DECISION_MAP_URL || '',
+      maxBytes: env.DINGTALK_MAX_BYTES,
+    });
+    const delivery = await sendDingTalkMessages({
+      messages,
       webhookUrl: env.DINGTALK_WEBHOOK_URL,
       secret: env.DINGTALK_SECRET || '',
-      title: `美妆法务资讯 ${report.period?.end || ''}`,
-      markdown,
+      interMessageDelayMs: Number(env.DINGTALK_MESSAGE_DELAY_MS ?? 3100),
+      sendMessage: sendDingTalk === sendToDingTalk ? undefined : message => sendDingTalk({
+        webhookUrl: env.DINGTALK_WEBHOOK_URL,
+        secret: env.DINGTALK_SECRET || '',
+        title: message.title,
+        markdown: message.markdown,
+      }),
     });
-    return { channel: 'dingtalk', ok };
+    return { channel: 'dingtalk', ...delivery };
   }
 
   const ok = await sendFeishu(env.FEISHU_WEBHOOK_URL, renderFeishuSummary(report, latestUrl));
@@ -809,9 +1022,9 @@ export async function runPipeline(env, requestUrl = 'https://beauty-legal-bot.wo
   const maxTokens = Number(env.AI_MAX_TOKENS || (qualityMode ? QUALITY_AI_MAX_TOKENS : DEFAULT_AI_MAX_TOKENS));
   const itemsPerModule = Number(env.REPORT_ITEMS_PER_MODULE || (qualityMode ? QUALITY_REPORT_ITEMS_PER_MODULE : DEFAULT_REPORT_ITEMS_PER_MODULE));
 
-  if (!aiKey) { console.error("缺少 AI_API_KEY"); return; }
-  if (!dingTalkUrl && !feishuUrl) { console.error("缺少 DINGTALK_WEBHOOK_URL 或 FEISHU_WEBHOOK_URL"); return; }
-  if (!kv) { console.error("缺少 SEEN_NEWS KV 绑定"); return; }
+  if (!aiKey) throw new Error('AI_API_KEY is required');
+  if (!dingTalkUrl && !feishuUrl) throw new Error('DINGTALK_WEBHOOK_URL or FEISHU_WEBHOOK_URL is required');
+  if (!kv) throw new Error('SEEN_NEWS KV binding is required');
 
   console.log("=== 周报管道启动 ===");
 
@@ -835,7 +1048,7 @@ export async function runPipeline(env, requestUrl = 'https://beauty-legal-bot.wo
     const itemCount = (report.sections || []).flatMap(section => section.items || []).length;
     console.log(`[stage 2/5] 完成，模块 ${report.sections.length} 个，去重后 ${itemCount} 条`);
 
-    console.log("[stage 3/5] 生成风险雷达并写入钉钉文档...");
+    console.log("[stage 3/5] 生成风险雷达并保存报告...");
     const generatedAt = new Date().toISOString();
     const reportDate = report.period.end;
     const decisionMapSvg = buildDecisionMapSvg(verifiedReportItems(report).sort((a, b) => rankReportItem(b) - rankReportItem(a)));
@@ -845,31 +1058,10 @@ export async function runPipeline(env, requestUrl = 'https://beauty-legal-bot.wo
       : null;
     if (decisionMapPng) await saveDecisionMapPng(kv, decisionMapPng);
     const decisionMapUrl = await resolveDecisionMapUrl({ env, requestUrl, decisionMapPng });
-    let fullReportUrl = '';
-    let dingTalkDocReady = false;
     const markdown = renderDingTalkMarkdown(report, { decisionMapUrl });
     if (typeof env.ON_REPORT_READY === 'function') {
       await env.ON_REPORT_READY({ report, markdown, decisionMapUrl, generatedAt, failures });
     }
-    try {
-      const doc = await publishDingTalkDocument({
-        env,
-        title: `${reportDate} 美妆法务资讯周报`,
-        markdown,
-      });
-      if (doc?.url) {
-        fullReportUrl = doc.url;
-        dingTalkDocReady = true;
-      }
-      if (doc?.url) console.log(`[stage 3/5] 已写入钉钉知识库：${doc.url}`);
-    } catch (error) {
-      console.warn(`钉钉知识库写入失败，跳过钉钉群摘要推送: ${error.message}`);
-    }
-    if (env.DINGTALK_WEBHOOK_URL && !dingTalkDocReady) {
-      console.log("=== 周报管道失败 ===");
-      return { stage: 'dingtalk_doc', status: 'failed', message: 'DingTalk document was not ready; summary push skipped' };
-    }
-
     console.log("[stage 4/5] 内容去重检查...");
     const { isDup, seen, fps } = await isDuplicateFingerprints(extractReportFingerprints(report), kv);
     if (isDup) {
@@ -878,11 +1070,18 @@ export async function runPipeline(env, requestUrl = 'https://beauty-legal-bot.wo
     }
 
     console.log("[stage 5/5] 推送协作平台摘要...");
-    const notification = await notifyReport({ report, reportUrl: fullReportUrl, env: { ...env, DECISION_MAP_URL: decisionMapUrl } });
+    const notification = await notifyReport({ report, reportUrl: '', env: { ...env, DECISION_MAP_URL: decisionMapUrl } });
     const ok = notification.ok;
     if (ok) await markSeen(fps, seen, kv);
     console.log(ok ? "=== 周报管道完成 ===" : "=== 周报管道失败 ===");
-    return { stage: notification.channel, status: ok ? 'done' : 'failed', message: ok ? `${notification.channel} sent` : `${notification.channel} send failed` };
+    return {
+      stage: notification.channel,
+      status: ok ? 'done' : 'failed',
+      message: ok
+        ? `${notification.channel} sent ${notification.sent || 1}/${notification.total || 1}`
+        : `${notification.channel} delivery failed: ${notification.error || 'unknown error'}`,
+      delivery: notification,
+    };
   } catch (error) {
     console.error(`管道异常: ${error.stack || error.message}`);
     throw error;
@@ -1948,32 +2147,20 @@ async function runFinalizePhase(date, env, requestUrl) {
     : null;
   if (decisionMapPng) await saveDecisionMapPng(kv, decisionMapPng);
   const decisionMapUrl = await resolveDecisionMapUrl({ env, requestUrl, decisionMapPng });
-  let fullReportUrl = '';
-  let dingTalkDocReady = false;
-  try {
-    const doc = await publishDingTalkDocument({
-      env,
-      title: `${reportDate} 美妆法务资讯周报`,
-      markdown: renderDingTalkMarkdown(report, { decisionMapUrl }),
-    });
-    if (doc?.url) {
-      fullReportUrl = doc.url;
-      dingTalkDocReady = true;
-    }
-  } catch (error) {
-    console.warn(`钉钉知识库写入失败，跳过钉钉群摘要推送: ${error.message}`);
-  }
-  if (env.DINGTALK_WEBHOOK_URL && !dingTalkDocReady) {
-    return { stage: 'dingtalk_doc', status: 'failed', message: 'DingTalk document was not ready; summary push skipped' };
-  }
-
   const { isDup, seen, fps } = await isDuplicateFingerprints(extractReportFingerprints(report), kv);
   if (isDup) return { stage: 'dedupe', status: 'skipped', message: '30-day duplicate' };
 
-  const notification = await notifyReport({ report, reportUrl: fullReportUrl, env: { ...env, DECISION_MAP_URL: decisionMapUrl } });
+  const notification = await notifyReport({ report, reportUrl: '', env: { ...env, DECISION_MAP_URL: decisionMapUrl } });
   const ok = notification.ok;
   if (ok) await markSeen(fps, seen, kv);
-  return { stage: notification.channel, status: ok ? 'done' : 'failed', message: ok ? `${notification.channel} sent` : `${notification.channel} failed` };
+  return {
+    stage: notification.channel,
+    status: ok ? 'done' : 'failed',
+    message: ok
+      ? `${notification.channel} sent ${notification.sent || 1}/${notification.total || 1}`
+      : `${notification.channel} delivery failed: ${notification.error || 'unknown error'}`,
+    delivery: notification,
+  };
 }
 
 async function cleanupPipelineState(date, kv) {
@@ -1991,6 +2178,9 @@ export default {
     try {
       await recordLastRun(env.SEEN_NEWS, { trigger: 'scheduled', scheduled_time: event?.scheduledTime || null, status: 'started' });
       const result = await runPipeline(env);
+      if (!result || result.status === 'failed') {
+        throw new Error(`${result?.stage === 'dingtalk' ? 'DingTalk' : 'Weekly'} delivery failed: ${result?.message || 'pipeline returned no result'}`);
+      }
       await recordLastRun(env.SEEN_NEWS, { trigger: 'scheduled', scheduled_time: event?.scheduledTime || null, status: result?.status || 'done', stage: result?.stage || 'pipeline' });
     } catch (error) {
       await recordLastRun(env.SEEN_NEWS, { trigger: 'scheduled', scheduled_time: event?.scheduledTime || null, status: 'failed', error: error.stack || error.message });
@@ -2044,7 +2234,7 @@ export default {
           await recordLastRun(env.SEEN_NEWS, { trigger: 'manual', status: 'started' });
           const result = await env.__TEST_RUN_PIPELINE__(env, request.url);
           await recordLastRun(env.SEEN_NEWS, { trigger: 'manual', status: result?.status || 'done', stage: result?.stage || 'pipeline' });
-          return new Response(`OK — weekly pipeline finished\nstatus: ${result?.status || 'done'}\nfull_version: DingTalk document`, { status: 200, headers: { "Content-Type": "text/plain; charset=utf-8" } });
+          return new Response(`OK — weekly pipeline finished\nstatus: ${result?.status || 'done'}\ndelivery: DingTalk webhook`, { status: 200, headers: { "Content-Type": "text/plain; charset=utf-8" } });
         } catch (error) {
           await recordLastRun(env.SEEN_NEWS, { trigger: 'manual', status: 'failed', error: error.stack || error.message });
           return new Response(`FAILED — weekly pipeline error\n${error.stack || error.message}`, { status: 500, headers: { "Content-Type": "text/plain; charset=utf-8" } });
@@ -2055,7 +2245,7 @@ export default {
         await recordLastRun(env.SEEN_NEWS, { trigger: 'manual', status: 'started' });
         const result = await runPipeline(env, request.url);
         await recordLastRun(env.SEEN_NEWS, { trigger: 'manual', status: result?.status || 'done', stage: result?.stage || 'pipeline' });
-        return new Response(`OK — pipeline finished\nstatus: ${result?.status || 'done'}\nfull_version: DingTalk document`, { status: 200, headers: { "Content-Type": "text/plain; charset=utf-8" } });
+        return new Response(`OK — pipeline finished\nstatus: ${result?.status || 'done'}\ndelivery: DingTalk webhook`, { status: 200, headers: { "Content-Type": "text/plain; charset=utf-8" } });
       } catch (error) {
         await recordLastRun(env.SEEN_NEWS, { trigger: 'manual', status: 'failed', error: error.stack || error.message });
         return new Response(`FAILED — pipeline error\n${error.stack || error.message}`, { status: 500, headers: { "Content-Type": "text/plain; charset=utf-8" } });
@@ -2063,11 +2253,11 @@ export default {
     }
 
     if (url.pathname === "/report") {
-      return new Response("Online HTML reports have been retired. Full reports are published to DingTalk documents.", { status: 410, headers: { "Content-Type": "text/plain; charset=utf-8" } });
+      return new Response("Online HTML reports have been retired. Full reports are delivered through the DingTalk group webhook.", { status: 410, headers: { "Content-Type": "text/plain; charset=utf-8" } });
     }
 
     if (url.pathname === "/report/latest") {
-      return new Response("Online HTML reports have been retired. Full reports are published to DingTalk documents.", { status: 410, headers: { "Content-Type": "text/plain; charset=utf-8" } });
+      return new Response("Online HTML reports have been retired. Full reports are delivered through the DingTalk group webhook.", { status: 410, headers: { "Content-Type": "text/plain; charset=utf-8" } });
     }
 
     if (url.pathname === "/assets/decision-map.svg") {
@@ -2086,7 +2276,7 @@ export default {
 
     const match = url.pathname.match(/^\/report\/(\d{4}-\d{2}-\d{2})$/);
     if (match) {
-      return new Response("Online HTML reports have been retired. Full reports are published to DingTalk documents.", { status: 410, headers: { "Content-Type": "text/plain; charset=utf-8" } });
+      return new Response("Online HTML reports have been retired. Full reports are delivered through the DingTalk group webhook.", { status: 410, headers: { "Content-Type": "text/plain; charset=utf-8" } });
     }
 
     return new Response("beauty-legal-bot v3 — weekly DeepSeek legal intelligence", { status: 200 });
