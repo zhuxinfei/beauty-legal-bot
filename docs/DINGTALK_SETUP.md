@@ -40,9 +40,11 @@ GitHub Actions 不需要 `DINGTALK_CLIENT_ID`、`DINGTALK_CLIENT_SECRET`、`DING
 - 直接请求仍失败或页面只是空的 JavaScript shell 时，GitHub Actions 使用同一个 Playwright Chromium 实例读取公开页面。
 - 浏览器仍失败后，只尝试 `worker/sources.json` 中已经确认属于同一官方机构的 `alternate_urls`。
 - 登录、验证码、付费墙、IP 白名单和明确拒绝访问属于终止失败；程序记录原因，但不绕过访问控制。
-- 中国高优先级可抓取源覆盖率必须为 100%，全部可抓取源覆盖率必须至少为 90%。公众号线索不计入分母。
+- `required` 源在 GitHub Runner 上已验证可稳定抓取；中国高优先级 required 源覆盖率必须为 100%，全部 required 源覆盖率必须至少为 90%。
+- 明确受 403/412、失效地址、空壳页或间歇超时影响的来源标为 `monitor_only`：每轮仍尝试恢复，成功时纳入候选，失败时在单卡和看板中披露，但不混入 required 分母。
+- 页面成功读取但本周没有相关候选记为 `empty`，属于正常零更新；公众号线索不计入覆盖率分母。
 
-覆盖率不达标不是“低质量成功”，而是采集失败：流程在调用 AI 和钉钉前退出。运维人员应查看 workflow 中每个来源的 attempts、最终错误和 recovery method，修复来源配置或加入已核验的官方备用地址后再运行。
+required 覆盖率不达标不是“低质量成功”，而是采集失败：流程在调用 AI 和钉钉前退出。运维人员应同时查看 workflow 中每个来源的 attempts、最终错误、recovery method 和受限监测源数量，修复来源配置或加入已核验的官方备用地址后再运行。
 
 ## 成功与失败
 
