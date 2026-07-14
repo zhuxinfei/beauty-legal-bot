@@ -151,7 +151,7 @@ export function buildActionDashboardSvg(items = [], {
     ${actionRows(sorted)}
 
     <rect x="64" y="1360" width="952" height="1" fill="#DCE3E8"/>
-    <text x="64" y="1390" font-size="24" fill="#687582">中国关键源 ${(Number(coverage.chinaCritical || 0) * 100).toFixed(0)}%｜最终失败源 ${(coverage.failedSources || []).length} 个</text>
+    <text x="64" y="1390" font-size="24" fill="#687582">中国关键源 ${(Number(coverage.chinaCritical || 0) * 100).toFixed(0)}%｜门槛失败 ${(coverage.failedSources || []).length}｜受限监测 ${(coverage.monitoredFailedSources || []).length}</text>
     <text x="1016" y="1390" text-anchor="end" font-size="24" fill="#687582">生成 ${escapeXml(generatedText)}</text>
   </svg>`;
 }
