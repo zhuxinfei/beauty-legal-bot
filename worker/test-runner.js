@@ -1825,6 +1825,8 @@ function testWeeklyWorkflowDeploysRoutesBeforeVersionedAssetPipeline() {
   assert.equal(workflow.includes("cron: '0 0 * * 1'"), false);
   assert.ok(workflow.includes('npx wrangler deploy'));
   assert.ok(workflow.indexOf('npx wrangler deploy') < workflow.indexOf('node worker/run-local.js'));
+  assert.ok(workflow.includes('vars.AI_API_BASE_URL'));
+  assert.ok(workflow.includes('vars.AI_MODEL'));
   assert.ok(workflow.includes('npx playwright install --with-deps chromium'));
   assert.ok(workflow.includes('fonts-noto-cjk'));
   assert.ok(workflow.includes('CLOUDFLARE_KV_NAMESPACE_ID'));
