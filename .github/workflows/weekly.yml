@@ -21,9 +21,9 @@ jobs:
       MIN_SOURCE_COVERAGE: ${{ vars.MIN_SOURCE_COVERAGE || '0.9' }}
       MIN_CHINA_CRITICAL_COVERAGE: ${{ vars.MIN_CHINA_CRITICAL_COVERAGE || '0.9' }}
       REPORT_QUALITY_MODE: quality
-      ANALYSIS_CANDIDATE_LIMIT: 220
-      ANALYSIS_LEAD_LIMIT: 180
-      AI_MAX_TOKENS: 16000
+      ANALYSIS_CANDIDATE_LIMIT: 120
+      ANALYSIS_LEAD_LIMIT: 80
+      AI_MAX_TOKENS: 9000
       REPORT_ITEMS_PER_MODULE: 12
       DINGTALK_WEBHOOK_URL: ${{ secrets.DINGTALK_WEBHOOK_URL }}
       DINGTALK_SECRET: ${{ secrets.DINGTALK_SECRET }}
@@ -52,6 +52,9 @@ jobs:
       - name: Deploy worker routes
         working-directory: worker
         run: npx wrangler deploy
+
+      - name: Probe AI endpoint
+        run: node worker/probe-ai.js
 
       - name: Run pipeline
         run: FULL_SOURCE_SCAN=1 node worker/run-local.js
