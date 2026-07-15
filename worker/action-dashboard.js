@@ -134,7 +134,7 @@ export function buildActionDashboardSvg(items = [], {
   return `<svg xmlns="http://www.w3.org/2000/svg" width="1080" height="1440" viewBox="0 0 1080 1440" font-family="${FONT_STACK}">
     <rect x="0" y="0" width="1080" height="1440" fill="#F4F7FA"/>
     <rect x="36" y="32" width="1008" height="1372" rx="10" fill="#FFFFFF" stroke="#D8E0E6"/>
-    <text x="64" y="82" font-size="52" font-weight="800" fill="#17212B">美妆法务管理层行动看板</text>
+    <text x="64" y="82" font-size="52" font-weight="800" fill="#17212B">行动看板</text>
     <text x="66" y="119" font-size="26" fill="#687582">${escapeXml(periodText)}｜中国信息优先｜公开来源可核验</text>
     ${kpiCard(64, '正式情报', items.length, 'neutral')}
     ${kpiCard(306, '高风险', highRisk, 'danger')}
