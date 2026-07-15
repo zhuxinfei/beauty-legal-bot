@@ -24,7 +24,8 @@ import {
 // ---------------------------------------------------------------------------
 // 配置
 // ---------------------------------------------------------------------------
-const DEFAULT_AI_API_BASE_URL = "https://api.deepseek.com/v1";
+const DEFAULT_AI_API_BASE_URL = 'https://hk.testvideo.site/v1';
+const DEFAULT_AI_MODEL = 'gpt-5.6-sol';
 
 const RELEVANT_KEYWORDS = [
   '化妆品', '美妆', '护肤', '彩妆', '香水', '防晒', '洗护', '功效宣称', '备案', '注册',
@@ -71,19 +72,19 @@ const TYPE_REQUIRED_FIELDS = {
   '进出口': ['market_access_change', 'affected_import_flow', 'documents_needed', 'recommended_actions', 'owner_teams', 'risk_level', 'why_it_matters', 'confidence'],
   '动态': ['regulatory_signal', 'compliance_meaning', 'possible_follow_up', 'recommended_actions', 'owner_teams', 'risk_level', 'why_it_matters', 'confidence'],
 };
-const ENTERPRISE_REQUIRED_FIELDS = ['source_type', 'relevance', 'industry_impact', 'business_impact', 'market_scope'];
+const ENTERPRISE_REQUIRED_FIELDS = ['source_type', 'relevance', 'industry_impact', 'business_impact', 'market_scope', 'core_judgement'];
 
 // ---------------------------------------------------------------------------
 // AI：一站式搜索 + 分析 + 格式化（OpenAI-compatible API）
 // ---------------------------------------------------------------------------
-export async function requestAiChat({ apiKey, baseUrl = DEFAULT_AI_API_BASE_URL, model = "deepseek-chat", messages, temperature = 0.2, maxTokens = 8000, fetcher = fetch }) {
+export async function requestAiChat({ apiKey, baseUrl = DEFAULT_AI_API_BASE_URL, model = DEFAULT_AI_MODEL, messages, temperature = 0.2, maxTokens = 8000, fetcher = fetch }) {
   const body = {
     model,
     messages,
     temperature,
     max_tokens: maxTokens,
   };
-  if (model === 'deepseek-v4-pro') {
+  if (model === 'gpt-5.6-sol') {
     body.reasoning_effort = 'high';
   }
   const endpoint = `${String(baseUrl || DEFAULT_AI_API_BASE_URL).replace(/\/+$/, '')}/chat/completions`;
@@ -731,10 +732,10 @@ export function renderDingTalkMarkdown(report, options = {}) {
   const actions = renderWholeReportActionBoard(report);
   lines.push('## Action Board', '');
   if (actions.length) {
-    lines.push('| 优先级 | 动作 | 责任团队 | 触发/截止 | 来源事项 |');
+    lines.push('| 优先级 | 动作 | 责任团队 | 内部完成时间 | 来源事项 |');
     lines.push('| --- | --- | --- | --- | --- |');
     actions.forEach((action, index) => {
-      lines.push(`| P${index + 1} | ${markdownTableCell(action.text)} | ${markdownTableCell(action.teams)} | 本周内核验 | ${markdownTableCell(action.source)} |`);
+      lines.push(`| P${index + 1} | ${markdownTableCell(action.text)} | ${markdownTableCell(action.teams)} | 由责任领导确定 | ${markdownTableCell(action.source)} |`);
     });
   } else {
     lines.push('本期暂无可直接分派的行动项；建议法务先复核信息源质量和候选原文。');
@@ -1009,11 +1010,11 @@ async function recordLastRun(kv, patch) {
 // 管道入口
 // ---------------------------------------------------------------------------
 export async function runPipeline(env, requestUrl = 'https://beauty-legal-bot.workers.dev/') {
-  const aiKey = env.AI_API_KEY || env.DEEPSEEK_API_KEY;
-  const aiBaseUrl = env.AI_API_BASE_URL || env.DEEPSEEK_API_BASE_URL || DEFAULT_AI_API_BASE_URL;
+  const aiKey = env.AI_API_KEY;
+  const aiBaseUrl = env.AI_API_BASE_URL || DEFAULT_AI_API_BASE_URL;
   const feishuUrl = env.FEISHU_WEBHOOK_URL;
   const dingTalkUrl = env.DINGTALK_WEBHOOK_URL;
-  const model = env.AI_MODEL || env.DEEPSEEK_MODEL || "deepseek-chat";
+  const model = env.AI_MODEL || DEFAULT_AI_MODEL;
   const kv = env.SEEN_NEWS;
   const qualityMode = env.QUALITY_MODE === '1' || env.REPORT_QUALITY_MODE === 'quality' || env.CONTENT_QUALITY_MODE === 'quality';
   const candidateLimit = Number(env.ANALYSIS_CANDIDATE_LIMIT || (qualityMode ? QUALITY_ANALYSIS_CANDIDATE_LIMIT : DEFAULT_ANALYSIS_CANDIDATE_LIMIT));
@@ -1383,6 +1384,11 @@ export function hasSpecificActions(item) {
   });
 }
 
+function hasInternalCompletionDeadline(item) {
+  const deadlinePattern = /(?:本周|下周|本月|下月|本季度|月底|周末|周[一二三四五六日天]|今天|明天|后天|(?:\d+|[一二三四五六七八九十]+)\s*(?:个)?(?:工作)?(?:日|天|周|月)内|20\d{2}\s*[-/.年]\s*\d{1,2}\s*[-/.月]\s*\d{1,2}\s*日?|\d{1,2}\s*月\s*\d{1,2}\s*日)/;
+  return (item.recommended_actions || []).some(action => deadlinePattern.test(String(action || '')));
+}
+
 export function validateReport(report) {
   if (!report || typeof report !== 'object') throw new Error('report must be object');
   if (!report.period || !report.period.start || !report.period.end) throw new Error('period missing');
@@ -1400,6 +1406,7 @@ export function validateReport(report) {
         if (!hasValue(item[field])) throw new Error(`${field} missing: ${item.title || 'unknown'}`);
       }
       if (!hasSpecificActions(item)) throw new Error(`recommended_actions not specific: ${item.title || 'unknown'}`);
+      if (hasInternalCompletionDeadline(item)) throw new Error(`recommended_actions contains internal completion deadline: ${item.title || 'unknown'}`);
     }
   }
   return true;
@@ -1513,8 +1520,11 @@ export function buildAnalysisPrompt({ candidates, leads = [], sources, period, t
 - 美妆动态和进出口动态可以更多使用公众号/行业媒体作为线索，但必须标注 source_type 为 wechat_lead 或 industry_media，confidence 为 medium 或 low，并说明待核验点。
 - 字段要完整但表达精炼，避免超长 JSON。
 - 每条信息要有国家/大洲、直接/间接相关、行业影响力、业务影响面、建议动作。
+- core_judgement 必须用 1-2 句话给出“监管或案件结论 + 对集团美妆业务的实质影响 + 必要的不确定性边界”，不能只复述标题或事实。
 - 案例必须拆解事实、认定逻辑、处罚/结果、业务启发。
-- 建议动作必须是“建议...”口吻，不能是命令。
+- 建议动作必须说明建议由哪个团队做什么，使用“建议...”口吻，不能是命令。
+- 内部完成时间由具体领导决定，不得编造内部完成日期、天数或“本周内”等期限。
+- 法规原文明确的生效日、反馈截止日和法定整改节点应保留在 effective_date、feedback_deadline、next_deadline。
 - 禁止“建议关注”“持续关注”“企业应留意”等空泛动作。
 ${moduleInstruction}
 
@@ -1540,8 +1550,9 @@ JSON 结构：
       "business_impact": ["注册备案|标签|功效宣称|广告投放|直播电商|平台运营|跨境清关|供应链|品牌/IP|客服售后|数据合规"],
       "market_scope": ["受影响国家/区域/渠道/SKU范围"],
       "risk_level": "high|medium|low",
+      "core_judgement": "监管或案件结论 + 对集团美妆业务的实质影响 + 必要的不确定性边界",
       "why_it_matters": "为什么值得国际化美妆电商集团法务关注",
-      "recommended_actions": ["建议谁在什么时间排查/更新/提交什么"],
+      "recommended_actions": ["建议由哪个团队排查/更新/提交什么；不填写内部完成时间"],
       "owner_teams": ["法务|注册|供应链|电商|市场|品牌|客服|数据合规"],
       "confidence": "high|medium|low",
       "status": "法规状态，仅法规/征求意见/生效提醒/废止必填",
@@ -1568,25 +1579,107 @@ JSON 结构：
 线索 leads（公众号和不可抓来源，可作为强线索但需标注可信度）：${JSON.stringify(leads.slice(0, leadLimit))}`;
 }
 
-export async function deepseekAnalyze({ apiKey, baseUrl, model, candidates, leads = [], sources = sourceCatalog.sources, period = getPeriod(), targetModule = '', candidateLimit = DEFAULT_ANALYSIS_CANDIDATE_LIMIT, leadLimit = DEFAULT_ANALYSIS_LEAD_LIMIT, maxTokens = DEFAULT_AI_MAX_TOKENS }) {
+function buildReviewEvidence(report, candidates = []) {
+  const candidatesByUrl = new Map();
+  for (const candidate of candidates) {
+    const url = normalizeSourceUrl(candidate.url || candidate.source_url);
+    if (url && !candidatesByUrl.has(url)) candidatesByUrl.set(url, candidate);
+  }
+
+  return (report.sections || []).flatMap(section => (section.items || []).map(item => {
+    const url = normalizeSourceUrl(item.source_url);
+    const candidate = candidatesByUrl.get(url);
+    return {
+      module: section.module,
+      title: item.title,
+      source_name: item.source_name,
+      source_url: item.source_url,
+      evidence_title: candidate?.title || '',
+      evidence_snippet: String(candidate?.snippet || '').slice(0, 2000),
+    };
+  }));
+}
+
+export function buildEvidenceReviewPrompt({ report, candidates = [] }) {
+  return `你是美妆法务情报的事实与逻辑复核员。请基于 evidence 审查 draft_report，并只输出修正后的合法 JSON。
+
+复核规则：
+- 逐条检查 core_judgement、事实、法规变化、违法逻辑、业务影响和建议动作是否有 evidence 支持。
+- 没有证据支持的确定性表述必须降级为待核验，无法修正的条目应删除。
+- 不得新增条目、不得更换 source_url、不得改变 period 或六大模块名称。
+- core_judgement 必须包含监管或案件结论、对集团美妆业务的实质影响，以及必要的不确定性边界。
+- 建议动作只说明建议由哪个团队做什么；内部完成时间由具体领导决定，不得编造内部完成日期、天数或“本周内”等期限。
+- effective_date、feedback_deadline、next_deadline 只保留 evidence 明确支持的法定节点。
+- 保持原 JSON 结构，不要输出解释、Markdown 或代码块。
+
+draft_report：${JSON.stringify(report)}
+evidence：${JSON.stringify(buildReviewEvidence(report, candidates))}`;
+}
+
+function assertReviewPreservesDraftScope(draft, reviewed) {
+  if (reviewed.period?.start !== draft.period?.start || reviewed.period?.end !== draft.period?.end) {
+    throw new Error('review changed report period');
+  }
+  const allowedModules = new Set((draft.sections || []).map(section => section.module));
+  const allowedUrls = new Set((draft.sections || []).flatMap(section => section.items || []).map(item => normalizeSourceUrl(item.source_url)).filter(Boolean));
+  const draftCount = (draft.sections || []).flatMap(section => section.items || []).length;
+  const reviewedItems = (reviewed.sections || []).flatMap(section => section.items || []);
+  if (draftCount > 0 && reviewedItems.length === 0) throw new Error('review removed every report item');
+  if (reviewedItems.length > draftCount) throw new Error('review added report items');
+  for (const section of reviewed.sections || []) {
+    if (!allowedModules.has(section.module)) throw new Error(`review added module: ${section.module}`);
+    for (const item of section.items || []) {
+      if (!allowedUrls.has(normalizeSourceUrl(item.source_url))) throw new Error(`review changed source_url: ${item.source_url}`);
+    }
+  }
+}
+
+export async function reviewAnalysisReport({ apiKey, baseUrl, model, report, candidates = [], maxTokens = DEFAULT_AI_MAX_TOKENS, fetcher = fetch, logger = console }) {
+  try {
+    const content = await requestAiChat({
+      apiKey,
+      baseUrl,
+      model,
+      messages: [
+        { role: 'system', content: '你只输出合法 JSON。不要输出解释、Markdown 或代码块。' },
+        { role: 'user', content: buildEvidenceReviewPrompt({ report, candidates }) },
+      ],
+      temperature: 0.1,
+      maxTokens,
+      fetcher,
+    });
+    const reviewed = filterReportQuality(parseAnalysisJson(content));
+    assertReviewPreservesDraftScope(report, reviewed);
+    validateReport(reviewed);
+    return reviewed;
+  } catch (error) {
+    logger.warn(`AI evidence review skipped: ${error.message}`);
+    return report;
+  }
+}
+
+export async function deepseekAnalyze({ apiKey, baseUrl, model, candidates, leads = [], sources = sourceCatalog.sources, period = getPeriod(), targetModule = '', candidateLimit = DEFAULT_ANALYSIS_CANDIDATE_LIMIT, leadLimit = DEFAULT_ANALYSIS_LEAD_LIMIT, maxTokens = DEFAULT_AI_MAX_TOKENS, fetcher = fetch, logger = console }) {
   const messages = [
     { role: 'system', content: '你只输出合法 JSON。不要输出解释、Markdown 或代码块。' },
     { role: 'user', content: buildAnalysisPrompt({ candidates, leads, sources, period, targetModule, candidateLimit, leadLimit }) },
   ];
 
+  let draft = null;
   for (let attempt = 0; attempt < 2; attempt++) {
-    const content = await requestAiChat({ apiKey, baseUrl, model, messages, temperature: 0.2, maxTokens });
+    const content = await requestAiChat({ apiKey, baseUrl, model, messages, temperature: 0.2, maxTokens, fetcher });
     try {
       const report = filterReportQuality(parseAnalysisJson(content));
       validateReport(report);
-      return report;
+      draft = report;
+      break;
     } catch (error) {
       if (attempt === 1) throw error;
       messages.push({ role: 'assistant', content });
       messages.push({ role: 'user', content: `上一次输出不是合法可用 JSON：${error.message}。请只修复为合法 JSON，不要改变事实，不要输出代码块。` });
     }
   }
-  throw new Error('AI analysis failed');
+  if (!draft) throw new Error('AI analysis failed');
+  return reviewAnalysisReport({ apiKey, baseUrl, model, report: draft, candidates, maxTokens, fetcher, logger });
 }
 
 function mergeModuleReports(reports, period) {
@@ -1662,9 +1755,10 @@ function buildSignalItem(candidate, module) {
     business_impact: signalBusinessImpact(module),
     market_scope: [`${candidate.country || '相关市场'} ${topics.join('、') || module}`],
     risk_level: candidate.priority === 'high' ? 'medium' : 'low',
+    core_judgement: `当前仅能确认${candidate.source_name || candidate.name || '该来源'}出现${module}相关信号；在取得公开原文前，不能把它作为确定规则执行，但应核验其是否影响集团相关市场和业务流程。`,
     why_it_matters: `该来源属于${module}信息源，涉及${topics.join('、') || '监管和行业变化'}；即使本周未抓到可直接引用的明细页，也适合作为法务周报的待核验线索，帮助相关团队提前排查业务影响。`,
     recommended_actions: [
-      `建议法务团队以${candidate.source_name || candidate.name || '该来源'}为入口，在本周内核验是否有与集团在售品类、渠道或目标市场相关的最新原文。`,
+      `建议法务团队以${candidate.source_name || candidate.name || '该来源'}为入口，核验是否有与集团在售品类、渠道或目标市场相关的最新原文。`,
       `建议${signalBusinessImpact(module)[0]}团队结合${candidate.country || '相关市场'}业务清单，先排查是否存在标签、宣称、清关、平台上架或品牌授权方面的潜在影响。`,
     ],
     owner_teams: ['法务', signalBusinessImpact(module)[0]].filter(Boolean),
@@ -1786,7 +1880,7 @@ export function attachReportImages(report, { candidates = [] } = {}) {
 }
 
 async function deepseekAnalyzeByModule({ apiKey, baseUrl, model, candidates, leads = [], sources = sourceCatalog.sources, period = getPeriod(), candidateLimit = DEFAULT_ANALYSIS_CANDIDATE_LIMIT, leadLimit = DEFAULT_ANALYSIS_LEAD_LIMIT, maxTokens = DEFAULT_AI_MAX_TOKENS }) {
-  // 所有模块合并为 1 次 AI 调用，最小化 subrequest
+  // 六个模块共享同一份首轮分析和证据复核，避免按模块重复消耗调用额度。
   if (!candidates.length && !leads.length) {
     return { period, summary: [], risk_alerts: [], sections: REPORT_MODULES.map(m => ({ module: m, items: [] })) };
   }
@@ -2077,7 +2171,7 @@ function chunkArray(arr, size) {
 }
 
 function validateInternalAuth(request, env) {
-  const key = String(env?.AI_API_KEY || env?.DEEPSEEK_API_KEY || '');
+  const key = String(env?.AI_API_KEY || '');
   if (!key) return false;
   const auth = (request.headers.get('Authorization') || '').trim();
   return auth === `Bearer ${key}`;
@@ -2097,7 +2191,7 @@ function pipelineQualityOptions(env = {}) {
 async function fetchSelf(env, pathname, body, retries = 2) {
   const base = String(env?.WORKER_URL || 'https://beauty-legal-bot.ai-cf.workers.dev').replace(/\/$/, '');
   const url = `${base}${pathname}`;
-  const key = String(env?.AI_API_KEY || env?.DEEPSEEK_API_KEY || '');
+  const key = String(env?.AI_API_KEY || '');
   for (let attempt = 0; attempt <= retries; attempt++) {
     try {
       const resp = await fetch(url, {
@@ -2132,7 +2226,7 @@ async function runCollectPhase(sources, batchId, date, env) {
 }
 
 async function runAnalysisPhase(date, env, additionalCandidates = []) {
-  const aiKey = env?.AI_API_KEY || env?.DEEPSEEK_API_KEY;
+  const aiKey = env?.AI_API_KEY;
   if (!env?.SEEN_NEWS || !aiKey) throw new Error('KV and AI_API_KEY required');
   const kv = env.SEEN_NEWS;
   const allCandidates = [...additionalCandidates];
@@ -2157,8 +2251,8 @@ async function runAnalysisPhase(date, env, additionalCandidates = []) {
     minChinaCritical: Number(env.MIN_CHINA_CRITICAL_COVERAGE || 1),
   });
 
-  const model = env.AI_MODEL || env.DEEPSEEK_MODEL || 'deepseek-chat';
-  const baseUrl = env.AI_API_BASE_URL || env.DEEPSEEK_API_BASE_URL || DEFAULT_AI_API_BASE_URL;
+  const model = env.AI_MODEL || DEFAULT_AI_MODEL;
+  const baseUrl = env.AI_API_BASE_URL || DEFAULT_AI_API_BASE_URL;
   const qualityOptions = pipelineQualityOptions(env);
   const period = getPeriod();
   const rawReport = await deepseekAnalyzeByModule({
@@ -2368,6 +2462,6 @@ export default {
       return new Response("Online HTML reports have been retired. Full reports are delivered through the DingTalk group webhook.", { status: 410, headers: { "Content-Type": "text/plain; charset=utf-8" } });
     }
 
-    return new Response("beauty-legal-bot v3 — weekly DeepSeek legal intelligence", { status: 200 });
+    return new Response("beauty-legal-bot v3 — weekly AI-reviewed legal intelligence", { status: 200 });
   },
 };
