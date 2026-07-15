@@ -36,6 +36,7 @@ function itemScore(item) {
 
 function itemJudgement(item) {
   const candidates = [
+    item.core_judgement,
     item.what_changed,
     item.violation_logic,
     item.regulatory_signal,
