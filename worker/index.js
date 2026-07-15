@@ -96,6 +96,7 @@ export async function requestAiChat({
   maxTokens = 8000,
   timeoutMs = AI_REQUEST_TIMEOUT_MS,
   maxAttempts = AI_REQUEST_MAX_ATTEMPTS,
+  reasoningEffort = '',
   sleepFn = sleep,
   fetcher = fetch,
 }) {
@@ -106,7 +107,7 @@ export async function requestAiChat({
     max_tokens: maxTokens,
   };
   if (model === 'gpt-5.6-sol') {
-    body.reasoning_effort = 'high';
+    body.reasoning_effort = reasoningEffort || 'low';
   }
   const endpoint = `${String(baseUrl || DEFAULT_AI_API_BASE_URL).replace(/\/+$/, '')}/chat/completions`;
   const attempts = Math.max(1, Number(maxAttempts) || AI_REQUEST_MAX_ATTEMPTS);
