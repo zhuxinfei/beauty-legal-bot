@@ -1921,18 +1921,28 @@ export function attachReportImages(report, { candidates = [] } = {}) {
 }
 
 async function deepseekAnalyzeByModule({ apiKey, baseUrl, model, candidates, leads = [], sources = sourceCatalog.sources, period = getPeriod(), candidateLimit = DEFAULT_ANALYSIS_CANDIDATE_LIMIT, leadLimit = DEFAULT_ANALYSIS_LEAD_LIMIT, maxTokens = DEFAULT_AI_MAX_TOKENS }) {
-  // 六个模块共享同一份首轮分析和证据复核，避免按模块重复消耗调用额度。
   if (!candidates.length && !leads.length) {
     return { period, summary: [], risk_alerts: [], sections: REPORT_MODULES.map(m => ({ module: m, items: [] })) };
   }
-  const report = await deepseekAnalyze({
-    apiKey, baseUrl, model, candidates, leads, sources, period, candidateLimit, leadLimit, maxTokens,
-    targetModule: REPORT_MODULES.join('、'),
-  });
-  const reports = REPORT_MODULES.map(module => {
-    const section = (report.sections || []).find(s => s.module === module) || { module, items: [] };
-    return normalizeModuleReport({ ...report, sections: [section] }, module);
-  });
+  const reports = [];
+  for (const module of REPORT_MODULES) {
+    const moduleCandidates = candidates.filter(candidate => candidate.module === module || signalMatchesModule(candidate, module));
+    const moduleLeads = leads.filter(lead => lead.module === module || signalMatchesModule(lead, module));
+    const report = await deepseekAnalyze({
+      apiKey,
+      baseUrl,
+      model,
+      candidates: moduleCandidates,
+      leads: moduleLeads,
+      sources: sources.filter(source => source.module === module),
+      period,
+      candidateLimit: Math.min(candidateLimit, 16),
+      leadLimit: Math.min(leadLimit, 8),
+      maxTokens: Math.min(maxTokens, 2500),
+      targetModule: module,
+    });
+    reports.push(normalizeModuleReport(report, module));
+  }
   return mergeModuleReports(reports, period);
 }
 
