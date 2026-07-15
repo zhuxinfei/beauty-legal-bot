@@ -39,6 +39,7 @@ import {
   uploadDingTalkImage,
   publishDingTalkDocument,
   requestAiChat,
+  deepseekAnalyze,
   dedupeReport,
   extractReportFingerprints,
   makeLead,
@@ -474,6 +475,27 @@ function testValidateReportRequiresRegulationAnalysis() {
   assert.throws(() => validateReport(broken), /what_changed/);
 }
 
+function testValidateReportRequiresExplicitCoreJudgement() {
+  const broken = structuredClone(sampleReport);
+  delete broken.sections[0].items[0].core_judgement;
+  assert.throws(() => validateReport(broken), /core_judgement/);
+}
+
+function testValidateReportRejectsAiAssignedInternalDeadlines() {
+  const broken = structuredClone(sampleReport);
+  broken.sections[0].items[0].recommended_actions = ['建议注册团队在 7 日内完成印尼 SKU 认证状态核验。'];
+  assert.throws(() => validateReport(broken), /internal completion deadline/);
+
+  const absoluteDate = structuredClone(sampleReport);
+  absoluteDate.sections[0].items[0].recommended_actions = ['建议注册团队在 2026-07-31 前完成印尼 SKU 认证状态核验。'];
+  assert.throws(() => validateReport(absoluteDate), /internal completion deadline/);
+
+  const statutoryDateOnly = structuredClone(sampleReport);
+  statutoryDateOnly.sections[0].items[0].effective_date = '2026-10-17';
+  statutoryDateOnly.sections[0].items[0].next_deadline = '2026-10-17';
+  assert.equal(validateReport(statutoryDateOnly), true);
+}
+
 function testFilterReportQualityDropsItemsWithoutSourceUrl() {
   const report = structuredClone(sampleReport);
   report.sections[0].items.push({ ...report.sections[0].items[0], title: '无链接项', source_url: '' });
@@ -497,8 +519,9 @@ function testFilterReportQualityKeepsLeadBasedBeautyAndImportSignals() {
     business_impact: ['跨境清关', '供应链'],
     market_scope: ['中国跨境进口化妆品'],
     risk_level: 'medium',
+    core_judgement: '该跨境清关线索可能影响进口资料和上架节奏，但在官方原文核验前不能作为确定规则执行。',
     why_it_matters: '进口通关规则变化会影响美妆电商上架节奏和履约成本。',
-    recommended_actions: ['建议供应链团队在本周核对进口化妆品清关资料和口岸异常反馈。'],
+    recommended_actions: ['建议供应链团队核对进口化妆品清关资料和口岸异常反馈。'],
     owner_teams: ['供应链', '法务'],
     confidence: 'low',
     regulatory_signal: ['行业媒体提示近期进口美妆通关和资质核验要求需关注。'],
@@ -527,8 +550,9 @@ function testNormalizeReportForValidationFillsDynamicAnalysisFields() {
     business_impact: ['注册备案', '供应链'],
     market_scope: ['中国化妆品生产企业'],
     risk_level: 'medium',
+    core_judgement: '广州化妆品生产企业自查要求会影响供应商准入和生产质量审查。',
     why_it_matters: '质量管理体系自查会影响集团供应商准入和生产合规审查。',
-    recommended_actions: ['建议供应链团队在本周核对广州相关供应商是否完成质量管理体系自查。'],
+    recommended_actions: ['建议供应链团队核对广州相关供应商是否完成质量管理体系自查。'],
     owner_teams: ['供应链', '法务'],
     confidence: 'high',
   };
@@ -623,7 +647,7 @@ function testRenderDingTalkMarkdownUsesModuleRegionCountryStructure() {
   assert.ok(markdown.includes('**建议动作**'));
   assert.ok(markdown.includes('[查看原文](https://www.pom.go.id/)'));
   assert.ok(markdown.includes('## Action Board'));
-  assert.ok(markdown.includes('| 优先级 | 动作 | 责任团队 | 触发/截止 | 来源事项 |'));
+  assert.ok(markdown.includes('| 优先级 | 动作 | 责任团队 | 内部完成时间 | 来源事项 |'));
   assert.ok(markdown.includes('## 来源证据索引'));
   assert.ok(markdown.indexOf('## 风险提示') < markdown.indexOf('## 本周美妆法务风险雷达'));
   assert.ok(markdown.lastIndexOf('## 来源证据索引') > markdown.lastIndexOf('## Action Board'));
@@ -645,6 +669,12 @@ function testRenderDingTalkMarkdownShowsAllModulesWhenEmpty() {
   assert.ok(markdown.includes('## M5 进出口动态'));
   assert.ok(markdown.includes('## M6 产品质量/召回与安全风险'));
   assert.equal((markdown.match(/本周无高价值更新/g) || []).length, 6);
+}
+
+function testRenderDingTalkMarkdownLeavesInternalCompletionTimeToLeader() {
+  const markdown = renderDingTalkMarkdown(sampleReport);
+  assert.ok(markdown.includes('由责任领导确定'));
+  assert.equal(markdown.includes('本周内核验'), false);
 }
 
 function testRenderDingTalkSummaryCardIsConciseAndIncludesKeyword() {
@@ -707,6 +737,18 @@ function testBuildSingleDingTalkMessageContainsWholeReportInOneCard() {
   }
   assert.equal(message.bytes, new TextEncoder().encode(message.markdown).length);
   assert.ok(message.bytes <= 18000);
+}
+
+function testBuildSingleDingTalkMessagePrefersExplicitCoreJudgement() {
+  const report = structuredClone(sampleReport);
+  const item = report.sections[0].items[0];
+  item.core_judgement = '独立核心判断：该规则直接改变中国市场的产品准入决策。';
+  item.what_changed = ['旧变化点不应覆盖独立核心判断。'];
+
+  const message = buildSingleDingTalkMessage(report, { maxBytes: 18000 });
+
+  assert.ok(message.markdown.includes('**核心判断**：独立核心判断：该规则直接改变中国市场的产品准入决策。'));
+  assert.equal(message.markdown.includes('**核心判断**：旧变化点不应覆盖独立核心判断。'), false);
 }
 
 function testBuildSingleDingTalkMessageCompactsOversizedReportWithoutSplitting() {
@@ -981,6 +1023,23 @@ async function testRequestAiChatUsesOpenAiCompatibleBaseUrl() {
   assert.equal(content, '{"ok":true}');
 }
 
+async function testRequestAiChatEnablesHighReasoningForSolModel() {
+  let payload = null;
+  await requestAiChat({
+    apiKey: 'test-key',
+    baseUrl: 'https://hk.testvideo.site/v1',
+    model: 'gpt-5.6-sol',
+    messages: [{ role: 'user', content: 'review' }],
+    fetcher: async (_url, init) => {
+      payload = JSON.parse(init.body);
+      return new Response(JSON.stringify({ choices: [{ message: { content: '{"ok":true}' } }] }), { status: 200 });
+    },
+  });
+
+  assert.equal(payload.model, 'gpt-5.6-sol');
+  assert.equal(payload.reasoning_effort, 'high');
+}
+
 function testBuildAnalysisPromptUsesConfigurableInputLimits() {
   const candidates = Array.from({ length: 5 }, (_, i) => ({
     title: `候选${i}`,
@@ -1008,6 +1067,165 @@ function testBuildAnalysisPromptUsesConfigurableInputLimits() {
   assert.ok(prompt.includes('线索0'));
   assert.ok(prompt.includes('线索2'));
   assert.equal(prompt.includes('线索3'), false);
+}
+
+function testBuildAnalysisPromptRequiresCoreJudgementWithoutInternalDeadlines() {
+  const prompt = buildAnalysisPrompt({
+    candidates: [],
+    leads: [],
+    sources: sourceCatalog.sources,
+    period: { start: '2026-07-06', end: '2026-07-12' },
+  });
+
+  assert.ok(prompt.includes('"core_judgement"'));
+  assert.ok(prompt.includes('内部完成时间由具体领导决定'));
+  assert.ok(prompt.includes('不得编造内部完成日期'));
+  assert.equal(prompt.includes('建议谁在什么时间排查/更新/提交什么'), false);
+  for (const statutoryField of ['"effective_date"', '"feedback_deadline"', '"next_deadline"']) {
+    assert.ok(prompt.includes(statutoryField));
+  }
+}
+
+function reportWithCoreJudgements(prefix) {
+  const report = structuredClone(sampleReport);
+  report.sections = report.sections.map(section => ({
+    ...section,
+    items: section.items.map((item, index) => ({
+      ...item,
+      core_judgement: `${prefix}${index + 1}`,
+    })),
+  }));
+  return report;
+}
+
+async function testDeepseekAnalyzeUsesValidatedEvidenceReview() {
+  const originalFetch = globalThis.fetch;
+  const draft = reportWithCoreJudgements('首轮判断');
+  const reviewed = reportWithCoreJudgements('复核判断');
+  const candidates = draft.sections.flatMap(section => section.items.map(item => ({
+    title: item.title,
+    url: item.source_url,
+    source_name: item.source_name,
+    snippet: '与报告条目对应的公开原文摘要。',
+  })));
+  let calls = 0;
+
+  globalThis.fetch = async () => {
+    calls += 1;
+    const content = calls === 1 ? draft : reviewed;
+    return new Response(JSON.stringify({ choices: [{ message: { content: JSON.stringify(content) } }] }), { status: 200 });
+  };
+
+  try {
+    const result = await deepseekAnalyze({
+      apiKey: 'test-key',
+      baseUrl: 'https://example.com/v1',
+      model: 'gpt-5.6-sol',
+      candidates,
+      sources: [],
+      period: draft.period,
+    });
+    assert.equal(calls, 2);
+    assert.ok(result.sections[0].items[0].core_judgement.startsWith('复核判断'));
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+}
+
+async function testDeepseekAnalyzeFallsBackWhenEvidenceReviewFails() {
+  const originalFetch = globalThis.fetch;
+  const draft = reportWithCoreJudgements('首轮保留');
+  let calls = 0;
+
+  globalThis.fetch = async () => {
+    calls += 1;
+    if (calls === 1) {
+      return new Response(JSON.stringify({ choices: [{ message: { content: JSON.stringify(draft) } }] }), { status: 200 });
+    }
+    return new Response('review unavailable', { status: 503 });
+  };
+
+  try {
+    const result = await deepseekAnalyze({
+      apiKey: 'test-key',
+      baseUrl: 'https://example.com/v1',
+      model: 'gpt-5.6-sol',
+      candidates: [],
+      sources: [],
+      period: draft.period,
+      logger: { warn() {} },
+    });
+    assert.equal(calls, 2);
+    assert.ok(result.sections[0].items[0].core_judgement.startsWith('首轮保留'));
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+}
+
+async function testDeepseekAnalyzeFallsBackWhenEvidenceReviewIsMalformed() {
+  const originalFetch = globalThis.fetch;
+  const draft = reportWithCoreJudgements('畸形复核前判断');
+  let calls = 0;
+
+  globalThis.fetch = async () => {
+    calls += 1;
+    const content = calls === 1 ? JSON.stringify(draft) : '{not-valid-json';
+    return new Response(JSON.stringify({ choices: [{ message: { content } }] }), { status: 200 });
+  };
+
+  try {
+    const result = await deepseekAnalyze({
+      apiKey: 'test-key',
+      baseUrl: 'https://example.com/v1',
+      model: 'gpt-5.6-sol',
+      candidates: [],
+      sources: [],
+      period: draft.period,
+      logger: { warn() {} },
+    });
+    assert.equal(calls, 2);
+    assert.ok(result.sections[0].items[0].core_judgement.startsWith('畸形复核前判断'));
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+}
+
+function testCheckedInModelDefaultsUseSol() {
+  const expected = 'gpt-5.6-sol';
+  for (const relativePath of [
+    './index.js',
+    './run-local.js',
+    './wrangler.toml',
+    '../.github/workflows/weekly.yml',
+    '../README.md',
+  ]) {
+    const content = readFileSync(new URL(relativePath, import.meta.url), 'utf8');
+    assert.ok(content.includes(expected), `${relativePath} should configure ${expected}`);
+    assert.equal(content.includes('gpt-5.4-mini'), false, `${relativePath} should not keep gpt-5.4-mini`);
+  }
+}
+
+function testActiveWorkerDoesNotUseDeprecatedDeepseekCredentials() {
+  const deprecated = [
+    'deepseek-v4-pro',
+    'DEEPSEEK_API_KEY',
+    'DEEPSEEK_API_BASE_URL',
+    'DEEPSEEK_MODEL',
+    'DEEPSEEK_WORKER_MODEL',
+    'https://api.deepseek.com/v1',
+  ];
+  for (const relativePath of [
+    './index.js',
+    './run-local.js',
+    './wrangler.toml',
+    '../.github/workflows/weekly.yml',
+    '../README.md',
+  ]) {
+    const content = readFileSync(new URL(relativePath, import.meta.url), 'utf8');
+    for (const value of deprecated) {
+      assert.equal(content.includes(value), false, `${relativePath} should not use deprecated ${value}`);
+    }
+  }
 }
 
 async function testDingTalkDocumentPublishCreatesAndWritesMarkdown() {
@@ -1218,7 +1436,7 @@ async function testManualTestRouteAwaitsPipeline() {
   const response = await worker.fetch(
     new Request('https://example.com/test'),
     {
-      DEEPSEEK_API_KEY: 'test-key',
+      AI_API_KEY: 'test-key',
       FEISHU_WEBHOOK_URL: 'https://example.com/webhook',
       SEEN_NEWS: {
         async get() { return null; },
@@ -1274,7 +1492,7 @@ async function testScheduledPipelineSendsFeishuWithoutHtmlReport() {
 
   globalThis.fetch = async (url, init = {}) => {
     const href = String(url);
-    if (href.includes('api.deepseek.com')) {
+    if (href.includes('/chat/completions')) {
       return new Response(JSON.stringify({
         choices: [{ message: { content: JSON.stringify(sampleReport) } }],
       }), { status: 200, headers: { 'Content-Type': 'application/json' } });
@@ -1294,9 +1512,9 @@ async function testScheduledPipelineSendsFeishuWithoutHtmlReport() {
 
   try {
     await worker.scheduled({}, {
-      DEEPSEEK_API_KEY: 'test-key',
+      AI_API_KEY: 'test-key',
       FEISHU_WEBHOOK_URL: 'https://example.com/webhook',
-      DEEPSEEK_MODEL: 'deepseek-chat',
+      AI_MODEL: 'gpt-5.6-sol',
       SEEN_NEWS: kv,
     }, {});
   } finally {
@@ -1398,3 +1616,292 @@ async function testScheduledPipelineRejectsDingTalkFailureWithoutMarkingSeen() {
       worker.scheduled({}, {
         AI_API_KEY: 'test-key',
         DINGTALK_WEBHOOK_URL: 'https://oapi.dingtalk.com/robot/send?access_token=test',
+        DINGTALK_MESSAGE_DELAY_MS: 0,
+        AI_MODEL: 'test-model',
+        SEEN_NEWS: kv,
+      }, {}),
+      /DingTalk delivery failed/
+    );
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+
+  const lastRun = JSON.parse(store.get('run:last'));
+  assert.equal(dingTalkAttempts, 1);
+  assert.equal(lastRun.status, 'failed');
+  assert.equal(store.has('seen_v3_report_items'), false);
+}
+
+async function testScheduledPipelineRejectsMissingAiKey() {
+  const store = new Map();
+  const kv = {
+    async get(key) { return store.get(key) || null; },
+    async put(key, value) { store.set(key, value); },
+  };
+  await assert.rejects(
+    worker.scheduled({}, {
+      DINGTALK_WEBHOOK_URL: 'https://oapi.dingtalk.com/robot/send?access_token=test',
+      SEEN_NEWS: kv,
+    }, {}),
+    /AI_API_KEY is required/
+  );
+  assert.equal(JSON.parse(store.get('run:last')).status, 'failed');
+}
+
+function testRunLocalPropagatesPipelineFailure() {
+  const source = readFileSync(new URL('./run-local.js', import.meta.url), 'utf8');
+  assert.ok(source.includes('result = await runPipeline'));
+  assert.ok(source.includes("result.status === 'failed'"));
+  assert.ok(source.includes('await browserSourceFetcher.close()'));
+  assert.equal(source.includes("process.env.DINGTALK_WEBHOOK_URL ? 'DingTalk webhook was called.'"), false);
+}
+
+async function testManualTestRouteRecordsFailure() {
+  const store = new Map();
+  const response = await worker.fetch(
+    new Request('https://example.com/test'),
+    {
+      SEEN_NEWS: {
+        async get(key) { return store.get(key) || null; },
+        async put(key, value) { store.set(key, value); },
+      },
+      __TEST_RUN_PIPELINE__: async () => {
+        throw new Error('boom');
+      },
+    },
+    { waitUntil() {} }
+  );
+
+  const text = await response.text();
+  const lastRun = JSON.parse(store.get('run:last'));
+  assert.equal(response.status, 500);
+  assert.ok(text.includes('boom'));
+  assert.equal(lastRun.trigger, 'manual');
+  assert.equal(lastRun.status, 'failed');
+  assert.ok(lastRun.error.includes('boom'));
+}
+
+function testDedupeReportRemovesRepeatedItems() {
+  const duplicate = structuredClone(sampleReport);
+  duplicate.sections[0].items = [
+    sampleReport.sections[0].items[0],
+    { ...sampleReport.sections[0].items[0], source_name: '转载来源' },
+  ];
+  const deduped = dedupeReport(duplicate);
+  assert.equal(deduped.sections[0].items.length, 1);
+}
+
+function testExtractReportFingerprintsUsesItems() {
+  const fingerprints = extractReportFingerprints(sampleReport);
+  assert.deepEqual(fingerprints, [
+    '法规|亚洲|印尼|BPOM 更新化妆品清真认证要求|https://www.pom.go.id/',
+    '案例|亚洲|中国|直播功效宣称与备案资料不一致被处罚|https://scjgj.sh.gov.cn/',
+  ]);
+}
+
+function testSplitSourcesSeparatesWechatLeads() {
+  const sources = [
+    { name: '化妆品观察', url: '微信公众号', source_type: 'wechat_public_account', module: '美妆动态', region: '亚洲', country: '中国', topics: ['化妆品'], priority: 'low' },
+    { name: '国家药监局', url: 'https://www.nmpa.gov.cn/', source_type: 'official_site', module: '新规及案例动态', region: '亚洲', country: '中国', topics: ['化妆品'], priority: 'high' },
+  ];
+  const split = splitSources(sources);
+  assert.equal(split.fetchableSources.length, 1);
+  assert.equal(split.leadSources.length, 1);
+  assert.equal(makeLead(split.leadSources[0]).name, '化妆品观察');
+}
+
+function testSourceLeadCandidateKeepsWeaklyFetchableModulesAnalyzable() {
+  const lead = makeSourceLeadCandidate({
+    name: '青眼资讯',
+    url: '微信公众号',
+    source_type: 'wechat_public_account',
+    module: '进出口动态',
+    region: '亚洲',
+    country: '中国',
+    authority_type: 'media',
+    priority: 'medium',
+    topics: ['进口化妆品', '跨境电商', '清关'],
+  });
+
+  assert.equal(lead.module, '进出口动态');
+  assert.equal(lead.source_type, 'wechat_public_account');
+  assert.equal(lead.source_name, '青眼资讯');
+  assert.equal(lead.url, '微信公众号');
+  assert.ok(lead.title.includes('进出口动态'));
+  assert.ok(lead.snippet.includes('进口化妆品'));
+}
+
+function testSourceCatalogUsesWorkbookModulesAndGlobalMarkets() {
+  const sources = sourceCatalog.sources;
+  const modules = new Set(sources.map(source => source.module));
+  assert.deepEqual([...modules].sort(), [
+    '广告合规及处罚案例',
+    '新规及案例动态',
+    '知识产权动态',
+    '美妆动态',
+    '进出口动态',
+  ].sort());
+
+  const countries = new Set(sources.map(source => source.country));
+  for (const country of ['中国', '欧盟', '美国', '日本', '韩国', '泰国', '越南', '印尼', '墨西哥', '意大利']) {
+    assert.ok(countries.has(country), `missing country ${country}`);
+  }
+
+  const regions = new Set(sources.map(source => source.region));
+  for (const region of ['亚洲', '欧洲', '北美洲']) {
+    assert.ok(regions.has(region), `missing region ${region}`);
+  }
+
+  const bpom = sources.find(source => source.name.includes('BPOM'));
+  assert.equal(bpom.country, '印尼');
+  assert.equal(bpom.module, '新规及案例动态');
+  assert.equal(bpom.priority, 'high');
+
+  const monitoredSources = sources.filter(source => source.monitor_only);
+  assert.ok(monitoredSources.length >= 12);
+  assert.ok(monitoredSources.filter(source => source.country === '中国' && source.priority === 'high').length >= 9);
+  assert.ok(monitoredSources.every(source => source.monitor_reason && /^\d{4}-\d{2}-\d{2}$/.test(source.monitor_reviewed_at)));
+}
+
+function testPromptIncludesProductQualityRecallModule() {
+  const prompt = buildAnalysisPrompt({
+    candidates: [],
+    leads: [],
+    sources: sourceCatalog.sources,
+    period: { start: '2026-06-01', end: '2026-06-07' },
+  });
+  assert.ok(prompt.includes('产品质量/召回与安全风险'));
+  assert.ok(prompt.includes('产品安全、抽检不合格、召回、禁限用成分、质量投诉'));
+}
+
+function testSelectSourcesForWorkerBudgetKeepsImportantCoverageUnderLimit() {
+  const selected = selectSourcesForWorkerBudget(sourceCatalog.sources, 16);
+  const fetchable = selected.filter(source => source.source_type !== 'wechat_public_account');
+  assert.ok(fetchable.length <= 16);
+  assert.ok(selected.some(source => source.source_type === 'wechat_public_account'));
+  assert.ok(selected.some(source => source.name.includes('国家市场监督管理总局')));
+  assert.ok(selected.some(source => source.name.includes('国家知识产权局')));
+  assert.ok(selected.some(source => source.name.includes('美国 FDA')));
+  for (const country of ['欧盟', '印尼', '泰国', '越南', '日本', '韩国', '墨西哥', '意大利']) {
+    assert.ok(fetchable.some(source => source.country === country), `missing country ${country}`);
+  }
+  for (const module of ['广告合规及处罚案例', '知识产权动态', '新规及案例动态', '进出口动态']) {
+    assert.ok(fetchable.some(source => source.module === module), `missing fetchable module ${module}`);
+  }
+}
+
+function testWeeklyWorkflowDeploysRoutesBeforeVersionedAssetPipeline() {
+  const workflow = readFileSync(new URL('../.github/workflows/weekly.yml', import.meta.url), 'utf8');
+  assert.ok(workflow.includes('node worker/run-local.js'));
+  assert.equal(workflow.includes('node run-local.js'), false);
+  assert.ok(workflow.includes("cron: '17 0 * * 1'"));
+  assert.equal(workflow.includes("cron: '0 0 * * 1'"), false);
+  assert.ok(workflow.includes('npx wrangler deploy'));
+  assert.ok(workflow.indexOf('npx wrangler deploy') < workflow.indexOf('node worker/run-local.js'));
+  assert.ok(workflow.includes('npx playwright install --with-deps chromium'));
+  assert.ok(workflow.includes('fonts-noto-cjk'));
+  assert.ok(workflow.includes('CLOUDFLARE_KV_NAMESPACE_ID'));
+  assert.equal(workflow.includes('wrangler kv key put'), false);
+  assert.ok(workflow.includes('DINGTALK_WEBHOOK_URL: ${{ secrets.DINGTALK_WEBHOOK_URL }}'));
+  assert.ok(workflow.includes('DINGTALK_SECRET: ${{ secrets.DINGTALK_SECRET }}'));
+  for (const documentSetting of [
+    'DINGTALK_DOC_URL',
+    'DINGTALK_CLIENT_ID',
+    'DINGTALK_CLIENT_SECRET',
+    'DINGTALK_OPERATOR_ID',
+    'DINGTALK_WORKSPACE_ID',
+  ]) {
+    assert.equal(workflow.includes(documentSetting), false, `workflow should not require ${documentSetting}`);
+  }
+}
+
+function testDecisionMapPublicUrlCanOverrideWorkerAssetUrl() {
+  const source = readFileSync(new URL('./index.js', import.meta.url), 'utf8');
+  assert.ok(source.includes('env.DECISION_MAP_PUBLIC_URL || env.DECISION_MAP_URL'));
+}
+
+testClassifySourceFetchFailures();
+await testRecoverPublicSourceRetriesAndRecordsAttempts();
+await testRecoverPublicSourceUsesBrowserThenOfficialAlternate();
+testSourceCoverageGatesChinaCriticalAndOverallCoverage();
+await testBrowserSourceFetcherReusesBrowserAndClosesPages();
+await testBrowserSourceFetcherUsesGovernmentSiteCompatibleNavigation();
+await testBrowserSourceFetcherRejectsAccessControlPages();
+await testPublishVersionedPngUploadsBeforeHealthCheck();
+await testCollectCandidatesReturnsRecoveryEvidenceAndRealCoverage();
+await testPipelinePublishesHealthyImageBeforeDingTalkAndDedupe();
+await testVersionedDecisionMapRouteUsesImmutableCache();
+await testFetchWithTimeoutAbortsSlowFetch();
+await testManualTestRouteAwaitsPipeline();
+await testMapWithConcurrencyLimitsParallelWork();
+await testScheduledPipelineSendsFeishuWithoutHtmlReport();
+await testScheduledPipelineSendsDingTalkWithoutDocumentCredentials();
+await testScheduledPipelineRejectsDingTalkFailureWithoutMarkingSeen();
+await testScheduledPipelineRejectsMissingAiKey();
+await testManualTestRouteRecordsFailure();
+testNormalizeUrl();
+testHtmlToText();
+testExtractLinks();
+testExtractImageUrl();
+testGetSourceStats();
+testIsRelevantTitle();
+testMakeCandidate();
+testParseAnalysisJson();
+testValidateReport();
+testValidateReportRequiresRegulationAnalysis();
+testValidateReportRequiresExplicitCoreJudgement();
+testValidateReportRejectsAiAssignedInternalDeadlines();
+testFilterReportQualityDropsItemsWithoutSourceUrl();
+testFilterReportQualityKeepsLeadBasedBeautyAndImportSignals();
+testNormalizeReportForValidationFillsDynamicAnalysisFields();
+testLimitReportSectionsKeepsEnterpriseModuleDepth();
+testLimitReportSectionsAcceptsQualityLimit();
+testRenderFeishuSummary();
+testRenderDingTalkMarkdownUsesModuleRegionCountryStructure();
+testRenderDingTalkMarkdownShowsAllModulesWhenEmpty();
+testRenderDingTalkMarkdownLeavesInternalCompletionTimeToLeader();
+testRenderDingTalkSummaryCardIsConciseAndIncludesKeyword();
+testBuildSingleDingTalkMessageContainsWholeReportInOneCard();
+testBuildSingleDingTalkMessagePrefersExplicitCoreJudgement();
+testBuildSingleDingTalkMessageCompactsOversizedReportWithoutSplitting();
+testActionDashboardUsesReadableChineseManagementLayout();
+testBuildDingTalkWebhookMessagesUsesOneCardWithSixModules();
+testBuildDingTalkWebhookMessagesPutsChinaFirstWithinModule();
+testBuildDingTalkWebhookMessagesCompactsOversizedModulesWithoutSplitting();
+testBuildDingTalkWebhookMessagesKeepsOversizedItemSourceInOneCard();
+await testBuildDingTalkWebhookUrlSignsSecret();
+await testSendToDingTalkPostsMarkdownPayload();
+await testSendDingTalkMessagesRetriesTransientFailuresInOrder();
+await testSendDingTalkMessagesThrottlesBetweenSuccessfulSegments();
+await testSendDingTalkMessagesStopsAfterTerminalFailure();
+await testNotifyReportPrefersDingTalkWhenConfigured();
+await testRequestAiChatUsesOpenAiCompatibleBaseUrl();
+await testRequestAiChatEnablesHighReasoningForSolModel();
+testBuildAnalysisPromptUsesConfigurableInputLimits();
+testBuildAnalysisPromptRequiresCoreJudgementWithoutInternalDeadlines();
+await testDeepseekAnalyzeUsesValidatedEvidenceReview();
+await testDeepseekAnalyzeFallsBackWhenEvidenceReviewFails();
+await testDeepseekAnalyzeFallsBackWhenEvidenceReviewIsMalformed();
+testCheckedInModelDefaultsUseSol();
+testActiveWorkerDoesNotUseDeprecatedDeepseekCredentials();
+await testDingTalkDocumentPublishCreatesAndWritesMarkdown();
+await testUploadDingTalkImageReturnsMediaId();
+testBuildAnalysisPromptIncludesLeads();
+testBuildAnalysisPromptUsesModuleTarget();
+testNormalizeModuleReportForcesTargetWorkbookModule();
+testEnrichReportWithSourceSignalsFillsSparseWorkbookModules();
+testFilterReportToObservedSourcesDropsFabricatedUrls();
+testAttachReportImagesUsesObservedCandidateImages();
+testEnterprisePromptRequiresGlobalLegalIntelligence();
+testCandidateFreshnessAndInfluenceRanking();
+testDedupeReportRemovesRepeatedItems();
+testExtractReportFingerprintsUsesItems();
+testSplitSourcesSeparatesWechatLeads();
+testSourceLeadCandidateKeepsWeaklyFetchableModulesAnalyzable();
+testSourceCatalogUsesWorkbookModulesAndGlobalMarkets();
+testSelectSourcesForWorkerBudgetKeepsImportantCoverageUnderLimit();
+testPromptIncludesProductQualityRecallModule();
+testWeeklyWorkflowDeploysRoutesBeforeVersionedAssetPipeline();
+testDecisionMapPublicUrlCanOverrideWorkerAssetUrl();
+testRunLocalPropagatesPipelineFailure();
+console.log('worker pure function tests ok');
