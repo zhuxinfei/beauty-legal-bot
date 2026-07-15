@@ -57,6 +57,9 @@ const ACTION_NOISE = ['建议关注', '持续关注', '企业应留意', '可能
 const SOURCE_FETCH_TIMEOUT_MS = 30000;
 const SOURCE_FETCH_CONCURRENCY = 4;
 const WORKER_FETCH_SOURCE_BUDGET = 15;
+const AI_REQUEST_TIMEOUT_MS = 120000;
+const AI_REQUEST_MAX_ATTEMPTS = 2;
+const AI_RETRY_BASE_DELAY_MS = 1500;
 const DEFAULT_AI_MAX_TOKENS = 8000;
 const QUALITY_AI_MAX_TOKENS = 16000;
 const DEFAULT_ANALYSIS_CANDIDATE_LIMIT = 140;
@@ -77,7 +80,25 @@ const ENTERPRISE_REQUIRED_FIELDS = ['source_type', 'relevance', 'industry_impact
 // ---------------------------------------------------------------------------
 // AI：一站式搜索 + 分析 + 格式化（OpenAI-compatible API）
 // ---------------------------------------------------------------------------
-export async function requestAiChat({ apiKey, baseUrl = DEFAULT_AI_API_BASE_URL, model = DEFAULT_AI_MODEL, messages, temperature = 0.2, maxTokens = 8000, fetcher = fetch }) {
+function isRetryableAiNetworkError(error) {
+  const code = error?.code || error?.cause?.code;
+  return error?.name === 'AbortError'
+    || ['UND_ERR_HEADERS_TIMEOUT', 'UND_ERR_CONNECT_TIMEOUT', 'ECONNRESET', 'ETIMEDOUT', 'ECONNREFUSED'].includes(code)
+    || (error instanceof TypeError && /fetch failed|network/i.test(error.message || ''));
+}
+
+export async function requestAiChat({
+  apiKey,
+  baseUrl = DEFAULT_AI_API_BASE_URL,
+  model = DEFAULT_AI_MODEL,
+  messages,
+  temperature = 0.2,
+  maxTokens = 8000,
+  timeoutMs = AI_REQUEST_TIMEOUT_MS,
+  maxAttempts = AI_REQUEST_MAX_ATTEMPTS,
+  sleepFn = sleep,
+  fetcher = fetch,
+}) {
   const body = {
     model,
     messages,
@@ -88,21 +109,41 @@ export async function requestAiChat({ apiKey, baseUrl = DEFAULT_AI_API_BASE_URL,
     body.reasoning_effort = 'high';
   }
   const endpoint = `${String(baseUrl || DEFAULT_AI_API_BASE_URL).replace(/\/+$/, '')}/chat/completions`;
-  const resp = await fetcher(endpoint, {
-    method: "POST",
-    headers: {
-      "Authorization": `Bearer ${apiKey}`,
-      "Content-Type": "application/json",
-    },
-    body: JSON.stringify(body),
-  });
+  const attempts = Math.max(1, Number(maxAttempts) || AI_REQUEST_MAX_ATTEMPTS);
+  for (let attempt = 0; attempt < attempts; attempt++) {
+    const controller = new AbortController();
+    const timer = setTimeout(() => controller.abort(), timeoutMs);
+    try {
+      const resp = await fetcher(endpoint, {
+        method: 'POST',
+        headers: {
+          Authorization: `Bearer ${apiKey}`,
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify(body),
+        signal: controller.signal,
+      });
 
-  if (!resp.ok) {
-    throw new Error(`AI ${resp.status}: ${await resp.text().then(t => t.slice(0, 300))}`);
+      if (!resp.ok) {
+        const error = new Error(`AI ${resp.status}: ${await resp.text().then(t => t.slice(0, 300))}`);
+        error.retryable = resp.status === 408 || resp.status === 429 || resp.status >= 500;
+        throw error;
+      }
+
+      const data = await resp.json();
+      return data.choices?.[0]?.message?.content || '';
+    } catch (error) {
+      const normalizedError = error?.name === 'AbortError'
+        ? Object.assign(new Error(`AI request timed out after ${timeoutMs}ms`), { code: 'AI_TIMEOUT', retryable: true })
+        : error;
+      const retryable = normalizedError.retryable || isRetryableAiNetworkError(normalizedError);
+      if (!retryable || attempt === attempts - 1) throw normalizedError;
+      await sleepFn(AI_RETRY_BASE_DELAY_MS * (attempt + 1));
+    } finally {
+      clearTimeout(timer);
+    }
   }
-
-  const data = await resp.json();
-  return data.choices?.[0]?.message?.content || "";
+  throw new Error('AI request failed without a response');
 }
 
 // ---------------------------------------------------------------------------
