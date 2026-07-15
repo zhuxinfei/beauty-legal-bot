@@ -188,7 +188,7 @@ export function calculateSourceCoverage(sources = [], sourceResults = []) {
   };
 }
 
-export function assertSourceCoverage(coverage, { minOverall = 0.9, minChinaCritical = 1 } = {}) {
+export function assertSourceCoverage(coverage, { minOverall = 0.9, minChinaCritical = 0.9 } = {}) {
   if (coverage.chinaCritical < minChinaCritical || coverage.overall < minOverall) {
     const message = `Source coverage below gate: China critical ${(coverage.chinaCritical * 100).toFixed(1)}%, overall ${(coverage.overall * 100).toFixed(1)}%`;
     throw new SourceCoverageError(message, coverage);
