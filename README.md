@@ -134,7 +134,14 @@ npx wrangler secret put DINGTALK_SECRET
 npx wrangler secret put FEISHU_WEBHOOK_URL
 ```
 
-可选模型配置在 `worker/wrangler.toml`：
+GitHub Actions 的模型配置在仓库 Variables 中：
+
+```text
+AI_API_BASE_URL=https://你的中转服务/v1
+AI_MODEL=gpt-5.5
+```
+
+工作流会优先读取这两个 Variables；未配置时才使用代码中的默认值。`worker/wrangler.toml` 仍提供本地 Wrangler 部署的默认值：
 
 ```toml
 [vars]
