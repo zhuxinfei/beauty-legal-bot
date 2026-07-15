@@ -107,7 +107,7 @@ export async function requestAiChat({
     max_tokens: maxTokens,
   };
   if (model === 'gpt-5.6-sol') {
-    body.reasoning_effort = reasoningEffort || 'low';
+    body.reasoning_effort = reasoningEffort || 'medium';
   }
   const endpoint = `${String(baseUrl || DEFAULT_AI_API_BASE_URL).replace(/\/+$/, '')}/chat/completions`;
   const attempts = Math.max(1, Number(maxAttempts) || AI_REQUEST_MAX_ATTEMPTS);
