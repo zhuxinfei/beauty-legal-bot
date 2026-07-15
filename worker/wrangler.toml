@@ -11,5 +11,5 @@ id = "3b38ee9b31b74c4faee81ee5b92b3bdb"
 
 [vars]
 AI_API_BASE_URL = "https://hk.testvideo.site/v1"
-AI_MODEL = "gpt-5.6-sol"
+AI_MODEL = "gpt-5.5"
 NOTIFY_CHANNEL = "dingtalk"
