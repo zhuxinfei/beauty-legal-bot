@@ -1038,6 +1038,7 @@ async function testRequestAiChatEnablesHighReasoningForSolModel() {
     baseUrl: 'https://hk.testvideo.site/v1',
     model: 'gpt-5.6-sol',
     messages: [{ role: 'user', content: 'review' }],
+    reasoningEffort: 'high',
     fetcher: async (_url, init) => {
       payload = JSON.parse(init.body);
       return new Response(JSON.stringify({ choices: [{ message: { content: '{"ok":true}' } }] }), { status: 200 });
