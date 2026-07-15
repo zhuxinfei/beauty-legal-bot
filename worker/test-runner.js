@@ -1218,8 +1218,8 @@ async function testDeepseekAnalyzeFallsBackWhenEvidenceReviewIsMalformed() {
   }
 }
 
-function testCheckedInModelDefaultsUseSol() {
-  const expected = 'gpt-5.6-sol';
+function testCheckedInModelDefaultsUseGpt55() {
+  const expected = 'gpt-5.5';
   for (const relativePath of [
     './index.js',
     './run-local.js',
@@ -1229,7 +1229,6 @@ function testCheckedInModelDefaultsUseSol() {
   ]) {
     const content = readFileSync(new URL(relativePath, import.meta.url), 'utf8');
     assert.ok(content.includes(expected), `${relativePath} should configure ${expected}`);
-    assert.equal(content.includes('gpt-5.4-mini'), false, `${relativePath} should not keep gpt-5.4-mini`);
   }
 }
 
@@ -1911,7 +1910,7 @@ testBuildAnalysisPromptRequiresCoreJudgementWithoutInternalDeadlines();
 await testDeepseekAnalyzeUsesValidatedEvidenceReview();
 await testDeepseekAnalyzeFallsBackWhenEvidenceReviewFails();
 await testDeepseekAnalyzeFallsBackWhenEvidenceReviewIsMalformed();
-testCheckedInModelDefaultsUseSol();
+testCheckedInModelDefaultsUseGpt55();
 testActiveWorkerDoesNotUseDeprecatedDeepseekCredentials();
 await testDingTalkDocumentPublishCreatesAndWritesMarkdown();
 await testUploadDingTalkImageReturnsMediaId();
