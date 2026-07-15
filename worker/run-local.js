@@ -23,7 +23,7 @@ const kv = {
 const env = {
   AI_API_KEY: process.env.AI_API_KEY,
   AI_API_BASE_URL: process.env.AI_API_BASE_URL || 'https://hk.testvideo.site/v1',
-  AI_MODEL: process.env.AI_MODEL || 'gpt-5.6-sol',
+  AI_MODEL: process.env.AI_MODEL || 'gpt-5.5',
   AI_MAX_TOKENS: process.env.AI_MAX_TOKENS,
   DINGTALK_WEBHOOK_URL: process.env.DINGTALK_WEBHOOK_URL,
   DINGTALK_SECRET: process.env.DINGTALK_SECRET,
