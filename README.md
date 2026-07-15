@@ -139,7 +139,7 @@ npx wrangler secret put FEISHU_WEBHOOK_URL
 ```toml
 [vars]
 AI_API_BASE_URL = "https://hk.testvideo.site/v1"
-AI_MODEL = "gpt-5.6-sol"
+AI_MODEL = "gpt-5.5"
 NOTIFY_CHANNEL = "dingtalk"
 ```
 
@@ -230,7 +230,7 @@ beauty-legal-bot/
 ## 注意事项
 
 - 当前程序使用 OpenAI-compatible AI 接口，默认 base URL 可在 `AI_API_BASE_URL` 中配置。
-- 默认模型为 `gpt-5.6-sol`，请求使用高推理强度；旧 DeepSeek 凭据和模型回退已停用。
+- 默认模型为 `gpt-5.5`；旧 DeepSeek 凭据和模型回退已停用。显式使用 `gpt-5.6-sol` 时才发送高推理强度参数。
 - AI 复核只允许纠错或删除首轮条目，不能新增条目、替换来源或改变报告周期；复核失败时降级使用已验证的首轮结果。
 - 不引入 NewsAPI、搜索 API 或其他付费模型服务。
 - 报告内容必须带原文链接；没有原文链接的候选不得进入最终推送。
