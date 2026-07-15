@@ -17,7 +17,7 @@ jobs:
     env:
       AI_API_KEY: ${{ secrets.AI_API_KEY }}
       AI_API_BASE_URL: https://hk.testvideo.site/v1
-      AI_MODEL: gpt-5.4-mini
+      AI_MODEL: gpt-5.6-sol
       REPORT_QUALITY_MODE: quality
       ANALYSIS_CANDIDATE_LIMIT: 220
       ANALYSIS_LEAD_LIMIT: 180
