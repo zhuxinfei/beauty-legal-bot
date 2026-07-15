@@ -143,6 +143,8 @@ AI_MODEL=gpt-5.5
 
 工作流会优先读取这两个 Variables；未配置时才使用代码中的默认值。`worker/wrangler.toml` 仍提供本地 Wrangler 部署的默认值：
 
+正式采集前会先发送一个最小 AI 连通性请求；该请求失败时会立即停止，不再先抓取完整信息源。正式分析使用有限的候选和 token 预算，避免中转服务因超大非流式请求长时间无响应。
+
 ```toml
 [vars]
 AI_API_BASE_URL = "https://hk.testvideo.site/v1"
