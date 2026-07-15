@@ -133,6 +133,14 @@ function testSourceCoverageGatesChinaCriticalAndOverallCoverage() {
   const missingChina = passingResults.map((result, index) => index === 0 ? { ...result, status: 'failed', candidate_count: 0 } : result);
   assert.throws(() => assertSourceCoverage(calculateSourceCoverage(sources, missingChina)), SourceCoverageError);
 
+  const tenChinaCritical = Array.from({ length: 10 }, (_, index) => ({ name: `中国关键${index + 1}`, country: '中国', priority: 'high' }));
+  const ninetyPercentChina = tenChinaCritical.map((source, index) => ({
+    source,
+    status: index === 0 ? 'failed' : 'ok',
+    candidate_count: index === 0 ? 0 : 1,
+  }));
+  assert.equal(assertSourceCoverage(calculateSourceCoverage(tenChinaCritical, ninetyPercentChina)), true);
+
   const belowOverall = passingResults.map((result, index) => index >= 7 ? { ...result, status: 'failed', candidate_count: 0 } : result);
   assert.throws(() => assertSourceCoverage(calculateSourceCoverage(sources, belowOverall)), SourceCoverageError);
 
@@ -1827,6 +1835,7 @@ function testWeeklyWorkflowDeploysRoutesBeforeVersionedAssetPipeline() {
   assert.ok(workflow.indexOf('npx wrangler deploy') < workflow.indexOf('node worker/run-local.js'));
   assert.ok(workflow.includes('vars.AI_API_BASE_URL'));
   assert.ok(workflow.includes('vars.AI_MODEL'));
+  assert.ok(workflow.includes("MIN_CHINA_CRITICAL_COVERAGE || '0.9'"));
   assert.ok(workflow.includes('npx playwright install --with-deps chromium'));
   assert.ok(workflow.includes('fonts-noto-cjk'));
   assert.ok(workflow.includes('CLOUDFLARE_KV_NAMESPACE_ID'));
