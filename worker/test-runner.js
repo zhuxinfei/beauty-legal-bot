@@ -1040,6 +1040,34 @@ async function testRequestAiChatEnablesHighReasoningForSolModel() {
   assert.equal(payload.reasoning_effort, 'high');
 }
 
+async function testRequestAiChatRetriesHeadersTimeout() {
+  let attempts = 0;
+  const sleeps = [];
+  const content = await requestAiChat({
+    apiKey: 'test-key',
+    baseUrl: 'https://hk.testvideo.site/v1',
+    model: 'gpt-5.6-sol',
+    messages: [{ role: 'user', content: 'retry' }],
+    timeoutMs: 20,
+    maxAttempts: 2,
+    sleepFn: async (delayMs) => { sleeps.push(delayMs); },
+    fetcher: async () => {
+      attempts += 1;
+      if (attempts === 1) {
+        const error = new Error('fetch failed');
+        error.cause = { code: 'UND_ERR_HEADERS_TIMEOUT' };
+        throw error;
+      }
+      return new Response(JSON.stringify({ choices: [{ message: { content: '{"ok":true}' } }] }), { status: 200 });
+    },
+  });
+
+  assert.equal(content, '{"ok":true}');
+  assert.equal(attempts, 2);
+  assert.equal(sleeps.length, 1);
+  assert.ok(sleeps[0] > 0);
+}
+
 function testBuildAnalysisPromptUsesConfigurableInputLimits() {
   const candidates = Array.from({ length: 5 }, (_, i) => ({
     title: `候选${i}`,
@@ -1155,7 +1183,7 @@ async function testDeepseekAnalyzeFallsBackWhenEvidenceReviewFails() {
       period: draft.period,
       logger: { warn() {} },
     });
-    assert.equal(calls, 2);
+    assert.equal(calls, 3);
     assert.ok(result.sections[0].items[0].core_judgement.startsWith('首轮保留'));
   } finally {
     globalThis.fetch = originalFetch;
@@ -1877,6 +1905,7 @@ await testSendDingTalkMessagesStopsAfterTerminalFailure();
 await testNotifyReportPrefersDingTalkWhenConfigured();
 await testRequestAiChatUsesOpenAiCompatibleBaseUrl();
 await testRequestAiChatEnablesHighReasoningForSolModel();
+await testRequestAiChatRetriesHeadersTimeout();
 testBuildAnalysisPromptUsesConfigurableInputLimits();
 testBuildAnalysisPromptRequiresCoreJudgementWithoutInternalDeadlines();
 await testDeepseekAnalyzeUsesValidatedEvidenceReview();
