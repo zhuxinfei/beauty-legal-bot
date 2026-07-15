@@ -1925,25 +1925,37 @@ async function deepseekAnalyzeByModule({ apiKey, baseUrl, model, candidates, lea
   if (!candidates.length && !leads.length) {
     return { period, summary: [], risk_alerts: [], sections: REPORT_MODULES.map(m => ({ module: m, items: [] })) };
   }
-  const reports = [];
-  for (const module of REPORT_MODULES) {
+  const reports = await mapWithConcurrency(REPORT_MODULES, 2, async module => {
     const moduleCandidates = candidates.filter(candidate => candidate.module === module || signalMatchesModule(candidate, module));
     const moduleLeads = leads.filter(lead => lead.module === module || signalMatchesModule(lead, module));
-    const report = await deepseekAnalyze({
-      apiKey,
-      baseUrl,
-      model,
-      candidates: moduleCandidates,
-      leads: moduleLeads,
-      sources: sources.filter(source => source.module === module),
-      period,
-      candidateLimit: Math.min(candidateLimit, 16),
-      leadLimit: Math.min(leadLimit, 8),
-      maxTokens: Math.min(maxTokens, 2500),
-      targetModule: module,
-    });
-    reports.push(normalizeModuleReport(report, module));
-  }
+    try {
+      const report = await deepseekAnalyze({
+        apiKey,
+        baseUrl,
+        model,
+        candidates: moduleCandidates,
+        leads: moduleLeads,
+        sources: sources.filter(source => source.module === module),
+        period,
+        candidateLimit: Math.min(candidateLimit, 16),
+        leadLimit: Math.min(leadLimit, 8),
+        maxTokens: Math.min(maxTokens, 2500),
+        targetModule: module,
+      });
+      return normalizeModuleReport(report, module);
+    } catch (error) {
+      console.warn(`AI module fallback: ${module}: ${error.message}`);
+      const fallbackCandidates = [...moduleCandidates, ...moduleLeads]
+        .sort((a, b) => scoreCandidate(b) - scoreCandidate(a))
+        .slice(0, 3);
+      return {
+        period,
+        summary: [],
+        risk_alerts: [],
+        sections: [{ module, items: fallbackCandidates.map(candidate => buildSignalItem(candidate, module)) }],
+      };
+    }
+  });
   return mergeModuleReports(reports, period);
 }
 
