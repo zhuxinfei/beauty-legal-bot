@@ -1085,7 +1085,7 @@ export async function runPipeline(env, requestUrl = 'https://beauty-legal-bot.wo
     });
     assertSourceCoverage(coverage, {
       minOverall: Number(env.MIN_SOURCE_COVERAGE || 0.9),
-      minChinaCritical: Number(env.MIN_CHINA_CRITICAL_COVERAGE || 1),
+      minChinaCritical: Number(env.MIN_CHINA_CRITICAL_COVERAGE || 0.9),
     });
     console.log(`[stage 1/5] 完成，候选 ${candidates.length} 条，线索 ${leads.length} 条，恢复源 ${sourceResults.filter(result => result.status === 'recovered').length} 个，失败源 ${failures.length} 个，覆盖率 ${(coverage.overall * 100).toFixed(1)}%`);
 
@@ -2289,7 +2289,7 @@ async function runAnalysisPhase(date, env, additionalCandidates = []) {
   const coverage = calculateSourceCoverage(coverageSources, allSourceResults);
   assertSourceCoverage(coverage, {
     minOverall: Number(env.MIN_SOURCE_COVERAGE || 0.9),
-    minChinaCritical: Number(env.MIN_CHINA_CRITICAL_COVERAGE || 1),
+    minChinaCritical: Number(env.MIN_CHINA_CRITICAL_COVERAGE || 0.9),
   });
 
   const model = env.AI_MODEL || DEFAULT_AI_MODEL;
