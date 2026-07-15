@@ -94,17 +94,11 @@ function normalizedSections(report) {
   }));
 }
 
-function renderMessage(report, sections, tiers, removed, { imageUrl, coverage, omittedItemCount }) {
+function renderMessage(report, sections, tiers, removed, { imageUrl, omittedItemCount }) {
   const itemCount = sections.reduce((sum, section) => sum + section.items.length, 0);
   const date = report.period?.end || '本期';
-  const coverageLine = coverage
-    ? `> 来源覆盖：${(Number(coverage.overall || 0) * 100).toFixed(1)}%｜中国关键源：${(Number(coverage.chinaCritical || 0) * 100).toFixed(1)}%｜受限监测源：${(coverage.monitoredFailedSources || []).length}｜正式条目：${itemCount}`
-    : `> 正式条目：${itemCount}｜中国信息优先｜来源均保留原文链接`;
   const chinaItems = sections.flatMap(section => section.items).filter(item => item.country === '中国').slice(0, 3);
-  const lines = [
-    `# 美妆法务资讯｜${date}`,
-    coverageLine,
-  ];
+  const lines = [`# 美妆法务资讯｜${date}`];
   if (imageUrl) lines.push('', `![管理层行动看板](${imageUrl})`);
   if (chinaItems.length) {
     lines.push('', '## 中国监管重点', ...chinaItems.map((item, index) => `${index + 1}. ${sourceLink(item)}`));
@@ -137,7 +131,6 @@ function renderMessage(report, sections, tiers, removed, { imageUrl, coverage, o
  */
 export function buildSingleDingTalkMessage(report, {
   imageUrl = '',
-  coverage,
   maxBytes = 18000,
 } = {}) {
   const byteLimit = Math.max(1200, Number(maxBytes || 18000));
@@ -154,7 +147,6 @@ export function buildSingleDingTalkMessage(report, {
 
   const build = () => renderMessage(report, sections, tiers, removed, {
     imageUrl,
-    coverage,
     omittedItemCount: removed.size,
   });
   let markdown = build();
