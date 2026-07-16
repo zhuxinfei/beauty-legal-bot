@@ -13,11 +13,20 @@
  */
 
 import sourceCatalog from './sources.json' with { type: 'json' };
+import { buildSingleDingTalkMessage } from './dingtalk-single-card.js';
+import { buildActionDashboardSvg } from './action-dashboard.js';
+import { curateReportQuality } from './report-quality.js';
+import {
+  assertSourceCoverage,
+  calculateSourceCoverage,
+  recoverPublicSource,
+} from './source-recovery.js';
 
 // ---------------------------------------------------------------------------
 // 配置
 // ---------------------------------------------------------------------------
-const DEFAULT_AI_API_BASE_URL = "https://api.deepseek.com/v1";
+const DEFAULT_AI_API_BASE_URL = 'https://hk.testvideo.site/v1';
+const DEFAULT_AI_MODEL = 'gpt-5.5';
 
 const RELEVANT_KEYWORDS = [
   '化妆品', '美妆', '护肤', '彩妆', '香水', '防晒', '洗护', '功效宣称', '备案', '注册',
@@ -49,6 +58,9 @@ const ACTION_NOISE = ['建议关注', '持续关注', '企业应留意', '可能
 const SOURCE_FETCH_TIMEOUT_MS = 30000;
 const SOURCE_FETCH_CONCURRENCY = 4;
 const WORKER_FETCH_SOURCE_BUDGET = 15;
+const AI_REQUEST_TIMEOUT_MS = 120000;
+const AI_REQUEST_MAX_ATTEMPTS = 2;
+const AI_RETRY_BASE_DELAY_MS = 1500;
 const DEFAULT_AI_MAX_TOKENS = 8000;
 const QUALITY_AI_MAX_TOKENS = 16000;
 const DEFAULT_ANALYSIS_CANDIDATE_LIMIT = 140;
@@ -64,37 +76,76 @@ const TYPE_REQUIRED_FIELDS = {
   '进出口': ['market_access_change', 'affected_import_flow', 'documents_needed', 'recommended_actions', 'owner_teams', 'risk_level', 'why_it_matters', 'confidence'],
   '动态': ['regulatory_signal', 'compliance_meaning', 'possible_follow_up', 'recommended_actions', 'owner_teams', 'risk_level', 'why_it_matters', 'confidence'],
 };
-const ENTERPRISE_REQUIRED_FIELDS = ['source_type', 'relevance', 'industry_impact', 'business_impact', 'market_scope'];
+const ENTERPRISE_REQUIRED_FIELDS = ['source_type', 'relevance', 'industry_impact', 'business_impact', 'market_scope', 'core_judgement'];
 
 // ---------------------------------------------------------------------------
 // AI：一站式搜索 + 分析 + 格式化（OpenAI-compatible API）
 // ---------------------------------------------------------------------------
-export async function requestAiChat({ apiKey, baseUrl = DEFAULT_AI_API_BASE_URL, model = "deepseek-chat", messages, temperature = 0.2, maxTokens = 8000, fetcher = fetch }) {
+function isRetryableAiNetworkError(error) {
+  const code = error?.code || error?.cause?.code;
+  return error?.name === 'AbortError'
+    || ['UND_ERR_HEADERS_TIMEOUT', 'UND_ERR_CONNECT_TIMEOUT', 'ECONNRESET', 'ETIMEDOUT', 'ECONNREFUSED'].includes(code)
+    || (error instanceof TypeError && /fetch failed|network/i.test(error.message || ''));
+}
+
+export async function requestAiChat({
+  apiKey,
+  baseUrl = DEFAULT_AI_API_BASE_URL,
+  model = DEFAULT_AI_MODEL,
+  messages,
+  temperature = 0.2,
+  maxTokens = 8000,
+  timeoutMs = AI_REQUEST_TIMEOUT_MS,
+  maxAttempts = AI_REQUEST_MAX_ATTEMPTS,
+  reasoningEffort = '',
+  sleepFn = sleep,
+  fetcher = fetch,
+}) {
   const body = {
     model,
     messages,
     temperature,
     max_tokens: maxTokens,
   };
-  if (model === 'deepseek-v4-pro') {
-    body.reasoning_effort = 'high';
+  if (model === 'gpt-5.6-sol') {
+    body.reasoning_effort = reasoningEffort || 'medium';
   }
   const endpoint = `${String(baseUrl || DEFAULT_AI_API_BASE_URL).replace(/\/+$/, '')}/chat/completions`;
-  const resp = await fetcher(endpoint, {
-    method: "POST",
-    headers: {
-      "Authorization": `Bearer ${apiKey}`,
-      "Content-Type": "application/json",
-    },
-    body: JSON.stringify(body),
-  });
+  const attempts = Math.max(1, Number(maxAttempts) || AI_REQUEST_MAX_ATTEMPTS);
+  for (let attempt = 0; attempt < attempts; attempt++) {
+    const controller = new AbortController();
+    const timer = setTimeout(() => controller.abort(), timeoutMs);
+    try {
+      const resp = await fetcher(endpoint, {
+        method: 'POST',
+        headers: {
+          Authorization: `Bearer ${apiKey}`,
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify(body),
+        signal: controller.signal,
+      });
 
-  if (!resp.ok) {
-    throw new Error(`AI ${resp.status}: ${await resp.text().then(t => t.slice(0, 300))}`);
+      if (!resp.ok) {
+        const error = new Error(`AI ${resp.status}: ${await resp.text().then(t => t.slice(0, 300))}`);
+        error.retryable = resp.status === 408 || resp.status === 429 || resp.status >= 500;
+        throw error;
+      }
+
+      const data = await resp.json();
+      return data.choices?.[0]?.message?.content || '';
+    } catch (error) {
+      const normalizedError = error?.name === 'AbortError'
+        ? Object.assign(new Error(`AI request timed out after ${timeoutMs}ms`), { code: 'AI_TIMEOUT', retryable: true })
+        : error;
+      const retryable = normalizedError.retryable || isRetryableAiNetworkError(normalizedError);
+      if (!retryable || attempt === attempts - 1) throw normalizedError;
+      await sleepFn(AI_RETRY_BASE_DELAY_MS * (attempt + 1));
+    } finally {
+      clearTimeout(timer);
+    }
   }
-
-  const data = await resp.json();
-  return data.choices?.[0]?.message?.content || "";
+  throw new Error('AI request failed without a response');
 }
 
 // ---------------------------------------------------------------------------
@@ -281,7 +332,7 @@ function verifiedReportItems(report) {
     .filter(item => isHttpUrl(item.source_url));
 }
 
-export function buildDecisionMapSvg(items) {
+function buildLegacyDecisionMapSvg(items) {
   const graphItems = (items || []).slice(0, 10);
   const width = 1600;
   const height = 1180;
@@ -371,6 +422,10 @@ export function buildDecisionMapSvg(items) {
       <text x="${center.x}" y="${center.y + 74}" text-anchor="middle" font-size="14" fill="#94A3B8">AI distilled map</text>
     </g>
   </svg>`;
+}
+
+export function buildDecisionMapSvg(items, options = {}) {
+  return buildActionDashboardSvg(items, options);
 }
 
 function renderWholeReportInsights(report) {
@@ -471,6 +526,134 @@ export function renderDingTalkSummaryCard(report, docUrl = '', options = {}) {
   }
 
   return lines.join('\n').replace(/\n{3,}/g, '\n\n').trim();
+}
+
+function sortReportItemsForDelivery(items = []) {
+  return [...items].sort((a, b) => {
+    const chinaPriority = Number(String(b.country || '').trim() === '中国')
+      - Number(String(a.country || '').trim() === '中国');
+    if (chinaPriority) return chinaPriority;
+    return rankReportItem(b) - rankReportItem(a)
+      || String(a.title || '').localeCompare(String(b.title || ''), 'zh-Hans-CN');
+  });
+}
+
+function renderDingTalkDeliveryItem(item, index) {
+  const happened = firstText(
+    item.what_changed,
+    item.facts,
+    item.regulatory_signal,
+    item.compliance_meaning,
+    item.title
+  );
+  const legalAnalysis = firstText(
+    item.legal_obligation,
+    item.violation_logic,
+    item.dispute_focus,
+    item.market_access_change,
+    item.analysis
+  ) || item.why_it_matters || '需由法务结合原文和业务场景进一步核验。';
+  const teams = (item.owner_teams || ['法务']).join('、');
+  const source = isHttpUrl(item.source_url)
+    ? `[${item.source_name || '查看原文'}](${item.source_url})`
+    : (item.source_name || '来源待核验');
+  const deadline = item.next_deadline || item.effective_date || item.feedback_deadline || '';
+  return [
+    `### ${index + 1}. [${riskLabel(item.risk_level)}] ${item.country || item.region || '全球'}｜${item.title}`,
+    `- **来源**：${source}`,
+    `- **事实摘要**：${happened}`,
+    `- **法务拆解**：${legalAnalysis}`,
+    `- **业务影响**：${compactImpact(item)}`,
+    `- **责任团队**：${teams}`,
+    `- **具体动作**：${compactAction(item)}`,
+    ...(deadline ? [`- **关键节点**：${deadline}`] : []),
+  ].join('\n');
+}
+
+function markdownByteLength(value) {
+  return new TextEncoder().encode(String(value || '')).length;
+}
+
+function splitTextByBytes(text, maxBytes) {
+  const chunks = [];
+  let current = '';
+  for (const character of String(text || '')) {
+    if (current && markdownByteLength(`${current}${character}`) > maxBytes) {
+      chunks.push(current);
+      current = character;
+    } else {
+      current += character;
+    }
+  }
+  if (current) chunks.push(current);
+  return chunks;
+}
+
+function splitOversizedMarkdownBlock(block, maxBytes) {
+  const segments = [];
+  let current = '';
+  for (const line of String(block || '').split('\n')) {
+    const candidate = current ? `${current}\n${line}` : line;
+    if (current && markdownByteLength(candidate) > maxBytes) {
+      segments.push(current);
+      current = '';
+    }
+    if (markdownByteLength(line) > maxBytes) {
+      if (current) {
+        segments.push(current);
+        current = '';
+      }
+      segments.push(...splitTextByBytes(line, maxBytes));
+    } else {
+      current = current ? `${current}\n${line}` : line;
+    }
+  }
+  if (current) segments.push(current);
+  return segments;
+}
+
+function splitDingTalkMessageBlocks(header, blocks, maxBytes) {
+  const separator = '\n\n---\n\n';
+  const blockLimit = Math.max(128, maxBytes - markdownByteLength(header) - markdownByteLength(separator));
+  const chunks = [];
+  let current = header;
+  const safeBlocks = blocks.flatMap(block => markdownByteLength(`${header}${separator}${block}`) > maxBytes
+    ? splitOversizedMarkdownBlock(block, blockLimit)
+    : [block]);
+  for (const block of safeBlocks) {
+    const candidate = `${current}${current ? separator : ''}${block}`;
+    if (current !== header && markdownByteLength(candidate) > maxBytes) {
+      chunks.push(current);
+      current = `${header}\n\n${block}`;
+    } else {
+      current = candidate;
+    }
+  }
+  if (current) chunks.push(current);
+  return chunks;
+}
+
+function renderDingTalkModuleDelivery(report, module, maxBytes) {
+  const section = (report.sections || []).find(candidate => candidate.module === module);
+  const items = sortReportItemsForDelivery(section?.items || []).filter(item => isHttpUrl(item.source_url));
+  const header = `# ${moduleCode(module)} ${module}`;
+  if (!items.length) {
+    return [`${header}\n\n本周无高置信更新。`];
+  }
+  const blocks = items.map((item, index) => renderDingTalkDeliveryItem(item, index));
+  return splitDingTalkMessageBlocks(header, blocks, maxBytes);
+}
+
+/**
+ * 将已验证周报压缩为一条群机器人消息。
+ * 字节预算由单卡渲染器统一负责，发送层不能再把超长报告静默拆成多张卡。
+ */
+export function buildDingTalkWebhookMessages(report, options = {}) {
+  return [buildSingleDingTalkMessage(report, {
+    imageUrl: options.decisionMapUrl || options.imageUrl || '',
+    coverage: options.coverage,
+    maxBytes: options.maxBytes,
+  })];
 }
 
 export function renderDingTalkMarkdown(report, options = {}) {
@@ -592,10 +775,10 @@ export function renderDingTalkMarkdown(report, options = {}) {
   const actions = renderWholeReportActionBoard(report);
   lines.push('## Action Board', '');
   if (actions.length) {
-    lines.push('| 优先级 | 动作 | 责任团队 | 触发/截止 | 来源事项 |');
+    lines.push('| 优先级 | 动作 | 责任团队 | 内部完成时间 | 来源事项 |');
     lines.push('| --- | --- | --- | --- | --- |');
     actions.forEach((action, index) => {
-      lines.push(`| P${index + 1} | ${markdownTableCell(action.text)} | ${markdownTableCell(action.teams)} | 本周内核验 | ${markdownTableCell(action.source)} |`);
+      lines.push(`| P${index + 1} | ${markdownTableCell(action.text)} | ${markdownTableCell(action.teams)} | 由责任领导确定 | ${markdownTableCell(action.source)} |`);
     });
   } else {
     lines.push('本期暂无可直接分派的行动项；建议法务先复核信息源质量和候选原文。');
@@ -638,8 +821,8 @@ export async function buildDingTalkWebhookUrl(webhookUrl, secret = '', timestamp
   return url.toString();
 }
 
-export async function sendToDingTalk({ webhookUrl, secret = '', title, markdown, fetcher = fetch }) {
-  if (!webhookUrl) return false;
+async function sendToDingTalkResult({ webhookUrl, secret = '', title, markdown, fetcher = fetch }) {
+  if (!webhookUrl) return { ok: false, retryable: false, error: 'DINGTALK_WEBHOOK_URL is required' };
   try {
     const url = await buildDingTalkWebhookUrl(webhookUrl, secret);
     const resp = await fetcher(url, {
@@ -652,20 +835,94 @@ export async function sendToDingTalk({ webhookUrl, secret = '', title, markdown,
     });
     const bodyText = await resp.text();
     if (!resp.ok) {
-      console.error(`钉钉 ${resp.status}: ${bodyText.slice(0, 200)}`);
-      return false;
+      return {
+        ok: false,
+        retryable: resp.status === 408 || resp.status === 429 || resp.status >= 500,
+        error: `DingTalk HTTP ${resp.status}: ${bodyText.slice(0, 200)}`,
+      };
     }
-    const body = bodyText ? JSON.parse(bodyText) : {};
+    let body = {};
+    try {
+      body = bodyText ? JSON.parse(bodyText) : {};
+    } catch {
+      return { ok: false, retryable: true, error: `DingTalk invalid JSON: ${bodyText.slice(0, 200)}` };
+    }
     if (body.errcode === 0 || body.code === 0) {
-      console.log('钉钉推送成功');
-      return true;
+      return { ok: true, retryable: false, error: '' };
     }
-    console.error(`钉钉错误: ${bodyText.slice(0, 300)}`);
-    return false;
+    return { ok: false, retryable: false, error: `DingTalk error: ${bodyText.slice(0, 300)}` };
   } catch (error) {
-    console.error(`钉钉异常: ${error.message}`);
-    return false;
+    return { ok: false, retryable: true, error: `DingTalk network error: ${error.message}` };
   }
+}
+
+export async function sendToDingTalk(options) {
+  const result = await sendToDingTalkResult(options);
+  if (result.ok) console.log('钉钉推送成功');
+  else console.error(result.error);
+  return result.ok;
+}
+
+/**
+ * 顺序发送钉钉消息。每个分段独立重试，终止后返回准确的发送数量和失败位置，
+ * 供流水线决定是否写入去重状态以及是否以失败退出。
+ */
+export async function sendDingTalkMessages({
+  messages,
+  webhookUrl = '',
+  secret = '',
+  sendMessage,
+  maxAttempts = 3,
+  interMessageDelayMs = 0,
+  sleepFn = sleep,
+}) {
+  const delivery = sendMessage || (message => sendToDingTalkResult({
+    webhookUrl,
+    secret,
+    title: message.title,
+    markdown: message.markdown,
+  }));
+  let sent = 0;
+  let retries = 0;
+  for (const message of messages || []) {
+    let lastResult = { ok: false, retryable: false, error: 'unknown delivery error' };
+    for (let attempt = 1; attempt <= maxAttempts; attempt++) {
+      const rawResult = await delivery(message);
+      lastResult = typeof rawResult === 'boolean'
+        ? { ok: rawResult, retryable: !rawResult, error: rawResult ? '' : 'DingTalk send failed' }
+        : rawResult;
+      if (lastResult.ok) {
+        sent += 1;
+        console.log(`钉钉推送成功: ${message.id} (${sent}/${messages.length})`);
+        if (sent < messages.length && interMessageDelayMs > 0) {
+          await sleepFn(interMessageDelayMs);
+        }
+        break;
+      }
+      if (!lastResult.retryable || attempt === maxAttempts) break;
+      retries += 1;
+      await sleepFn(750 * attempt);
+    }
+    if (!lastResult.ok) {
+      console.error(`钉钉推送失败: ${message.id}: ${lastResult.error}`);
+      return {
+        ok: false,
+        sent,
+        total: messages.length,
+        retries,
+        failedMessageId: message.id,
+        error: lastResult.error || 'DingTalk send failed',
+      };
+    }
+  }
+  return {
+    ok: true,
+    sent,
+    total: (messages || []).length,
+    retries,
+    failedMessageId: '',
+    error: '',
+  };
 }
 
 async function parseJsonResponse(resp, label) {
@@ -751,34 +1008,33 @@ export async function publishDingTalkDocument({ env, title, markdown, fetcher = 
   return doc;
 }
 
-async function resolveDecisionMapUrl({ env, requestUrl, decisionMapPng, fetcher = fetch }) {
+async function resolveDecisionMapUrl({ env, requestUrl, decisionMapPng, date }) {
   if (env.DECISION_MAP_PUBLIC_URL || env.DECISION_MAP_URL) return env.DECISION_MAP_PUBLIC_URL || env.DECISION_MAP_URL;
-  if (decisionMapPng && (env.DINGTALK_CLIENT_ID || env.DINGTALK_APP_KEY) && (env.DINGTALK_CLIENT_SECRET || env.DINGTALK_APP_SECRET)) {
-    try {
-      const accessToken = await getDingTalkAccessToken({
-        clientId: env.DINGTALK_CLIENT_ID || env.DINGTALK_APP_KEY,
-        clientSecret: env.DINGTALK_CLIENT_SECRET || env.DINGTALK_APP_SECRET,
-        fetcher,
-      });
-      const mediaId = await uploadDingTalkImage({ accessToken, image: decisionMapPng, fetcher });
-      if (mediaId) return mediaId;
-    } catch (error) {
-      console.warn(`钉钉图片上传失败，回退外链图片: ${error.message}`);
-    }
-  }
-  return decisionMapPng ? reportUrl(requestUrl, '/assets/decision-map.png') : reportUrl(requestUrl, '/assets/decision-map.svg');
+  return decisionMapPng
+    ? reportUrl(requestUrl, `/assets/decision-map/${date}.png`)
+    : reportUrl(requestUrl, '/assets/decision-map.svg');
 }
 
 export async function notifyReport({ report, reportUrl: latestUrl, env, sendDingTalk = sendToDingTalk, sendFeishu = sendToFeishu }) {
   if (env.DINGTALK_WEBHOOK_URL) {
-    const markdown = renderDingTalkSummaryCard(report, latestUrl || '', { decisionMapUrl: env.DECISION_MAP_URL || '' });
-    const ok = await sendDingTalk({
+    const messages = buildDingTalkWebhookMessages(report, {
+      decisionMapUrl: env.DECISION_MAP_URL || '',
+      coverage: env.SOURCE_COVERAGE,
+      maxBytes: env.DINGTALK_MAX_BYTES,
+    });
+    const delivery = await sendDingTalkMessages({
+      messages,
       webhookUrl: env.DINGTALK_WEBHOOK_URL,
       secret: env.DINGTALK_SECRET || '',
-      title: `美妆法务资讯 ${report.period?.end || ''}`,
-      markdown,
+      interMessageDelayMs: 0,
+      sendMessage: sendDingTalk === sendToDingTalk ? undefined : message => sendDingTalk({
+        webhookUrl: env.DINGTALK_WEBHOOK_URL,
+        secret: env.DINGTALK_SECRET || '',
+        title: message.title,
+        markdown: message.markdown,
+      }),
     });
-    return { channel: 'dingtalk', ok };
+    return { channel: 'dingtalk', ...delivery };
   }
 
   const ok = await sendFeishu(env.FEISHU_WEBHOOK_URL, renderFeishuSummary(report, latestUrl));
@@ -797,11 +1053,11 @@ async function recordLastRun(kv, patch) {
 // 管道入口
 // ---------------------------------------------------------------------------
 export async function runPipeline(env, requestUrl = 'https://beauty-legal-bot.workers.dev/') {
-  const aiKey = env.AI_API_KEY || env.DEEPSEEK_API_KEY;
-  const aiBaseUrl = env.AI_API_BASE_URL || env.DEEPSEEK_API_BASE_URL || DEFAULT_AI_API_BASE_URL;
+  const aiKey = env.AI_API_KEY;
+  const aiBaseUrl = env.AI_API_BASE_URL || DEFAULT_AI_API_BASE_URL;
   const feishuUrl = env.FEISHU_WEBHOOK_URL;
   const dingTalkUrl = env.DINGTALK_WEBHOOK_URL;
-  const model = env.AI_MODEL || env.DEEPSEEK_MODEL || "deepseek-chat";
+  const model = env.AI_MODEL || DEFAULT_AI_MODEL;
   const kv = env.SEEN_NEWS;
   const qualityMode = env.QUALITY_MODE === '1' || env.REPORT_QUALITY_MODE === 'quality' || env.CONTENT_QUALITY_MODE === 'quality';
   const candidateLimit = Number(env.ANALYSIS_CANDIDATE_LIMIT || (qualityMode ? QUALITY_ANALYSIS_CANDIDATE_LIMIT : DEFAULT_ANALYSIS_CANDIDATE_LIMIT));
@@ -809,9 +1065,9 @@ export async function runPipeline(env, requestUrl = 'https://beauty-legal-bot.wo
   const maxTokens = Number(env.AI_MAX_TOKENS || (qualityMode ? QUALITY_AI_MAX_TOKENS : DEFAULT_AI_MAX_TOKENS));
   const itemsPerModule = Number(env.REPORT_ITEMS_PER_MODULE || (qualityMode ? QUALITY_REPORT_ITEMS_PER_MODULE : DEFAULT_REPORT_ITEMS_PER_MODULE));
 
-  if (!aiKey) { console.error("缺少 AI_API_KEY"); return; }
-  if (!dingTalkUrl && !feishuUrl) { console.error("缺少 DINGTALK_WEBHOOK_URL 或 FEISHU_WEBHOOK_URL"); return; }
-  if (!kv) { console.error("缺少 SEEN_NEWS KV 绑定"); return; }
+  if (!aiKey) throw new Error('AI_API_KEY is required');
+  if (!dingTalkUrl && !feishuUrl) throw new Error('DINGTALK_WEBHOOK_URL or FEISHU_WEBHOOK_URL is required');
+  if (!kv) throw new Error('SEEN_NEWS KV binding is required');
 
   console.log("=== 周报管道启动 ===");
 
@@ -822,54 +1078,50 @@ export async function runPipeline(env, requestUrl = 'https://beauty-legal-bot.wo
       : selectSourcesForWorkerBudget(sourceCatalog.sources, Number(env.WORKER_FETCH_SOURCE_BUDGET || WORKER_FETCH_SOURCE_BUDGET));
     const { fetchableSources } = splitSources(sources);
     console.log(`[stage 1/5] Worker 抓取预算：${fetchableSources.length} 个可抓取源，${sources.length - fetchableSources.length} 个线索源`);
-    const { candidates, leads, failures } = await collectCandidates(sources);
-    console.log(`[stage 1/5] 完成，候选 ${candidates.length} 条，线索 ${leads.length} 条，失败源 ${failures.length} 个`);
+    const { candidates, leads, failures, sourceResults, coverage } = await collectCandidates(sources, async () => {}, {
+      fetcher: env.SOURCE_FETCH || fetch,
+      browserFetcher: env.BROWSER_FETCH_HTML,
+      timeoutMs: Number(env.SOURCE_FETCH_TIMEOUT_MS || SOURCE_FETCH_TIMEOUT_MS),
+      sleepFn: env.SOURCE_RETRY_SLEEP,
+      jitter: env.SOURCE_RETRY_JITTER,
+    });
+    assertSourceCoverage(coverage, {
+      minOverall: Number(env.MIN_SOURCE_COVERAGE || 0.9),
+      minChinaCritical: Number(env.MIN_CHINA_CRITICAL_COVERAGE || 0.9),
+    });
+    console.log(`[stage 1/5] 完成，候选 ${candidates.length} 条，线索 ${leads.length} 条，恢复源 ${sourceResults.filter(result => result.status === 'recovered').length} 个，失败源 ${failures.length} 个，覆盖率 ${(coverage.overall * 100).toFixed(1)}%`);
 
     console.log("[stage 2/5] AI 结构化分析...");
     const period = getPeriod();
     const rawReport = await deepseekAnalyzeByModule({ apiKey: aiKey, baseUrl: aiBaseUrl, model, candidates, leads, sources, period, candidateLimit, leadLimit, maxTokens });
     const sourceCheckedReport = filterReportToObservedSources(rawReport, { candidates, sources });
     const imageAwareReport = attachReportImages(sourceCheckedReport, { candidates });
-    const report = limitReportSections(filterReportQuality(dedupeReport(enrichReportWithSourceSignals(imageAwareReport, { candidates, sources }))), itemsPerModule);
+    const normalizedReport = filterReportQuality(dedupeReport(imageAwareReport));
+    const report = limitReportSections(curateReportQuality(normalizedReport), itemsPerModule);
     validateReport(report);
     const itemCount = (report.sections || []).flatMap(section => section.items || []).length;
     console.log(`[stage 2/5] 完成，模块 ${report.sections.length} 个，去重后 ${itemCount} 条`);
 
-    console.log("[stage 3/5] 生成风险雷达并写入钉钉文档...");
+    console.log("[stage 3/5] 生成管理层行动看板并保存报告...");
     const generatedAt = new Date().toISOString();
     const reportDate = report.period.end;
-    const decisionMapSvg = buildDecisionMapSvg(verifiedReportItems(report).sort((a, b) => rankReportItem(b) - rankReportItem(a)));
+    const decisionMapSvg = buildDecisionMapSvg(
+      verifiedReportItems(report).sort((a, b) => rankReportItem(b) - rankReportItem(a)),
+      { period: report.period, coverage, generatedAt }
+    );
     await saveDecisionMap(kv, reportDate, decisionMapSvg);
     const decisionMapPng = env.CREATE_DECISION_MAP_PNG
       ? await env.CREATE_DECISION_MAP_PNG({ svg: decisionMapSvg, date: reportDate, requestUrl })
       : null;
-    if (decisionMapPng) await saveDecisionMapPng(kv, decisionMapPng);
-    const decisionMapUrl = await resolveDecisionMapUrl({ env, requestUrl, decisionMapPng });
-    let fullReportUrl = '';
-    let dingTalkDocReady = false;
+    if (decisionMapPng) await saveDecisionMapPng(kv, reportDate, decisionMapPng);
+    const decisionMapUrl = decisionMapPng && typeof env.PUBLISH_DECISION_MAP === 'function'
+      ? await env.PUBLISH_DECISION_MAP({ date: reportDate, png: decisionMapPng, svg: decisionMapSvg, requestUrl })
+      : await resolveDecisionMapUrl({ env, requestUrl, decisionMapPng, date: reportDate });
+    if (!decisionMapUrl) throw new Error('Decision map publication returned no public URL');
     const markdown = renderDingTalkMarkdown(report, { decisionMapUrl });
     if (typeof env.ON_REPORT_READY === 'function') {
-      await env.ON_REPORT_READY({ report, markdown, decisionMapUrl, generatedAt, failures });
+      await env.ON_REPORT_READY({ report, markdown, decisionMapUrl, generatedAt, failures, sourceResults, coverage });
     }
-    try {
-      const doc = await publishDingTalkDocument({
-        env,
-        title: `${reportDate} 美妆法务资讯周报`,
-        markdown,
-      });
-      if (doc?.url) {
-        fullReportUrl = doc.url;
-        dingTalkDocReady = true;
-      }
-      if (doc?.url) console.log(`[stage 3/5] 已写入钉钉知识库：${doc.url}`);
-    } catch (error) {
-      console.warn(`钉钉知识库写入失败，跳过钉钉群摘要推送: ${error.message}`);
-    }
-    if (env.DINGTALK_WEBHOOK_URL && !dingTalkDocReady) {
-      console.log("=== 周报管道失败 ===");
-      return { stage: 'dingtalk_doc', status: 'failed', message: 'DingTalk document was not ready; summary push skipped' };
-    }
-
     console.log("[stage 4/5] 内容去重检查...");
     const { isDup, seen, fps } = await isDuplicateFingerprints(extractReportFingerprints(report), kv);
     if (isDup) {
@@ -878,11 +1130,22 @@ export async function runPipeline(env, requestUrl = 'https://beauty-legal-bot.wo
     }
 
     console.log("[stage 5/5] 推送协作平台摘要...");
-    const notification = await notifyReport({ report, reportUrl: fullReportUrl, env: { ...env, DECISION_MAP_URL: decisionMapUrl } });
+    const notification = await notifyReport({
+      report,
+      reportUrl: '',
+      env: { ...env, DECISION_MAP_URL: decisionMapUrl, SOURCE_COVERAGE: coverage },
+    });
     const ok = notification.ok;
     if (ok) await markSeen(fps, seen, kv);
     console.log(ok ? "=== 周报管道完成 ===" : "=== 周报管道失败 ===");
-    return { stage: notification.channel, status: ok ? 'done' : 'failed', message: ok ? `${notification.channel} sent` : `${notification.channel} send failed` };
+    return {
+      stage: notification.channel,
+      status: ok ? 'done' : 'failed',
+      message: ok
+        ? `${notification.channel} sent ${notification.sent || 1}/${notification.total || 1}`
+        : `${notification.channel} delivery failed: ${notification.error || 'unknown error'}`,
+      delivery: notification,
+    };
   } catch (error) {
     console.error(`管道异常: ${error.stack || error.message}`);
     throw error;
@@ -1150,10 +1413,13 @@ function hasValue(value) {
 }
 
 export function getRequiredFields(item) {
-  return [
+  const required = [
     ...(TYPE_REQUIRED_FIELDS[item.type] || ['recommended_actions', 'owner_teams', 'risk_level', 'why_it_matters', 'confidence']),
     ...ENTERPRISE_REQUIRED_FIELDS,
   ];
+  return item.report_tier === 'watch'
+    ? required.filter(field => field !== 'recommended_actions')
+    : required;
 }
 
 export function hasSpecificActions(item) {
@@ -1163,6 +1429,11 @@ export function hasSpecificActions(item) {
     const text = String(action || '').trim();
     return text.length >= 12 && !ACTION_NOISE.some(noise => text === noise || text.includes(noise));
   });
+}
+
+function hasInternalCompletionDeadline(item) {
+  const deadlinePattern = /(?:本周|下周|本月|下月|本季度|月底|周末|周[一二三四五六日天]|今天|明天|后天|(?:\d+|[一二三四五六七八九十]+)\s*(?:个)?(?:工作)?(?:日|天|周|月)内|20\d{2}\s*[-/.年]\s*\d{1,2}\s*[-/.月]\s*\d{1,2}\s*日?|\d{1,2}\s*月\s*\d{1,2}\s*日)/;
+  return (item.recommended_actions || []).some(action => deadlinePattern.test(String(action || '')));
 }
 
 export function validateReport(report) {
@@ -1181,7 +1452,13 @@ export function validateReport(report) {
       for (const field of getRequiredFields(item)) {
         if (!hasValue(item[field])) throw new Error(`${field} missing: ${item.title || 'unknown'}`);
       }
-      if (!hasSpecificActions(item)) throw new Error(`recommended_actions not specific: ${item.title || 'unknown'}`);
+      if (item.report_tier === 'watch') {
+        if (!hasValue(item.watch_value)) throw new Error(`watch_value missing: ${item.title || 'unknown'}`);
+        if (!hasValue(item.next_watch_signal)) throw new Error(`next_watch_signal missing: ${item.title || 'unknown'}`);
+      } else {
+        if (!hasSpecificActions(item)) throw new Error(`recommended_actions not specific: ${item.title || 'unknown'}`);
+        if (hasInternalCompletionDeadline(item)) throw new Error(`recommended_actions contains internal completion deadline: ${item.title || 'unknown'}`);
+      }
     }
   }
   return true;
@@ -1255,8 +1532,8 @@ export function buildAnalysisPrompt({ candidates, leads = [], sources, period, t
   const moduleInstruction = targetModule ? `
 当前只分析模块：${targetModule}
 - 只返回这个模块的 section。
-- 如果该模块有 candidates 或 leads，不要返回空数组；至少输出 2 条，优先 3 条。
-- 对无法直接打开原文的公众号/行业源，可以输出“待核验”线索型动态，但必须说明待核验点、业务影响和建议动作。
+- 只输出有可核验证据和实际价值的条目；宁可返回空数组，也不要为填满模块输出泛化内容。
+- 对无法直接打开原文的公众号/行业源，只能作为 watch 关注事项，并必须说明关注价值和下一观察点。
 - 美妆动态重点看行业监管趋势、平台治理、产品安全、功效宣称、渠道变化、头部品牌合规动作。
 - 进出口动态重点看进口准入、清关、口岸抽检、跨境电商、认证、海关监管、召回和贸易合规。
 - 产品质量/召回与安全风险重点看产品安全、抽检不合格、召回、禁限用成分、质量投诉、过敏/微生物/重金属风险和平台下架。
@@ -1291,12 +1568,17 @@ export function buildAnalysisPrompt({ candidates, leads = [], sources, period, t
 
 输出要求：
 - 输出合法 JSON，不要 Markdown，不要解释。
-- 目标覆盖全部 6 个模块；每个模块优先输出 2-3 条，总量控制在 10-18 条。只有确无高价值信息时才允许模块为空。
-- 美妆动态和进出口动态可以更多使用公众号/行业媒体作为线索，但必须标注 source_type 为 wechat_lead 或 industry_media，confidence 为 medium 或 low，并说明待核验点。
+- 六个模块分别监测，但只输出通过质量标准的条目；任何模块都允许为空，总量不设最低要求。
+- 美妆动态和进出口动态可以使用公众号/行业媒体作为关注线索，但必须标注 source_type 为 wechat_lead 或 industry_media，confidence 为 medium 或 low，并说明关注价值和下一观察点。
 - 字段要完整但表达精炼，避免超长 JSON。
-- 每条信息要有国家/大洲、直接/间接相关、行业影响力、业务影响面、建议动作。
+- 每条信息要有国家/大洲、直接/间接相关、行业影响力和业务影响面。
+- 行动事项 report_tier=action，必须提供具体 recommended_actions。
+- 暂不形成行动但值得关注的监管或行业新闻 report_tier=watch，必须提供 watch_value 和 next_watch_signal。
+- core_judgement 必须用 1-2 句话给出“监管或案件结论 + 对集团美妆业务的实质影响 + 必要的不确定性边界”，不能只复述标题或事实。
 - 案例必须拆解事实、认定逻辑、处罚/结果、业务启发。
-- 建议动作必须是“建议...”口吻，不能是命令。
+- 建议动作必须说明建议由哪个团队做什么，使用“建议...”口吻，不能是命令。
+- 内部完成时间由具体领导决定，不得编造内部完成日期、天数或“本周内”等期限。
+- 法规原文明确的生效日、反馈截止日和法定整改节点应保留在 effective_date、feedback_deadline、next_deadline。
 - 禁止“建议关注”“持续关注”“企业应留意”等空泛动作。
 ${moduleInstruction}
 
@@ -1322,8 +1604,12 @@ JSON 结构：
       "business_impact": ["注册备案|标签|功效宣称|广告投放|直播电商|平台运营|跨境清关|供应链|品牌/IP|客服售后|数据合规"],
       "market_scope": ["受影响国家/区域/渠道/SKU范围"],
       "risk_level": "high|medium|low",
+      "core_judgement": "监管或案件结论 + 对集团美妆业务的实质影响 + 必要的不确定性边界",
       "why_it_matters": "为什么值得国际化美妆电商集团法务关注",
-      "recommended_actions": ["建议谁在什么时间排查/更新/提交什么"],
+      "report_tier": "action|watch",
+      "watch_value": "关注事项的实质参考价值；行动事项可为空",
+      "next_watch_signal": "下一观察点；行动事项可为空",
+      "recommended_actions": ["建议由哪个团队排查/更新/提交什么；不填写内部完成时间"],
       "owner_teams": ["法务|注册|供应链|电商|市场|品牌|客服|数据合规"],
       "confidence": "high|medium|low",
       "status": "法规状态，仅法规/征求意见/生效提醒/废止必填",
@@ -1350,31 +1636,115 @@ JSON 结构：
 线索 leads（公众号和不可抓来源，可作为强线索但需标注可信度）：${JSON.stringify(leads.slice(0, leadLimit))}`;
 }
 
-export async function deepseekAnalyze({ apiKey, baseUrl, model, candidates, leads = [], sources = sourceCatalog.sources, period = getPeriod(), targetModule = '', candidateLimit = DEFAULT_ANALYSIS_CANDIDATE_LIMIT, leadLimit = DEFAULT_ANALYSIS_LEAD_LIMIT, maxTokens = DEFAULT_AI_MAX_TOKENS }) {
+function buildReviewEvidence(report, candidates = []) {
+  const candidatesByUrl = new Map();
+  for (const candidate of candidates) {
+    const url = normalizeSourceUrl(candidate.url || candidate.source_url);
+    if (url && !candidatesByUrl.has(url)) candidatesByUrl.set(url, candidate);
+  }
+
+  return (report.sections || []).flatMap(section => (section.items || []).map(item => {
+    const url = normalizeSourceUrl(item.source_url);
+    const candidate = candidatesByUrl.get(url);
+    return {
+      module: section.module,
+      title: item.title,
+      source_name: item.source_name,
+      source_url: item.source_url,
+      evidence_title: candidate?.title || '',
+      evidence_snippet: String(candidate?.snippet || '').slice(0, 2000),
+    };
+  }));
+}
+
+export function buildEvidenceReviewPrompt({ report, candidates = [] }) {
+  return `你是美妆法务情报的事实与逻辑复核员。请基于 evidence 审查 draft_report，并只输出修正后的合法 JSON。
+
+复核规则：
+- 逐条检查 core_judgement、事实、法规变化、违法逻辑、业务影响和建议动作是否有 evidence 支持。
+- 没有证据支持的确定性表述必须降级为待核验，无法修正的条目应删除。
+- 不得新增条目、不得更换 source_url、不得改变 period 或六大模块名称。
+- core_judgement 必须包含监管或案件结论、对集团美妆业务的实质影响，以及必要的不确定性边界。
+- report_tier=watch 的条目必须核验 watch_value，并给出可观察的 next_watch_signal；不得把行业新闻写成确定法律义务。
+- report_tier=action 的条目必须有来源支持的业务影响和可分派建议动作。
+- 建议动作只说明建议由哪个团队做什么；内部完成时间由具体领导决定，不得编造内部完成日期、天数或“本周内”等期限。
+- effective_date、feedback_deadline、next_deadline 只保留 evidence 明确支持的法定节点。
+- 保持原 JSON 结构，不要输出解释、Markdown 或代码块。
+
+draft_report：${JSON.stringify(report)}
+evidence：${JSON.stringify(buildReviewEvidence(report, candidates))}`;
+}
+
+function assertReviewPreservesDraftScope(draft, reviewed) {
+  if (reviewed.period?.start !== draft.period?.start || reviewed.period?.end !== draft.period?.end) {
+    throw new Error('review changed report period');
+  }
+  const allowedModules = new Set((draft.sections || []).map(section => section.module));
+  const allowedUrls = new Set((draft.sections || []).flatMap(section => section.items || []).map(item => normalizeSourceUrl(item.source_url)).filter(Boolean));
+  const draftCount = (draft.sections || []).flatMap(section => section.items || []).length;
+  const reviewedItems = (reviewed.sections || []).flatMap(section => section.items || []);
+  if (draftCount > 0 && reviewedItems.length === 0) throw new Error('review removed every report item');
+  if (reviewedItems.length > draftCount) throw new Error('review added report items');
+  for (const section of reviewed.sections || []) {
+    if (!allowedModules.has(section.module)) throw new Error(`review added module: ${section.module}`);
+    for (const item of section.items || []) {
+      if (!allowedUrls.has(normalizeSourceUrl(item.source_url))) throw new Error(`review changed source_url: ${item.source_url}`);
+    }
+  }
+}
+
+export async function reviewAnalysisReport({ apiKey, baseUrl, model, report, candidates = [], maxTokens = DEFAULT_AI_MAX_TOKENS, fetcher = fetch, logger = console }) {
+  try {
+    const content = await requestAiChat({
+      apiKey,
+      baseUrl,
+      model,
+      messages: [
+        { role: 'system', content: '你只输出合法 JSON。不要输出解释、Markdown 或代码块。' },
+        { role: 'user', content: buildEvidenceReviewPrompt({ report, candidates }) },
+      ],
+      temperature: 0.1,
+      maxTokens,
+      fetcher,
+    });
+    const reviewed = filterReportQuality(parseAnalysisJson(content));
+    assertReviewPreservesDraftScope(report, reviewed);
+    validateReport(reviewed);
+    return reviewed;
+  } catch (error) {
+    logger.warn(`AI evidence review skipped: ${error.message}`);
+    return report;
+  }
+}
+
+export async function deepseekAnalyze({ apiKey, baseUrl, model, candidates, leads = [], sources = sourceCatalog.sources, period = getPeriod(), targetModule = '', candidateLimit = DEFAULT_ANALYSIS_CANDIDATE_LIMIT, leadLimit = DEFAULT_ANALYSIS_LEAD_LIMIT, maxTokens = DEFAULT_AI_MAX_TOKENS, fetcher = fetch, logger = console }) {
   const messages = [
     { role: 'system', content: '你只输出合法 JSON。不要输出解释、Markdown 或代码块。' },
     { role: 'user', content: buildAnalysisPrompt({ candidates, leads, sources, period, targetModule, candidateLimit, leadLimit }) },
   ];
 
+  let draft = null;
   for (let attempt = 0; attempt < 2; attempt++) {
-    const content = await requestAiChat({ apiKey, baseUrl, model, messages, temperature: 0.2, maxTokens });
+    const content = await requestAiChat({ apiKey, baseUrl, model, messages, temperature: 0.2, maxTokens, fetcher });
     try {
       const report = filterReportQuality(parseAnalysisJson(content));
       validateReport(report);
-      return report;
+      draft = report;
+      break;
     } catch (error) {
       if (attempt === 1) throw error;
       messages.push({ role: 'assistant', content });
       messages.push({ role: 'user', content: `上一次输出不是合法可用 JSON：${error.message}。请只修复为合法 JSON，不要改变事实，不要输出代码块。` });
     }
   }
-  throw new Error('AI analysis failed');
+  if (!draft) throw new Error('AI analysis failed');
+  return reviewAnalysisReport({ apiKey, baseUrl, model, report: draft, candidates, maxTokens, fetcher, logger });
 }
 
-function mergeModuleReports(reports, period) {
+function mergeModuleReports(reports, period, modules = REPORT_MODULES) {
   const summary = reports.flatMap(report => report.summary || []).slice(0, 5);
   const riskAlerts = reports.flatMap(report => report.risk_alerts || []).slice(0, 8);
-  const sections = REPORT_MODULES.map(module => {
+  const sections = modules.map(module => {
     const items = reports
       .flatMap(report => report.sections || [])
       .filter(section => section.module === module)
@@ -1444,9 +1814,10 @@ function buildSignalItem(candidate, module) {
     business_impact: signalBusinessImpact(module),
     market_scope: [`${candidate.country || '相关市场'} ${topics.join('、') || module}`],
     risk_level: candidate.priority === 'high' ? 'medium' : 'low',
+    core_judgement: `当前仅能确认${candidate.source_name || candidate.name || '该来源'}出现${module}相关信号；在取得公开原文前，不能把它作为确定规则执行，但应核验其是否影响集团相关市场和业务流程。`,
     why_it_matters: `该来源属于${module}信息源，涉及${topics.join('、') || '监管和行业变化'}；即使本周未抓到可直接引用的明细页，也适合作为法务周报的待核验线索，帮助相关团队提前排查业务影响。`,
     recommended_actions: [
-      `建议法务团队以${candidate.source_name || candidate.name || '该来源'}为入口，在本周内核验是否有与集团在售品类、渠道或目标市场相关的最新原文。`,
+      `建议法务团队以${candidate.source_name || candidate.name || '该来源'}为入口，核验是否有与集团在售品类、渠道或目标市场相关的最新原文。`,
       `建议${signalBusinessImpact(module)[0]}团队结合${candidate.country || '相关市场'}业务清单，先排查是否存在标签、宣称、清关、平台上架或品牌授权方面的潜在影响。`,
     ],
     owner_teams: ['法务', signalBusinessImpact(module)[0]].filter(Boolean),
@@ -1567,20 +1938,63 @@ export function attachReportImages(report, { candidates = [] } = {}) {
   };
 }
 
+export async function analyzeReportByModule({
+  modules = REPORT_MODULES,
+  analyze,
+  candidates = [],
+  leads = [],
+  sources = [],
+  period = getPeriod(),
+  logger = console,
+}) {
+  const reports = await mapWithConcurrency(modules, 2, async module => {
+    const moduleCandidates = candidates.filter(candidate => candidate.module === module || signalMatchesModule(candidate, module));
+    const moduleLeads = leads.filter(lead => lead.module === module || signalMatchesModule(lead, module));
+    try {
+      const report = await analyze({
+        module,
+        candidates: moduleCandidates,
+        leads: moduleLeads,
+        sources: sources.filter(source => source.module === module),
+        period,
+      });
+      return normalizeModuleReport(report, module);
+    } catch (error) {
+      logger.warn(`AI module omitted: ${module}: ${error.message}`);
+      return {
+        period,
+        summary: [],
+        risk_alerts: [],
+        sections: [{ module, items: [] }],
+      };
+    }
+  });
+  return mergeModuleReports(reports, period, modules);
+}
+
 async function deepseekAnalyzeByModule({ apiKey, baseUrl, model, candidates, leads = [], sources = sourceCatalog.sources, period = getPeriod(), candidateLimit = DEFAULT_ANALYSIS_CANDIDATE_LIMIT, leadLimit = DEFAULT_ANALYSIS_LEAD_LIMIT, maxTokens = DEFAULT_AI_MAX_TOKENS }) {
-  // 所有模块合并为 1 次 AI 调用，最小化 subrequest
   if (!candidates.length && !leads.length) {
     return { period, summary: [], risk_alerts: [], sections: REPORT_MODULES.map(m => ({ module: m, items: [] })) };
   }
-  const report = await deepseekAnalyze({
-    apiKey, baseUrl, model, candidates, leads, sources, period, candidateLimit, leadLimit, maxTokens,
-    targetModule: REPORT_MODULES.join('、'),
+  return analyzeReportByModule({
+    candidates,
+    leads,
+    sources,
+    period,
+    analyze: ({ module, candidates: moduleCandidates, leads: moduleLeads, sources: moduleSources }) => deepseekAnalyze({
+      apiKey,
+      baseUrl,
+      model,
+      candidates: moduleCandidates,
+      leads: moduleLeads,
+      sources: moduleSources,
+      period,
+      candidateLimit: Math.min(candidateLimit, 16),
+      leadLimit: Math.min(leadLimit, 8),
+      maxTokens: Math.min(maxTokens, 2500),
+      targetModule: module,
+    }),
   });
-  const reports = REPORT_MODULES.map(module => {
-    const section = (report.sections || []).find(s => s.module === module) || { module, items: [] };
-    return normalizeModuleReport({ ...report, sections: [section] }, module);
-  });
-  return mergeModuleReports(reports, period);
 }
 
 export function escapeHtml(value) {
@@ -1731,75 +2145,106 @@ async function saveDecisionMap(kv, date, svg) {
   await kv.put(LATEST_DECISION_MAP_KEY, svg, { metadata: { contentType: 'image/svg+xml', date } });
 }
 
-async function saveDecisionMapPng(kv, png) {
+function decisionMapPngKeyForDate(date) {
+  return `asset:decision-map:${date}.png`;
+}
+
+async function saveDecisionMapPng(kv, date, png) {
   if (!png) return;
+  await kv.put(decisionMapPngKeyForDate(date), png, { metadata: { contentType: 'image/png', date } });
   await kv.put(LATEST_DECISION_MAP_PNG_KEY, png, { metadata: { contentType: 'image/png' } });
 }
 
-async function fetchSourceCandidates(source) {
-  if (!source.url || !source.url.startsWith('http')) return [];
+const SOURCE_REQUEST_HEADERS = {
+  'User-Agent': 'Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 Chrome/126 Safari/537.36 beauty-legal-bot/2.0',
+  'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8',
+  'Accept-Language': 'zh-CN,zh;q=0.9,en;q=0.7',
+  'Accept-Encoding': 'gzip, deflate, br',
+  'Cache-Control': 'no-cache',
+};
 
-  try {
-    let response = await fetchWithTimeout(source.url, {
-      headers: {
-        'User-Agent': 'beauty-legal-bot/1.0 (+legal intelligence monitor)',
-        'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8',
-      },
-      redirect: 'manual',
-    });
-    // 手动跟随一次重定向（避免自动重定向链消耗过多 subrequest）
-    if ([301, 302, 303, 307, 308].includes(response.status)) {
-      const location = response.headers.get('Location');
-      if (location) {
-        const redirectUrl = new URL(location, source.url).toString();
-        response = await fetchWithTimeout(redirectUrl, {
-          headers: {
-            'User-Agent': 'beauty-legal-bot/1.0 (+legal intelligence monitor)',
-            'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8',
-          },
-          redirect: 'manual',
-        });
-      }
-    }
-    if (!response.ok) return [];
-
-    const html = await response.text();
-    const linkLimit = ['美妆动态', '进出口动态'].includes(source.module) ? 14 : 8;
-    const snippetLimit = ['美妆动态', '进出口动态'].includes(source.module) ? 1500 : 800;
-    const links = extractLinks(html, source.url).filter(link => isRelevantTitle(link.title)).slice(0, linkLimit);
-    const imageUrl = extractImageUrl(html, source.url);
-    const pageText = htmlToText(html).slice(0, snippetLimit);
-    const linkCandidates = links.map(link => makeCandidate(source, { ...link, snippet: pageText, image_url: imageUrl }));
-    const sourceText = `${source.name} ${(source.topics || []).join(' ')} ${pageText}`;
-    const shouldKeepSourcePage = source.priority === 'high' || BEAUTY_KEYWORDS.some(keyword => sourceText.toLowerCase().includes(keyword.toLowerCase()));
-    const sourceCandidate = shouldKeepSourcePage
-      ? [makeCandidate(source, {
-        title: `${source.name}：${source.module}信息源入口`,
-        url: source.url,
-        image_url: imageUrl,
-        snippet: pageText || `${source.name} ${source.module} ${(source.topics || []).join(' ')}`,
-      })]
-      : [];
-    return [...linkCandidates, ...sourceCandidate];
-  } catch (error) {
-    console.warn(`fetch failed: ${source.name} ${error.message}`);
-    return [];
+async function requestSourceHtml(source, url, fetcher, timeoutMs) {
+  const response = await fetchWithTimeout(url, {
+    headers: SOURCE_REQUEST_HEADERS,
+    redirect: 'follow',
+  }, timeoutMs, fetcher);
+  if (!response.ok) {
+    return { ok: false, status: response.status, kind: 'http', error: `HTTP ${response.status}` };
   }
+  const html = await response.text();
+  if (htmlToText(html).trim().length < 8) {
+    return { ok: false, status: response.status, kind: 'empty-shell', error: 'public page returned no readable text' };
+  }
+  return { ok: true, status: response.status, html, finalUrl: response.url || url };
 }
 
-export async function collectCandidates(sources = sourceCatalog.sources, onProgress = async () => {}) {
+function extractSourceCandidatesFromHtml(source, html, finalUrl = source.url) {
+  const linkLimit = ['美妆动态', '进出口动态'].includes(source.module) ? 14 : 8;
+  const snippetLimit = ['美妆动态', '进出口动态'].includes(source.module) ? 1500 : 800;
+  const links = extractLinks(html, finalUrl).filter(link => isRelevantTitle(link.title)).slice(0, linkLimit);
+  const imageUrl = extractImageUrl(html, finalUrl);
+  const pageText = htmlToText(html).slice(0, snippetLimit);
+  const linkCandidates = links.map(link => makeCandidate(source, { ...link, snippet: pageText, image_url: imageUrl }));
+  const sourceText = `${source.name} ${(source.topics || []).join(' ')} ${pageText}`;
+  const shouldKeepSourcePage = source.priority === 'high' || BEAUTY_KEYWORDS.some(keyword => sourceText.toLowerCase().includes(keyword.toLowerCase()));
+  const sourceCandidate = shouldKeepSourcePage
+    ? [makeCandidate(source, {
+      title: `${source.name}：${source.module}信息源入口`,
+      url: finalUrl,
+      image_url: imageUrl,
+      snippet: pageText || `${source.name} ${source.module} ${(source.topics || []).join(' ')}`,
+    })]
+    : [];
+  return [...linkCandidates, ...sourceCandidate];
+}
+
+/**
+ * 为单个公开来源保留完整恢复证据，并让所有恢复方式复用同一套候选解析规则。
+ * 候选为空会被视为采集失败，避免行业线索占位被误计为成功覆盖。
+ */
+async function fetchSourceCandidates(source, {
+  fetcher = fetch,
+  browserFetcher,
+  timeoutMs = SOURCE_FETCH_TIMEOUT_MS,
+  sleepFn,
+  jitter,
+} = {}) {
+  const recovery = await recoverPublicSource(source, {
+    direct: (_source) => requestSourceHtml(source, source.url, fetcher, timeoutMs),
+    browser: typeof browserFetcher === 'function'
+      ? () => browserFetcher(source.url, { source, timeoutMs: Math.max(timeoutMs, 45000) })
+      : undefined,
+    alternate: (_source, url) => requestSourceHtml(source, url, fetcher, timeoutMs),
+    sleep: sleepFn,
+    jitter,
+  });
+  const items = recovery.html ? extractSourceCandidatesFromHtml(source, recovery.html, recovery.finalUrl || source.url) : [];
+  const result = { ...recovery, candidate_count: items.length, items };
+  if (!items.length && recovery.status !== 'failed') {
+    result.status = 'empty';
+    result.empty_reason = 'no relevant public candidates found';
+  }
+  if (result.status === 'failed') console.warn(`fetch failed: ${source.name} ${result.final_error}`);
+  return result;
+}
+
+export async function collectCandidates(sources = sourceCatalog.sources, onProgress = async () => {}, options = {}) {
   const { fetchableSources, leadSources } = splitSources(sources);
   const leads = leadSources.map(makeLead);
   const leadCandidates = leadSources.map(makeSourceLeadCandidate);
 
   const results = await mapWithConcurrency(fetchableSources, SOURCE_FETCH_CONCURRENCY, async (source, index) => {
     await onProgress({ index: index + 1, total: fetchableSources.length, source: source.name });
-    const items = await fetchSourceCandidates(source);
-    return { source, items: items.length ? items : [makeSourceLeadCandidate(source)] };
+    return fetchSourceCandidates(source, options);
   });
 
-  const failures = results.filter(result => result.items.length === 1 && result.items[0].title.includes('行业线索')).map(result => result.source.name);
-  const candidates = [...results.flatMap(result => result.items), ...leadCandidates];
+  const sourceResults = results.map(({ items: _items, html: _html, ...result }) => result);
+  const coverage = calculateSourceCoverage(fetchableSources, sourceResults);
+  const failures = sourceResults.filter(result => result.status === 'failed').map(result => result.source.name);
+  const candidates = [
+    ...results.flatMap(result => result.items.length ? result.items : [makeSourceLeadCandidate(result.source)]),
+    ...leadCandidates,
+  ];
 
   const seen = new Set();
   const unique = [];
@@ -1810,7 +2255,7 @@ export async function collectCandidates(sources = sourceCatalog.sources, onProgr
       unique.push(item);
     }
   }
-  return { candidates: unique, leads, failures };
+  return { candidates: unique, leads, failures, sourceResults, coverage };
 }
 
 // ---------------------------------------------------------------------------
@@ -1828,7 +2273,7 @@ function chunkArray(arr, size) {
 }
 
 function validateInternalAuth(request, env) {
-  const key = String(env?.AI_API_KEY || env?.DEEPSEEK_API_KEY || '');
+  const key = String(env?.AI_API_KEY || '');
   if (!key) return false;
   const auth = (request.headers.get('Authorization') || '').trim();
   return auth === `Bearer ${key}`;
@@ -1848,7 +2293,7 @@ function pipelineQualityOptions(env = {}) {
 async function fetchSelf(env, pathname, body, retries = 2) {
   const base = String(env?.WORKER_URL || 'https://beauty-legal-bot.ai-cf.workers.dev').replace(/\/$/, '');
   const url = `${base}${pathname}`;
-  const key = String(env?.AI_API_KEY || env?.DEEPSEEK_API_KEY || '');
+  const key = String(env?.AI_API_KEY || '');
   for (let attempt = 0; attempt <= retries; attempt++) {
     try {
       const resp = await fetch(url, {
@@ -1868,21 +2313,28 @@ async function fetchSelf(env, pathname, body, retries = 2) {
 
 async function runCollectPhase(sources, batchId, date, env) {
   if (!env?.SEEN_NEWS) throw new Error('SEEN_NEWS KV binding required');
-  const { candidates, leads, failures } = await collectCandidates(sources);
+  const { candidates, leads, failures, sourceResults, coverage } = await collectCandidates(sources, async () => {}, {
+    fetcher: env.SOURCE_FETCH || fetch,
+    browserFetcher: env.BROWSER_FETCH_HTML,
+    timeoutMs: Number(env.SOURCE_FETCH_TIMEOUT_MS || SOURCE_FETCH_TIMEOUT_MS),
+    sleepFn: env.SOURCE_RETRY_SLEEP,
+    jitter: env.SOURCE_RETRY_JITTER,
+  });
   await env.SEEN_NEWS.put(
     `pipeline:${date}:batch:${batchId}`,
-    JSON.stringify({ candidates, leads, failures })
+    JSON.stringify({ candidates, leads, failures, sourceResults, coverage })
   );
-  return { batchId, candidateCount: candidates.length, leadCount: leads.length, failures };
+  return { batchId, candidateCount: candidates.length, leadCount: leads.length, failures, coverage };
 }
 
 async function runAnalysisPhase(date, env, additionalCandidates = []) {
-  const aiKey = env?.AI_API_KEY || env?.DEEPSEEK_API_KEY;
+  const aiKey = env?.AI_API_KEY;
   if (!env?.SEEN_NEWS || !aiKey) throw new Error('KV and AI_API_KEY required');
   const kv = env.SEEN_NEWS;
   const allCandidates = [...additionalCandidates];
   const allLeads = [];
   const allFailures = [];
+  const allSourceResults = [];
 
   for (const batchId of ['1', '2', '3']) {
     const raw = await kv.get(`pipeline:${date}:batch:${batchId}`);
@@ -1891,10 +2343,18 @@ async function runAnalysisPhase(date, env, additionalCandidates = []) {
     allCandidates.push(...(data.candidates || []));
     allLeads.push(...(data.leads || []));
     allFailures.push(...(data.failures || []));
+    allSourceResults.push(...(data.sourceResults || []));
   }
 
-  const model = env.AI_MODEL || env.DEEPSEEK_MODEL || 'deepseek-chat';
-  const baseUrl = env.AI_API_BASE_URL || env.DEEPSEEK_API_BASE_URL || DEFAULT_AI_API_BASE_URL;
+  const coverageSources = allSourceResults.map(result => result.source).filter(Boolean);
+  const coverage = calculateSourceCoverage(coverageSources, allSourceResults);
+  assertSourceCoverage(coverage, {
+    minOverall: Number(env.MIN_SOURCE_COVERAGE || 0.9),
+    minChinaCritical: Number(env.MIN_CHINA_CRITICAL_COVERAGE || 0.9),
+  });
+
+  const model = env.AI_MODEL || DEFAULT_AI_MODEL;
+  const baseUrl = env.AI_API_BASE_URL || DEFAULT_AI_API_BASE_URL;
   const qualityOptions = pipelineQualityOptions(env);
   const period = getPeriod();
   const rawReport = await deepseekAnalyzeByModule({
@@ -1911,10 +2371,16 @@ async function runAnalysisPhase(date, env, additionalCandidates = []) {
   });
 
   await kv.put(`pipeline:${date}:rawReport`, JSON.stringify(rawReport));
-  await kv.put(`pipeline:${date}:candidates`, JSON.stringify({ candidates: allCandidates, leads: allLeads, failures: allFailures }));
+  await kv.put(`pipeline:${date}:candidates`, JSON.stringify({
+    candidates: allCandidates,
+    leads: allLeads,
+    failures: allFailures,
+    sourceResults: allSourceResults,
+    coverage,
+  }));
 
   const itemCount = (rawReport.sections || []).flatMap(s => s.items || []).length;
-  return { modules: (rawReport.sections || []).length, itemCount, failures: allFailures };
+  return { modules: (rawReport.sections || []).length, itemCount, failures: allFailures, coverage };
 }
 
 async function runFinalizePhase(date, env, requestUrl) {
@@ -1934,46 +2400,45 @@ async function runFinalizePhase(date, env, requestUrl) {
   const sourceCheckedReport = filterReportToObservedSources(rawReport, candidatesMeta);
   const imageAwareReport = attachReportImages(sourceCheckedReport, candidatesMeta);
   const qualityOptions = pipelineQualityOptions(env);
-  const report = limitReportSections(filterReportQuality(dedupeReport(enrichReportWithSourceSignals(imageAwareReport, candidatesMeta))), qualityOptions.itemsPerModule);
+  const normalizedReport = filterReportQuality(dedupeReport(imageAwareReport));
+  const report = limitReportSections(curateReportQuality(normalizedReport), qualityOptions.itemsPerModule);
   validateReport(report);
 
   const generatedAt = new Date().toISOString();
   const failures = candidatesMeta.failures || [];
   const reportDate = report.period.end;
   const itemCount = (report.sections || []).flatMap(s => s.items || []).length;
-  const decisionMapSvg = buildDecisionMapSvg(verifiedReportItems(report).sort((a, b) => rankReportItem(b) - rankReportItem(a)));
+  const decisionMapSvg = buildDecisionMapSvg(
+    verifiedReportItems(report).sort((a, b) => rankReportItem(b) - rankReportItem(a)),
+    { period: report.period, coverage: candidatesMeta.coverage, generatedAt }
+  );
   await saveDecisionMap(kv, reportDate, decisionMapSvg);
   const decisionMapPng = env.CREATE_DECISION_MAP_PNG
     ? await env.CREATE_DECISION_MAP_PNG({ svg: decisionMapSvg, date: reportDate, requestUrl })
     : null;
-  if (decisionMapPng) await saveDecisionMapPng(kv, decisionMapPng);
-  const decisionMapUrl = await resolveDecisionMapUrl({ env, requestUrl, decisionMapPng });
-  let fullReportUrl = '';
-  let dingTalkDocReady = false;
-  try {
-    const doc = await publishDingTalkDocument({
-      env,
-      title: `${reportDate} 美妆法务资讯周报`,
-      markdown: renderDingTalkMarkdown(report, { decisionMapUrl }),
-    });
-    if (doc?.url) {
-      fullReportUrl = doc.url;
-      dingTalkDocReady = true;
-    }
-  } catch (error) {
-    console.warn(`钉钉知识库写入失败，跳过钉钉群摘要推送: ${error.message}`);
-  }
-  if (env.DINGTALK_WEBHOOK_URL && !dingTalkDocReady) {
-    return { stage: 'dingtalk_doc', status: 'failed', message: 'DingTalk document was not ready; summary push skipped' };
-  }
-
+  if (decisionMapPng) await saveDecisionMapPng(kv, reportDate, decisionMapPng);
+  const decisionMapUrl = decisionMapPng && typeof env.PUBLISH_DECISION_MAP === 'function'
+    ? await env.PUBLISH_DECISION_MAP({ date: reportDate, png: decisionMapPng, svg: decisionMapSvg, requestUrl })
+    : await resolveDecisionMapUrl({ env, requestUrl, decisionMapPng, date: reportDate });
+  if (!decisionMapUrl) throw new Error('Decision map publication returned no public URL');
   const { isDup, seen, fps } = await isDuplicateFingerprints(extractReportFingerprints(report), kv);
   if (isDup) return { stage: 'dedupe', status: 'skipped', message: '30-day duplicate' };
 
-  const notification = await notifyReport({ report, reportUrl: fullReportUrl, env: { ...env, DECISION_MAP_URL: decisionMapUrl } });
+  const notification = await notifyReport({
+    report,
+    reportUrl: '',
+    env: { ...env, DECISION_MAP_URL: decisionMapUrl, SOURCE_COVERAGE: candidatesMeta.coverage },
+  });
   const ok = notification.ok;
   if (ok) await markSeen(fps, seen, kv);
-  return { stage: notification.channel, status: ok ? 'done' : 'failed', message: ok ? `${notification.channel} sent` : `${notification.channel} failed` };
+  return {
+    stage: notification.channel,
+    status: ok ? 'done' : 'failed',
+    message: ok
+      ? `${notification.channel} sent ${notification.sent || 1}/${notification.total || 1}`
+      : `${notification.channel} delivery failed: ${notification.error || 'unknown error'}`,
+    delivery: notification,
+  };
 }
 
 async function cleanupPipelineState(date, kv) {
@@ -1991,6 +2456,9 @@ export default {
     try {
       await recordLastRun(env.SEEN_NEWS, { trigger: 'scheduled', scheduled_time: event?.scheduledTime || null, status: 'started' });
       const result = await runPipeline(env);
+      if (!result || result.status === 'failed') {
+        throw new Error(`${result?.stage === 'dingtalk' ? 'DingTalk' : 'Weekly'} delivery failed: ${result?.message || 'pipeline returned no result'}`);
+      }
       await recordLastRun(env.SEEN_NEWS, { trigger: 'scheduled', scheduled_time: event?.scheduledTime || null, status: result?.status || 'done', stage: result?.stage || 'pipeline' });
     } catch (error) {
       await recordLastRun(env.SEEN_NEWS, { trigger: 'scheduled', scheduled_time: event?.scheduledTime || null, status: 'failed', error: error.stack || error.message });
@@ -2044,7 +2512,7 @@ export default {
           await recordLastRun(env.SEEN_NEWS, { trigger: 'manual', status: 'started' });
           const result = await env.__TEST_RUN_PIPELINE__(env, request.url);
           await recordLastRun(env.SEEN_NEWS, { trigger: 'manual', status: result?.status || 'done', stage: result?.stage || 'pipeline' });
-          return new Response(`OK — weekly pipeline finished\nstatus: ${result?.status || 'done'}\nfull_version: DingTalk document`, { status: 200, headers: { "Content-Type": "text/plain; charset=utf-8" } });
+          return new Response(`OK — weekly pipeline finished\nstatus: ${result?.status || 'done'}\ndelivery: DingTalk webhook`, { status: 200, headers: { "Content-Type": "text/plain; charset=utf-8" } });
         } catch (error) {
           await recordLastRun(env.SEEN_NEWS, { trigger: 'manual', status: 'failed', error: error.stack || error.message });
           return new Response(`FAILED — weekly pipeline error\n${error.stack || error.message}`, { status: 500, headers: { "Content-Type": "text/plain; charset=utf-8" } });
@@ -2055,7 +2523,7 @@ export default {
         await recordLastRun(env.SEEN_NEWS, { trigger: 'manual', status: 'started' });
         const result = await runPipeline(env, request.url);
         await recordLastRun(env.SEEN_NEWS, { trigger: 'manual', status: result?.status || 'done', stage: result?.stage || 'pipeline' });
-        return new Response(`OK — pipeline finished\nstatus: ${result?.status || 'done'}\nfull_version: DingTalk document`, { status: 200, headers: { "Content-Type": "text/plain; charset=utf-8" } });
+        return new Response(`OK — pipeline finished\nstatus: ${result?.status || 'done'}\ndelivery: DingTalk webhook`, { status: 200, headers: { "Content-Type": "text/plain; charset=utf-8" } });
       } catch (error) {
         await recordLastRun(env.SEEN_NEWS, { trigger: 'manual', status: 'failed', error: error.stack || error.message });
         return new Response(`FAILED — pipeline error\n${error.stack || error.message}`, { status: 500, headers: { "Content-Type": "text/plain; charset=utf-8" } });
@@ -2063,11 +2531,11 @@ export default {
     }
 
     if (url.pathname === "/report") {
-      return new Response("Online HTML reports have been retired. Full reports are published to DingTalk documents.", { status: 410, headers: { "Content-Type": "text/plain; charset=utf-8" } });
+      return new Response("Online HTML reports have been retired. Full reports are delivered through the DingTalk group webhook.", { status: 410, headers: { "Content-Type": "text/plain; charset=utf-8" } });
     }
 
     if (url.pathname === "/report/latest") {
-      return new Response("Online HTML reports have been retired. Full reports are published to DingTalk documents.", { status: 410, headers: { "Content-Type": "text/plain; charset=utf-8" } });
+      return new Response("Online HTML reports have been retired. Full reports are delivered through the DingTalk group webhook.", { status: 410, headers: { "Content-Type": "text/plain; charset=utf-8" } });
     }
 
     if (url.pathname === "/assets/decision-map.svg") {
@@ -2084,11 +2552,19 @@ export default {
         : new Response("Decision map PNG not found", { status: 404 });
     }
 
-    const match = url.pathname.match(/^\/report\/(\d{4}-\d{2}-\d{2})$/);
-    if (match) {
-      return new Response("Online HTML reports have been retired. Full reports are published to DingTalk documents.", { status: 410, headers: { "Content-Type": "text/plain; charset=utf-8" } });
+    const decisionMapPngMatch = url.pathname.match(/^\/assets\/decision-map\/(\d{4}-\d{2}-\d{2})\.png$/);
+    if (decisionMapPngMatch) {
+      const png = await env.SEEN_NEWS?.get(decisionMapPngKeyForDate(decisionMapPngMatch[1]), 'arrayBuffer');
+      return png
+        ? new Response(png, { headers: { "Content-Type": "image/png", "Cache-Control": "public, max-age=31536000, immutable" } })
+        : new Response("Decision map PNG not found", { status: 404 });
     }
 
-    return new Response("beauty-legal-bot v3 — weekly DeepSeek legal intelligence", { status: 200 });
+    const match = url.pathname.match(/^\/report\/(\d{4}-\d{2}-\d{2})$/);
+    if (match) {
+      return new Response("Online HTML reports have been retired. Full reports are delivered through the DingTalk group webhook.", { status: 410, headers: { "Content-Type": "text/plain; charset=utf-8" } });
+    }
+
+    return new Response("beauty-legal-bot v3 — weekly AI-reviewed legal intelligence", { status: 200 });
   },
 };

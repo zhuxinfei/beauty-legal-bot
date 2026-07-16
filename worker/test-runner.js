@@ -2,6 +2,22 @@ import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import sampleReport from './sample-report.json' with { type: 'json' };
 import sourceCatalog from './sources.json' with { type: 'json' };
+import { createBrowserSourceFetcher } from './browser-fetch.js';
+import { buildSingleDingTalkMessage } from './dingtalk-single-card.js';
+import { buildActionDashboardSvg } from './action-dashboard.js';
+import {
+  classifyReportItem,
+  curateReportQuality,
+  summarizeExecutiveReport,
+} from './report-quality.js';
+import { publishVersionedPng } from './cloudflare-assets.js';
+import {
+  SourceCoverageError,
+  assertSourceCoverage,
+  calculateSourceCoverage,
+  classifyFetchFailure,
+  recoverPublicSource,
+} from './source-recovery.js';
 import {
   default as worker,
   normalizeUrl,
@@ -17,8 +33,10 @@ import {
   renderFeishuSummary,
   renderDingTalkMarkdown,
   renderDingTalkSummaryCard,
+  buildDingTalkWebhookMessages,
   buildDingTalkWebhookUrl,
   sendToDingTalk,
+  sendDingTalkMessages,
   notifyReport,
   getDingTalkAccessToken,
   createDingTalkDocument,
@@ -26,6 +44,8 @@ import {
   uploadDingTalkImage,
   publishDingTalkDocument,
   requestAiChat,
+  deepseekAnalyze,
+  analyzeReportByModule,
   dedupeReport,
   extractReportFingerprints,
   makeLead,
@@ -39,12 +59,354 @@ import {
   enrichReportWithSourceSignals,
   filterReportToObservedSources,
   attachReportImages,
+  collectCandidates,
   fetchWithTimeout,
   selectSourcesForWorkerBudget,
   mapWithConcurrency,
   extractPublishedDate,
   sortCandidatesForAnalysis,
+  runPipeline,
 } from './index.js';
+
+function testClassifySourceFetchFailures() {
+  assert.deepEqual(classifyFetchFailure({ status: 429 }), { retryable: true, terminal: false, reason: 'http-429' });
+  assert.deepEqual(classifyFetchFailure({ status: 503 }), { retryable: true, terminal: false, reason: 'http-503' });
+  assert.deepEqual(classifyFetchFailure({ status: 401 }), { retryable: false, terminal: true, reason: 'http-401' });
+  assert.deepEqual(classifyFetchFailure({ kind: 'captcha' }), { retryable: false, terminal: true, reason: 'captcha' });
+  assert.deepEqual(classifyFetchFailure({ kind: 'timeout' }), { retryable: true, terminal: false, reason: 'timeout' });
+}
+
+async function testRecoverPublicSourceRetriesAndRecordsAttempts() {
+  let calls = 0;
+  const result = await recoverPublicSource({ name: '测试监管源', url: 'https://example.com' }, {
+    direct: async () => {
+      calls += 1;
+      if (calls < 3) return { ok: false, status: 503, error: 'upstream unavailable' };
+      return { ok: true, status: 200, html: '<h1>化妆品监管公告</h1>', finalUrl: 'https://example.com/notices' };
+    },
+    sleep: async () => {},
+    jitter: () => 0,
+  });
+
+  assert.equal(result.status, 'recovered');
+  assert.equal(result.recovery_method, 'retry');
+  assert.equal(result.finalUrl, 'https://example.com/notices');
+  assert.equal(result.attempts.length, 3);
+  assert.deepEqual(result.attempts.map(attempt => attempt.status), [503, 503, 200]);
+}
+
+async function testRecoverPublicSourceUsesBrowserThenOfficialAlternate() {
+  const methods = [];
+  const browserRecovered = await recoverPublicSource({ name: '动态监管源', url: 'https://example.com' }, {
+    direct: async () => ({ ok: false, status: 403, error: 'forbidden' }),
+    browser: async () => {
+      methods.push('browser');
+      return { ok: true, status: 200, html: '<main>化妆品动态正文</main>', finalUrl: 'https://example.com/dynamic' };
+    },
+    sleep: async () => {},
+    jitter: () => 0,
+  });
+  assert.equal(browserRecovered.status, 'recovered');
+  assert.equal(browserRecovered.recovery_method, 'browser');
+  assert.deepEqual(methods, ['browser']);
+
+  const alternateRecovered = await recoverPublicSource({
+    name: '备用监管源',
+    url: 'https://example.com',
+    alternate_urls: ['https://official.example.com/notices'],
+  }, {
+    direct: async () => ({ ok: false, status: 401, error: 'login required' }),
+    alternate: async (_source, url) => ({ ok: true, status: 200, html: '<main>官方备用入口</main>', finalUrl: url }),
+    sleep: async () => {},
+  });
+  assert.equal(alternateRecovered.status, 'recovered');
+  assert.equal(alternateRecovered.recovery_method, 'alternate');
+  assert.equal(alternateRecovered.finalUrl, 'https://official.example.com/notices');
+}
+
+function testSourceCoverageGatesChinaCriticalAndOverallCoverage() {
+  const sources = [
+    { name: '中国关键一', country: '中国', priority: 'high' },
+    { name: '中国关键二', country: '中国', priority: 'high' },
+    ...Array.from({ length: 8 }, (_, index) => ({ name: `海外${index + 1}`, country: '美国', priority: 'medium' })),
+  ];
+  const passingResults = sources.map(source => ({ source, status: 'ok', candidate_count: 1 }));
+  const passing = calculateSourceCoverage(sources, passingResults);
+  assert.equal(passing.chinaCritical, 1);
+  assert.equal(passing.overall, 1);
+  assert.equal(assertSourceCoverage(passing), true);
+
+  const missingChina = passingResults.map((result, index) => index === 0 ? { ...result, status: 'failed', candidate_count: 0 } : result);
+  assert.throws(() => assertSourceCoverage(calculateSourceCoverage(sources, missingChina)), SourceCoverageError);
+
+  const tenChinaCritical = Array.from({ length: 10 }, (_, index) => ({ name: `中国关键${index + 1}`, country: '中国', priority: 'high' }));
+  const ninetyPercentChina = tenChinaCritical.map((source, index) => ({
+    source,
+    status: index === 0 ? 'failed' : 'ok',
+    candidate_count: index === 0 ? 0 : 1,
+  }));
+  assert.equal(assertSourceCoverage(calculateSourceCoverage(tenChinaCritical, ninetyPercentChina)), true);
+
+  const belowOverall = passingResults.map((result, index) => index >= 7 ? { ...result, status: 'failed', candidate_count: 0 } : result);
+  assert.throws(() => assertSourceCoverage(calculateSourceCoverage(sources, belowOverall)), SourceCoverageError);
+
+  const monitored = { name: '中国受控监测源', country: '中国', priority: 'high', monitor_only: true };
+  const monitoredCoverage = calculateSourceCoverage(
+    [...sources, monitored],
+    [...passingResults, { source: monitored, status: 'failed', candidate_count: 0 }]
+  );
+  assert.equal(monitoredCoverage.overall, 1);
+  assert.equal(monitoredCoverage.chinaCritical, 1);
+  assert.equal(monitoredCoverage.monitoredTotal, 1);
+  assert.deepEqual(monitoredCoverage.monitoredFailedSources, ['中国受控监测源']);
+}
+
+async function testBrowserSourceFetcherReusesBrowserAndClosesPages() {
+  let launchCalls = 0;
+  let browserCloseCalls = 0;
+  let pageCloseCalls = 0;
+  const chromium = {
+    async launch() {
+      launchCalls += 1;
+      return {
+        async newPage() {
+          return {
+            async setExtraHTTPHeaders() {},
+            async goto() { return { status: () => 200 }; },
+            async title() { return '化妆品监管公告'; },
+            async content() { return '<html><body>公开化妆品监管正文</body></html>'; },
+            url() { return 'https://example.com/final'; },
+            locator() { return { innerText: async () => '公开化妆品监管正文' }; },
+            async close() { pageCloseCalls += 1; },
+          };
+        },
+        async close() { browserCloseCalls += 1; },
+      };
+    },
+  };
+
+  const browserFetcher = await createBrowserSourceFetcher({ chromium });
+  const first = await browserFetcher.fetchHtml('https://example.com/a');
+  const second = await browserFetcher.fetchHtml('https://example.com/b');
+  await browserFetcher.close();
+
+  assert.equal(launchCalls, 1);
+  assert.equal(pageCloseCalls, 2);
+  assert.equal(browserCloseCalls, 1);
+  assert.equal(first.ok, true);
+  assert.equal(second.finalUrl, 'https://example.com/final');
+}
+
+async function testBrowserSourceFetcherUsesGovernmentSiteCompatibleNavigation() {
+  let pageOptions;
+  let gotoOptions;
+  const chromium = {
+    async launch() {
+      return {
+        async newPage(options) {
+          pageOptions = options;
+          return {
+            async setExtraHTTPHeaders() {},
+            async goto(_url, options) {
+              gotoOptions = options;
+              return { status: () => 200 };
+            },
+            async title() { return '监管公开信息'; },
+            async content() { return '<html><body>化妆品监管公开正文</body></html>'; },
+            url() { return 'https://official.example.cn/notices'; },
+            locator() { return { innerText: async () => '化妆品监管公开正文' }; },
+            async close() {},
+          };
+        },
+        async close() {},
+      };
+    },
+  };
+
+  const browserFetcher = await createBrowserSourceFetcher({ chromium });
+  const result = await browserFetcher.fetchHtml('https://official.example.cn/');
+  await browserFetcher.close();
+
+  assert.equal(result.ok, true);
+  assert.ok(pageOptions.userAgent.includes('Chrome/'));
+  assert.equal(pageOptions.userAgent.includes('HeadlessChrome'), false);
+  assert.equal(pageOptions.locale, 'zh-CN');
+  assert.deepEqual(pageOptions.viewport, { width: 1365, height: 900 });
+  assert.equal(gotoOptions.waitUntil, 'commit');
+}
+
+async function testBrowserSourceFetcherRejectsAccessControlPages() {
+  const chromium = {
+    async launch() {
+      return {
+        async newPage() {
+          return {
+            async setExtraHTTPHeaders() {},
+            async goto() { return { status: () => 200 }; },
+            async title() { return 'Sign in'; },
+            async content() { return '<html><body>Login required</body></html>'; },
+            url() { return 'https://example.com/login'; },
+            locator() { return { innerText: async () => 'Login required' }; },
+            async close() {},
+          };
+        },
+        async close() {},
+      };
+    },
+  };
+  const browserFetcher = await createBrowserSourceFetcher({ chromium });
+  const result = await browserFetcher.fetchHtml('https://example.com/private');
+  await browserFetcher.close();
+  assert.equal(result.ok, false);
+  assert.equal(result.kind, 'login');
+}
+
+async function testPublishVersionedPngUploadsBeforeHealthCheck() {
+  const calls = [];
+  const png = new Uint8Array(2048).fill(7);
+  const url = await publishVersionedPng({
+    accountId: 'account',
+    namespaceId: 'namespace',
+    apiToken: 'secret-token',
+    date: '2026-07-14',
+    png,
+    publicBaseUrl: 'https://worker.test',
+    sleepFn: async () => {},
+    fetcher: async (href, init = {}) => {
+      calls.push({ href: String(href), method: init.method || 'GET', auth: init.headers?.Authorization });
+      if ((init.method || 'GET') === 'GET') {
+        return new Response(png, { status: 200, headers: { 'Content-Type': 'image/png', 'Content-Length': String(png.length) } });
+      }
+      return new Response(JSON.stringify({ success: true }), { status: 200, headers: { 'Content-Type': 'application/json' } });
+    },
+  });
+
+  assert.equal(url, 'https://worker.test/assets/decision-map/2026-07-14.png');
+  assert.deepEqual(calls.map(call => call.method), ['PUT', 'PUT', 'GET']);
+  assert.ok(calls[0].href.includes('/values/asset%3Adecision-map%3A2026-07-14.png'));
+  assert.ok(calls[1].href.includes('/values/asset%3Adecision-map%3Alatest.png'));
+  assert.equal(calls[0].auth, 'Bearer secret-token');
+  assert.equal(calls[2].auth, undefined);
+}
+
+async function testPipelinePublishesHealthyImageBeforeDingTalkAndDedupe() {
+  const originalFetch = globalThis.fetch;
+  const calls = [];
+  const store = new Map();
+  const kv = {
+    async get(key) { return store.get(key) || null; },
+    async put(key, value) {
+      store.set(key, value);
+      if (key === 'seen_v3_report_items') calls.push('mark-seen');
+    },
+  };
+  globalThis.fetch = async (url, init = {}) => {
+    const href = String(url);
+    if (href.includes('/chat/completions')) {
+      return new Response(JSON.stringify({ choices: [{ message: { content: JSON.stringify(sampleReport) } }] }), { status: 200 });
+    }
+    if (href.startsWith('https://oapi.dingtalk.com/robot/send')) {
+      calls.push('send-dingtalk');
+      const payload = JSON.parse(init.body);
+      assert.ok(payload.markdown.text.includes('https://worker.test/assets/decision-map/2026-07-14.png'));
+      return new Response(JSON.stringify({ errcode: 0, errmsg: 'ok' }), { status: 200 });
+    }
+    return new Response(`<html><body><a href="/notice">化妆品监管新规</a><p>${'公开监管正文。'.repeat(8)}</p></body></html>`, { status: 200 });
+  };
+
+  try {
+    const result = await runPipeline({
+      AI_API_KEY: 'test-key',
+      AI_MODEL: 'test-model',
+      DINGTALK_WEBHOOK_URL: 'https://oapi.dingtalk.com/robot/send?access_token=test',
+      DINGTALK_MESSAGE_DELAY_MS: 0,
+      SEEN_NEWS: kv,
+      CREATE_DECISION_MAP_PNG: async () => {
+        calls.push('render-image');
+        return new Uint8Array(2048).fill(1);
+      },
+      PUBLISH_DECISION_MAP: async () => {
+        calls.push('publish-versioned-image');
+        calls.push('health-check-image');
+        return 'https://worker.test/assets/decision-map/2026-07-14.png';
+      },
+      ON_REPORT_READY: async ({ report }) => {
+        assert.equal(report.sections.length, 6);
+        assert.ok(Array.isArray(report.display_sections));
+        assert.ok(report.sections.flatMap(section => section.items).every(item => ['action', 'watch'].includes(item.report_tier)));
+      },
+    });
+    assert.equal(result.status, 'done');
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+  assert.deepEqual(calls, ['render-image', 'publish-versioned-image', 'health-check-image', 'send-dingtalk', 'mark-seen']);
+}
+
+async function testVersionedDecisionMapRouteUsesImmutableCache() {
+  const png = new Uint8Array(2048).fill(3);
+  const response = await worker.fetch(
+    new Request('https://worker.test/assets/decision-map/2026-07-14.png'),
+    {
+      SEEN_NEWS: {
+        async get(key, type) {
+          assert.equal(key, 'asset:decision-map:2026-07-14.png');
+          assert.equal(type, 'arrayBuffer');
+          return png.buffer;
+        },
+      },
+    },
+    {}
+  );
+  assert.equal(response.status, 200);
+  assert.equal(response.headers.get('Content-Type'), 'image/png');
+  assert.ok(response.headers.get('Cache-Control').includes('immutable'));
+  assert.equal((await response.arrayBuffer()).byteLength, png.byteLength);
+}
+
+async function testCollectCandidatesReturnsRecoveryEvidenceAndRealCoverage() {
+  const sources = [
+    {
+      name: '直接监管源', url: 'https://direct.test', module: '新规及案例动态',
+      country: '中国', region: '亚洲', priority: 'high', source_type: 'official_site', topics: ['化妆品'],
+    },
+    {
+      name: '动态监管源', url: 'https://browser.test', module: '广告合规及处罚案例',
+      country: '中国', region: '亚洲', priority: 'high', source_type: 'official_site', topics: ['广告处罚'],
+    },
+    {
+      name: '空白行业源', url: 'https://empty.test', module: '美妆动态',
+      country: '美国', region: '北美', priority: 'medium', source_type: 'industry_site', topics: [],
+    },
+  ];
+  const result = await collectCandidates(sources, async () => {}, {
+    fetcher: async url => {
+      if (url === 'https://browser.test') return new Response('forbidden', { status: 403 });
+      if (url === 'https://empty.test') return new Response(`<html><body>${'公司招聘和融资信息。'.repeat(8)}</body></html>`, { status: 200 });
+      return new Response(`<html><body><a href="/notice">化妆品监督管理新规</a><p>${'官方发布化妆品监督管理政策说明。'.repeat(3)}</p></body></html>`, { status: 200 });
+    },
+    browserFetcher: async url => ({
+      ok: true,
+      status: 200,
+      html: '<html><body><a href="/case">化妆品广告违法处罚案例</a></body></html>',
+      finalUrl: url,
+    }),
+    sleepFn: async () => {},
+    jitter: () => 0,
+  });
+
+  assert.equal(result.sourceResults.length, 3);
+  assert.equal(result.sourceResults[0].status, 'ok');
+  assert.equal(result.sourceResults[1].recovery_method, 'browser');
+  assert.equal(result.sourceResults[2].status, 'empty');
+  assert.equal(result.sourceResults[2].candidate_count, 0);
+  assert.equal(result.coverage.chinaCritical, 1);
+  assert.equal(result.coverage.overall, 1);
+  assert.deepEqual(result.failures, []);
+  assert.ok(result.candidates.some(candidate => candidate.url === 'https://direct.test/notice'));
+  assert.ok(result.candidates.some(candidate => candidate.url === 'https://browser.test/case'));
+  assert.ok(result.candidates.some(candidate => candidate.title.includes('行业线索')));
+}
 
 function testNormalizeUrl() {
   assert.equal(normalizeUrl('/path', 'https://example.com/base'), 'https://example.com/path');
@@ -132,6 +494,27 @@ function testValidateReportRequiresRegulationAnalysis() {
   assert.throws(() => validateReport(broken), /what_changed/);
 }
 
+function testValidateReportRequiresExplicitCoreJudgement() {
+  const broken = structuredClone(sampleReport);
+  delete broken.sections[0].items[0].core_judgement;
+  assert.throws(() => validateReport(broken), /core_judgement/);
+}
+
+function testValidateReportRejectsAiAssignedInternalDeadlines() {
+  const broken = structuredClone(sampleReport);
+  broken.sections[0].items[0].recommended_actions = ['建议注册团队在 7 日内完成印尼 SKU 认证状态核验。'];
+  assert.throws(() => validateReport(broken), /internal completion deadline/);
+
+  const absoluteDate = structuredClone(sampleReport);
+  absoluteDate.sections[0].items[0].recommended_actions = ['建议注册团队在 2026-07-31 前完成印尼 SKU 认证状态核验。'];
+  assert.throws(() => validateReport(absoluteDate), /internal completion deadline/);
+
+  const statutoryDateOnly = structuredClone(sampleReport);
+  statutoryDateOnly.sections[0].items[0].effective_date = '2026-10-17';
+  statutoryDateOnly.sections[0].items[0].next_deadline = '2026-10-17';
+  assert.equal(validateReport(statutoryDateOnly), true);
+}
+
 function testFilterReportQualityDropsItemsWithoutSourceUrl() {
   const report = structuredClone(sampleReport);
   report.sections[0].items.push({ ...report.sections[0].items[0], title: '无链接项', source_url: '' });
@@ -155,8 +538,9 @@ function testFilterReportQualityKeepsLeadBasedBeautyAndImportSignals() {
     business_impact: ['跨境清关', '供应链'],
     market_scope: ['中国跨境进口化妆品'],
     risk_level: 'medium',
+    core_judgement: '该跨境清关线索可能影响进口资料和上架节奏，但在官方原文核验前不能作为确定规则执行。',
     why_it_matters: '进口通关规则变化会影响美妆电商上架节奏和履约成本。',
-    recommended_actions: ['建议供应链团队在本周核对进口化妆品清关资料和口岸异常反馈。'],
+    recommended_actions: ['建议供应链团队核对进口化妆品清关资料和口岸异常反馈。'],
     owner_teams: ['供应链', '法务'],
     confidence: 'low',
     regulatory_signal: ['行业媒体提示近期进口美妆通关和资质核验要求需关注。'],
@@ -166,6 +550,121 @@ function testFilterReportQualityKeepsLeadBasedBeautyAndImportSignals() {
   report.sections = [{ module: '进出口动态', items: [leadItem] }];
   const filtered = filterReportQuality(report);
   assert.equal(filtered.sections[0].items.length, 1);
+}
+
+function highQualityActionItem(overrides = {}) {
+  return {
+    ...structuredClone(sampleReport.sections[0].items[0]),
+    module: '新规及案例动态',
+    country: '中国',
+    source_type: 'regulator',
+    confidence: 'high',
+    relevance: 'direct',
+    published_at: sampleReport.period.end,
+    core_judgement: '中国监管要求强化化妆品功效证据与备案资料的一致性审查，将直接影响集团新品备案、直播话术和上架放行流程。',
+    why_it_matters: '该要求连接备案证据、营销内容和渠道放行，任何一处不一致都可能形成处罚或下架风险。',
+    recommended_actions: ['建议注册、市场和电商团队按销量排序核对重点 SKU 的备案证据、直播话术与商品详情页。'],
+    business_impact: ['注册备案', '功效宣称', '直播电商'],
+    market_scope: ['中国市场重点 SKU'],
+    ...overrides,
+  };
+}
+
+function highQualityWatchItem(overrides = {}) {
+  return {
+    ...structuredClone(sampleReport.sections[1].items[0]),
+    type: '动态',
+    module: '美妆动态',
+    country: '中国',
+    source_type: 'industry_media',
+    confidence: 'medium',
+    relevance: 'indirect',
+    published_at: sampleReport.period.end,
+    core_judgement: '头部平台正在测试新的美妆内容治理机制，尚未形成正式规则，但可能改变品牌投放和达人合作审核方式。',
+    why_it_matters: '平台治理机制会影响美妆品牌的投放效率、达人准入和内容审核成本。',
+    recommended_actions: [],
+    business_impact: ['广告投放', '直播电商', '平台运营'],
+    market_scope: ['中国电商渠道'],
+    watch_value: '该变化可能提前反映平台对功效宣称和达人内容治理的下一轮政策方向。',
+    next_watch_signal: '观察平台正式规则、商家后台通知以及头部品牌投放政策是否同步调整。',
+    ...overrides,
+  };
+}
+
+function highQualityFixtureReport() {
+  return {
+    ...structuredClone(sampleReport),
+    sections: [
+      { module: '新规及案例动态', items: [highQualityActionItem()] },
+      { module: '美妆动态', items: [highQualityWatchItem()] },
+    ],
+  };
+}
+
+function testReportQualitySeparatesActionWatchAndRejectedItems() {
+  const action = classifyReportItem(highQualityActionItem(), sampleReport.period);
+  const watch = classifyReportItem(highQualityWatchItem(), sampleReport.period);
+  const rejected = classifyReportItem(highQualityWatchItem({
+    source_url: '',
+    watch_value: '',
+    next_watch_signal: '',
+  }), sampleReport.period);
+
+  assert.equal(action.tier, 'action');
+  assert.ok(action.score >= 8);
+  assert.equal(watch.tier, 'watch');
+  assert.ok(watch.score >= 7);
+  assert.equal(rejected.tier, 'reject');
+}
+
+function testCurateReportQualityKeepsSixModulesButDropsEmptyDisplaySections() {
+  const curated = curateReportQuality(highQualityFixtureReport());
+  assert.equal(curated.sections.length, 6);
+  assert.equal(curated.display_sections.length, 1);
+  assert.equal(curated.display_sections[0].module, '新规及案例动态');
+  assert.equal(curated.sections.flatMap(section => section.items).length, 2);
+}
+
+function testExecutiveSummaryCapsJudgementsAndActionsAtThree() {
+  const report = {
+    ...structuredClone(sampleReport),
+    sections: [{
+      module: '新规及案例动态',
+      items: Array.from({ length: 5 }, (_, index) => highQualityActionItem({
+        title: `高价值事项 ${index + 1}`,
+        source_url: `https://official.example/${index + 1}`,
+        core_judgement: `核心判断 ${index + 1}：中国监管变化将直接影响集团美妆产品的备案、上架和营销审核流程。`,
+        recommended_actions: [`建议责任团队完成第 ${index + 1} 项备案证据、上架材料和营销内容一致性核验。`],
+      })),
+    }],
+  };
+
+  const summary = summarizeExecutiveReport(curateReportQuality(report));
+  assert.equal(summary.judgements.length, 3);
+  assert.equal(summary.actions.length, 3);
+}
+
+function testExecutiveSummaryAvoidsRepeatedJudgementsAndActions() {
+  const repeated = Array.from({ length: 3 }, (_, index) => highQualityActionItem({
+    title: `同类监管事项 ${index + 1}`,
+    source_url: `https://official.example/repeated-${index + 1}`,
+    core_judgement: '相同监管结论会影响集团中国市场的备案、上架和营销审核流程。',
+    recommended_actions: ['建议注册和市场团队核对备案证据与对外功效宣称的一致性。'],
+  }));
+  const distinct = highQualityActionItem({
+    title: '独立进口监管事项',
+    source_url: 'https://official.example/distinct',
+    core_judgement: '进口认证要求变化将影响集团跨境产品的清关资料和上架节奏。',
+    recommended_actions: ['建议供应链和法务团队核对在途批次的认证文件与清关资料。'],
+  });
+  const report = curateReportQuality({
+    ...structuredClone(sampleReport),
+    sections: [{ module: '新规及案例动态', items: [...repeated, distinct] }],
+  });
+
+  const summary = summarizeExecutiveReport(report);
+  assert.equal(summary.judgements.length, 2);
+  assert.equal(summary.actions.length, 2);
 }
 
 function testNormalizeReportForValidationFillsDynamicAnalysisFields() {
@@ -185,8 +684,9 @@ function testNormalizeReportForValidationFillsDynamicAnalysisFields() {
     business_impact: ['注册备案', '供应链'],
     market_scope: ['中国化妆品生产企业'],
     risk_level: 'medium',
+    core_judgement: '广州化妆品生产企业自查要求会影响供应商准入和生产质量审查。',
     why_it_matters: '质量管理体系自查会影响集团供应商准入和生产合规审查。',
-    recommended_actions: ['建议供应链团队在本周核对广州相关供应商是否完成质量管理体系自查。'],
+    recommended_actions: ['建议供应链团队核对广州相关供应商是否完成质量管理体系自查。'],
     owner_teams: ['供应链', '法务'],
     confidence: 'high',
   };
@@ -281,7 +781,7 @@ function testRenderDingTalkMarkdownUsesModuleRegionCountryStructure() {
   assert.ok(markdown.includes('**建议动作**'));
   assert.ok(markdown.includes('[查看原文](https://www.pom.go.id/)'));
   assert.ok(markdown.includes('## Action Board'));
-  assert.ok(markdown.includes('| 优先级 | 动作 | 责任团队 | 触发/截止 | 来源事项 |'));
+  assert.ok(markdown.includes('| 优先级 | 动作 | 责任团队 | 内部完成时间 | 来源事项 |'));
   assert.ok(markdown.includes('## 来源证据索引'));
   assert.ok(markdown.indexOf('## 风险提示') < markdown.indexOf('## 本周美妆法务风险雷达'));
   assert.ok(markdown.lastIndexOf('## 来源证据索引') > markdown.lastIndexOf('## Action Board'));
@@ -305,6 +805,12 @@ function testRenderDingTalkMarkdownShowsAllModulesWhenEmpty() {
   assert.equal((markdown.match(/本周无高价值更新/g) || []).length, 6);
 }
 
+function testRenderDingTalkMarkdownLeavesInternalCompletionTimeToLeader() {
+  const markdown = renderDingTalkMarkdown(sampleReport);
+  assert.ok(markdown.includes('由责任领导确定'));
+  assert.equal(markdown.includes('本周内核验'), false);
+}
+
 function testRenderDingTalkSummaryCardIsConciseAndIncludesKeyword() {
   const markdown = renderDingTalkSummaryCard(sampleReport, 'https://example.com/doc/latest', { decisionMapUrl: 'https://worker.test/assets/decision-map.svg' });
   assert.ok(markdown.includes('# 美妆法务资讯'));
@@ -317,6 +823,204 @@ function testRenderDingTalkSummaryCardIsConciseAndIncludesKeyword() {
   assert.ok(markdown.length < renderDingTalkMarkdown(sampleReport).length);
   assert.equal(markdown.includes('#### 印尼'), false);
   assert.equal(markdown.includes('**为什么值得关注**'), false);
+}
+
+function testBuildDingTalkWebhookMessagesUsesOneCardWithSixModules() {
+  const messages = buildDingTalkWebhookMessages(sampleReport, { maxBytes: 18000 });
+  assert.equal(messages.length, 1);
+  assert.equal(messages[0].id, 'weekly-report');
+  assert.ok(messages[0].title.includes('美妆法务资讯'));
+  assert.ok(messages[0].markdown.includes('直播功效宣称与备案资料不一致被处罚'));
+  assert.ok(messages[0].markdown.includes('### 广告合规及处罚案例'));
+  assert.ok(messages[0].markdown.includes('### 新规及案例动态'));
+  assert.equal(/## M[1-6]/.test(messages[0].markdown), false);
+  assert.equal(messages[0].markdown.includes('## 知识产权动态'), false);
+  assert.ok(messages.every(message => new TextEncoder().encode(message.markdown).length <= 18000));
+}
+
+function testBuildSingleDingTalkMessageContainsWholeReportInOneCard() {
+  const chinaItem = structuredClone(sampleReport.sections[1].items[0]);
+  chinaItem.title = '中国监管事项';
+  chinaItem.country = '中国';
+  chinaItem.source_url = 'https://example.com/china';
+  const overseasItem = structuredClone(sampleReport.sections[0].items[0]);
+  overseasItem.title = '海外监管事项';
+  overseasItem.country = '美国';
+  overseasItem.source_url = 'https://example.com/overseas';
+  const report = structuredClone(sampleReport);
+  report.sections[0].items = [overseasItem, chinaItem];
+
+  const message = buildSingleDingTalkMessage(report, {
+    imageUrl: 'https://worker.test/assets/decision-map/2026-07-14.png',
+    coverage: { overall: 0.95, chinaCritical: 1, failedSources: ['失败源'] },
+    maxBytes: 18000,
+  });
+
+  assert.equal(message.id, 'weekly-report');
+  assert.ok(message.title.includes('美妆法务资讯'));
+  for (const hiddenMetric of ['来源覆盖：', '中国关键源：', '受限监测源：', '正式条目：']) {
+    assert.equal(message.markdown.includes(hiddenMetric), false);
+  }
+  assert.ok(message.markdown.includes('![行动看板](https://worker.test/assets/decision-map/2026-07-14.png)'));
+  const regulationSection = message.markdown.slice(message.markdown.indexOf('### 新规及案例动态'));
+  assert.ok(regulationSection.indexOf('中国监管事项') < regulationSection.indexOf('海外监管事项'));
+  assert.ok(message.markdown.includes('### 广告合规及处罚案例'));
+  assert.ok(message.markdown.includes('### 新规及案例动态'));
+  assert.equal(/## M[1-6]/.test(message.markdown), false);
+  assert.equal(message.bytes, new TextEncoder().encode(message.markdown).length);
+  assert.ok(message.bytes <= 18000);
+}
+
+function testBuildSingleDingTalkMessagePrefersExplicitCoreJudgement() {
+  const report = structuredClone(sampleReport);
+  const item = report.sections[0].items[0];
+  item.core_judgement = '独立核心判断：该规则直接改变中国市场的产品准入决策。';
+  item.what_changed = ['旧变化点不应覆盖独立核心判断。'];
+
+  const message = buildSingleDingTalkMessage(report, { maxBytes: 18000 });
+
+  assert.ok(message.markdown.includes('**核心判断**：独立核心判断：该规则直接改变中国市场的产品准入决策。'));
+  assert.equal(message.markdown.includes('**核心判断**：旧变化点不应覆盖独立核心判断。'), false);
+}
+
+function testSingleCardUsesExecutiveBriefAndOnlyActiveModules() {
+  const curated = curateReportQuality(highQualityFixtureReport());
+  const message = buildSingleDingTalkMessage(curated, {
+    imageUrl: 'https://worker.test/assets/action-dashboard.png',
+    maxBytes: 18000,
+  });
+
+  assert.ok(message.markdown.includes('## 本周核心判断'));
+  assert.ok(message.markdown.includes('## 优先行动'));
+  assert.ok(message.markdown.includes('## 重点事项'));
+  assert.ok(message.markdown.includes('### 新规及案例动态'));
+  assert.equal(/^## 新规及案例动态$/m.test(message.markdown), false);
+  assert.ok(message.markdown.includes('## 持续观察'));
+  assert.ok(message.markdown.includes('时间**：由责任领导确定'));
+  assert.equal(message.markdown.includes('## 美妆动态'), false);
+  assert.equal(/## M[1-6]/.test(message.markdown), false);
+  assert.equal(message.markdown.includes('本周无高价值更新'), false);
+}
+
+function testSingleCardRendersWatchItemAsCompactObservation() {
+  const report = highQualityFixtureReport();
+  report.sections = report.sections.filter(section => section.module === '美妆动态');
+  const message = buildSingleDingTalkMessage(curateReportQuality(report));
+
+  assert.ok(message.markdown.includes('## 持续观察'));
+  assert.ok(message.markdown.includes('**关注价值**'));
+  assert.ok(message.markdown.includes('**下一观察点**'));
+  assert.equal(message.markdown.includes('建议持续关注'), false);
+}
+
+function testBuildSingleDingTalkMessageCompactsOversizedReportWithoutSplitting() {
+  const base = structuredClone(sampleReport.sections[0].items[0]);
+  const report = structuredClone(sampleReport);
+  report.sections[0].items = Array.from({ length: 24 }, (_, index) => ({
+    ...structuredClone(base),
+    title: `超长监管事项 ${index + 1}`,
+    country: index % 3 === 0 ? '中国' : '美国',
+    source_url: `https://example.com/item-${index + 1}`,
+    why_it_matters: `这是一段需要压缩的业务影响说明 ${index + 1}。`.repeat(16),
+    recommended_actions: [`立即完成第 ${index + 1} 项合规核验。`.repeat(8)],
+  }));
+
+  const message = buildSingleDingTalkMessage(report, { maxBytes: 2200 });
+  assert.equal(Array.isArray(message), false);
+  assert.ok(message.bytes <= 2200);
+  assert.ok(message.markdown.includes('## 本周核心判断'));
+  assert.ok(message.markdown.includes('## 优先行动'));
+  assert.ok(message.markdown.includes('https://example.com/item-'));
+  assert.ok(message.markdown.includes('已省略'));
+  assert.ok(message.omittedItemCount > 0);
+}
+
+function testActionDashboardUsesReadableChineseManagementLayout() {
+  const report = curateReportQuality(highQualityFixtureReport());
+  const items = report.sections.flatMap(section => section.items || []);
+  const svg = buildActionDashboardSvg(items, {
+    period: report.period,
+    coverage: { overall: 0.95, chinaCritical: 1, failedSources: ['失败源'] },
+    generatedAt: '2026-07-16T08:00:00.000Z',
+  });
+
+  assert.ok(svg.includes('width="1080" height="1440"'));
+  assert.ok(svg.includes('font-family="Noto Sans CJK SC, PingFang SC, Microsoft YaHei, sans-serif"'));
+  assert.ok(svg.includes('>行动看板</text>'));
+  assert.ok(svg.includes('本周核心判断'));
+  assert.ok(svg.includes('优先行动'));
+  assert.ok(svg.includes('<text x="72" y="490" font-size="34"'));
+  assert.ok(svg.includes('由责任领导确定'));
+  assert.ok(svg.includes('中国监管要求强化化妆品功效证据'));
+  for (const removed of ['正式情报', '来源覆盖', '官方来源', '六模块风险分布', '门槛失败', '受限监测']) {
+    assert.equal(svg.includes(removed), false, `dashboard should omit ${removed}`);
+  }
+
+  for (const match of svg.matchAll(/<rect[^>]*\sy="([\d.]+)"[^>]*\sheight="([\d.]+)"/g)) {
+    assert.ok(Number(match[1]) + Number(match[2]) <= 1440, `rect outside canvas: ${match[0]}`);
+  }
+}
+
+function testBuildDingTalkWebhookMessagesPutsChinaFirstWithinModule() {
+  const chinaItem = structuredClone(sampleReport.sections[1].items[0]);
+  chinaItem.title = '中国事项';
+  chinaItem.country = '中国';
+  chinaItem.source_url = 'https://example.com/china';
+
+  const overseasItem = structuredClone(sampleReport.sections[0].items[0]);
+  overseasItem.title = '海外事项';
+  overseasItem.module = '广告合规及处罚案例';
+  overseasItem.source_url = 'https://example.com/overseas';
+
+  const report = {
+    period: sampleReport.period,
+    summary: sampleReport.summary,
+    risk_alerts: sampleReport.risk_alerts,
+    sections: [{ module: '广告合规及处罚案例', items: [overseasItem, chinaItem] }],
+  };
+  const [message] = buildDingTalkWebhookMessages(report);
+  const advertisingSection = message.markdown.slice(message.markdown.indexOf('### 广告合规及处罚案例'));
+  assert.ok(advertisingSection.indexOf('中国事项') < advertisingSection.indexOf('海外事项'));
+}
+
+function testBuildDingTalkWebhookMessagesCompactsOversizedModulesWithoutSplitting() {
+  const baseItem = sampleReport.sections[1].items[0];
+  const items = Array.from({ length: 6 }, (_, index) => ({
+    ...structuredClone(baseItem),
+    title: `长内容事项${index + 1}`,
+    source_url: `https://example.com/long-${index + 1}`,
+    why_it_matters: `业务影响说明${index + 1}`.repeat(12),
+  }));
+  const report = {
+    period: sampleReport.period,
+    summary: sampleReport.summary,
+    risk_alerts: sampleReport.risk_alerts,
+    sections: [{ module: '广告合规及处罚案例', items }],
+  };
+  const maxBytes = 1800;
+  const messages = buildDingTalkWebhookMessages(report, { maxBytes });
+  assert.equal(messages.length, 1);
+  assert.ok(new TextEncoder().encode(messages[0].markdown).length <= maxBytes);
+  assert.ok(messages[0].markdown.includes('### 广告合规及处罚案例'));
+  assert.equal(/## M[1-6]/.test(messages[0].markdown), false);
+}
+
+function testBuildDingTalkWebhookMessagesKeepsOversizedItemSourceInOneCard() {
+  const item = structuredClone(sampleReport.sections[1].items[0]);
+  item.title = '单条超长事项';
+  item.source_url = 'https://example.com/oversized-item';
+  item.violation_logic = [Array.from({ length: 120 }, (_, index) => `拆解点${index + 1}`).join('；')];
+  const report = {
+    period: sampleReport.period,
+    summary: [],
+    risk_alerts: [],
+    sections: [{ module: '广告合规及处罚案例', items: [item] }],
+  };
+  const maxBytes = 1800;
+  const [message] = buildDingTalkWebhookMessages(report, { maxBytes });
+  assert.ok(new TextEncoder().encode(message.markdown).length <= maxBytes);
+  assert.ok(message.markdown.includes('单条超长事项'));
+  assert.ok(message.markdown.includes('https://example.com/oversized-item'));
 }
 
 async function testBuildDingTalkWebhookUrlSignsSecret() {
@@ -347,6 +1051,75 @@ async function testSendToDingTalkPostsMarkdownPayload() {
   });
 }
 
+async function testSendDingTalkMessagesRetriesTransientFailuresInOrder() {
+  const messages = [
+    { id: 'overview', title: '总览', markdown: '# 总览' },
+    { id: 'm1-1', title: '模块一', markdown: '# 模块一' },
+  ];
+  const calls = [];
+  let overviewAttempts = 0;
+  const result = await sendDingTalkMessages({
+    messages,
+    maxAttempts: 3,
+    sleepFn: async () => {},
+    sendMessage: async message => {
+      calls.push(message.id);
+      if (message.id === 'overview' && overviewAttempts++ === 0) {
+        return { ok: false, retryable: true, error: 'timeout' };
+      }
+      return { ok: true, retryable: false };
+    },
+  });
+
+  assert.deepEqual(calls, ['overview', 'overview', 'm1-1']);
+  assert.deepEqual(result, {
+    ok: true,
+    sent: 2,
+    total: 2,
+    retries: 1,
+    failedMessageId: '',
+    error: '',
+  });
+}
+
+async function testSendDingTalkMessagesThrottlesBetweenSuccessfulSegments() {
+  const waits = [];
+  const result = await sendDingTalkMessages({
+    messages: [
+      { id: 'overview', title: '总览', markdown: '# 总览' },
+      { id: 'm1-1', title: '模块一', markdown: '# 模块一' },
+    ],
+    interMessageDelayMs: 3100,
+    sleepFn: async delay => { waits.push(delay); },
+    sendMessage: async () => ({ ok: true, retryable: false }),
+  });
+  assert.equal(result.ok, true);
+  assert.deepEqual(waits, [3100]);
+}
+
+async function testSendDingTalkMessagesStopsAfterTerminalFailure() {
+  const calls = [];
+  const result = await sendDingTalkMessages({
+    messages: [
+      { id: 'overview', title: '总览', markdown: '# 总览' },
+      { id: 'm1-1', title: '模块一', markdown: '# 模块一' },
+    ],
+    sleepFn: async () => {},
+    sendMessage: async message => {
+      calls.push(message.id);
+      return { ok: false, retryable: false, error: 'invalid signature' };
+    },
+  });
+
+  assert.deepEqual(calls, ['overview']);
+  assert.equal(result.ok, false);
+  assert.equal(result.sent, 0);
+  assert.equal(result.total, 2);
+  assert.equal(result.retries, 0);
+  assert.equal(result.failedMessageId, 'overview');
+  assert.equal(result.error, 'invalid signature');
+}
+
 async function testNotifyReportPrefersDingTalkWhenConfigured() {
   let dingTalkCalls = 0;
   let feishuCalls = 0;
@@ -357,6 +1130,7 @@ async function testNotifyReportPrefersDingTalkWhenConfigured() {
     reportUrl: 'https://example.com/doc/latest',
     env: {
       DINGTALK_WEBHOOK_URL: 'https://oapi.dingtalk.com/robot/send?access_token=abc',
+      DINGTALK_MESSAGE_DELAY_MS: 0,
       DINGTALK_DOC_URL: 'https://example.com/doc/latest',
       FEISHU_WEBHOOK_URL: 'https://open.feishu.cn/test',
     },
@@ -371,10 +1145,13 @@ async function testNotifyReportPrefersDingTalkWhenConfigured() {
   assert.equal(ok.channel, 'dingtalk');
   assert.equal(dingTalkCalls, 1);
   assert.equal(feishuCalls, 0);
+  assert.equal(ok.ok, true);
+  assert.equal(ok.sent, 1);
+  assert.equal(ok.total, 1);
   assert.ok(sentTitle.includes('美妆法务资讯'));
-  assert.ok(sentMarkdown.includes('## 本周最值得看'));
-  assert.ok(sentMarkdown.includes('[查看完整版本](https://example.com/doc/latest)'));
-  assert.equal(sentMarkdown.includes('#### 印尼'), false);
+  assert.ok(sentMarkdown.includes('本周核心判断'));
+  assert.ok(sentMarkdown.includes('优先行动'));
+  assert.equal(sentMarkdown.includes('产品质量/召回与安全风险'), false);
 }
 
 async function testRequestAiChatUsesOpenAiCompatibleBaseUrl() {
@@ -395,6 +1172,52 @@ async function testRequestAiChatUsesOpenAiCompatibleBaseUrl() {
   assert.equal(calledUrl, 'https://hk.testvideo.site/v1/chat/completions');
   assert.equal(payload.model, 'codex-mini-latest');
   assert.equal(content, '{"ok":true}');
+}
+
+async function testRequestAiChatEnablesHighReasoningForSolModel() {
+  let payload = null;
+  await requestAiChat({
+    apiKey: 'test-key',
+    baseUrl: 'https://hk.testvideo.site/v1',
+    model: 'gpt-5.6-sol',
+    messages: [{ role: 'user', content: 'review' }],
+    reasoningEffort: 'high',
+    fetcher: async (_url, init) => {
+      payload = JSON.parse(init.body);
+      return new Response(JSON.stringify({ choices: [{ message: { content: '{"ok":true}' } }] }), { status: 200 });
+    },
+  });
+
+  assert.equal(payload.model, 'gpt-5.6-sol');
+  assert.equal(payload.reasoning_effort, 'high');
+}
+
+async function testRequestAiChatRetriesHeadersTimeout() {
+  let attempts = 0;
+  const sleeps = [];
+  const content = await requestAiChat({
+    apiKey: 'test-key',
+    baseUrl: 'https://hk.testvideo.site/v1',
+    model: 'gpt-5.6-sol',
+    messages: [{ role: 'user', content: 'retry' }],
+    timeoutMs: 20,
+    maxAttempts: 2,
+    sleepFn: async (delayMs) => { sleeps.push(delayMs); },
+    fetcher: async () => {
+      attempts += 1;
+      if (attempts === 1) {
+        const error = new Error('fetch failed');
+        error.cause = { code: 'UND_ERR_HEADERS_TIMEOUT' };
+        throw error;
+      }
+      return new Response(JSON.stringify({ choices: [{ message: { content: '{"ok":true}' } }] }), { status: 200 });
+    },
+  });
+
+  assert.equal(content, '{"ok":true}');
+  assert.equal(attempts, 2);
+  assert.equal(sleeps.length, 1);
+  assert.ok(sleeps[0] > 0);
 }
 
 function testBuildAnalysisPromptUsesConfigurableInputLimits() {
@@ -424,6 +1247,195 @@ function testBuildAnalysisPromptUsesConfigurableInputLimits() {
   assert.ok(prompt.includes('线索0'));
   assert.ok(prompt.includes('线索2'));
   assert.equal(prompt.includes('线索3'), false);
+}
+
+function testBuildAnalysisPromptRequiresCoreJudgementWithoutInternalDeadlines() {
+  const prompt = buildAnalysisPrompt({
+    candidates: [],
+    leads: [],
+    sources: sourceCatalog.sources,
+    period: { start: '2026-07-06', end: '2026-07-12' },
+  });
+
+  assert.ok(prompt.includes('"core_judgement"'));
+  assert.ok(prompt.includes('内部完成时间由具体领导决定'));
+  assert.ok(prompt.includes('不得编造内部完成日期'));
+  assert.equal(prompt.includes('建议谁在什么时间排查/更新/提交什么'), false);
+  for (const statutoryField of ['"effective_date"', '"feedback_deadline"', '"next_deadline"']) {
+    assert.ok(prompt.includes(statutoryField));
+  }
+}
+
+function testAnalysisPromptSupportsWatchItemsWithoutForcedModuleFilling() {
+  const prompt = buildAnalysisPrompt({
+    candidates: [],
+    leads: [],
+    sources: sourceCatalog.sources,
+    period: { start: '2026-07-06', end: '2026-07-12' },
+    targetModule: '美妆动态',
+  });
+
+  assert.ok(prompt.includes('"report_tier": "action|watch"'));
+  assert.ok(prompt.includes('"watch_value"'));
+  assert.ok(prompt.includes('"next_watch_signal"'));
+  assert.ok(prompt.includes('宁可返回空数组'));
+  assert.equal(prompt.includes('至少输出 2 条'), false);
+}
+
+async function testModuleAnalysisFailureReturnsEmptySectionWithoutPlaceholder() {
+  const report = await analyzeReportByModule({
+    modules: ['美妆动态'],
+    candidates: [{ module: '美妆动态', title: '行业线索', url: 'https://example.com/news' }],
+    leads: [],
+    sources: [],
+    period: { start: '2026-07-06', end: '2026-07-12' },
+    analyze: async () => { throw new Error('timeout'); },
+    logger: { warn() {} },
+  });
+  assert.equal(report.sections.length, 1);
+  assert.equal(report.sections[0].module, '美妆动态');
+  assert.deepEqual(report.sections[0].items, []);
+}
+
+function reportWithCoreJudgements(prefix) {
+  const report = structuredClone(sampleReport);
+  report.sections = report.sections.map(section => ({
+    ...section,
+    items: section.items.map((item, index) => ({
+      ...item,
+      core_judgement: `${prefix}${index + 1}`,
+    })),
+  }));
+  return report;
+}
+
+async function testDeepseekAnalyzeUsesValidatedEvidenceReview() {
+  const originalFetch = globalThis.fetch;
+  const draft = reportWithCoreJudgements('首轮判断');
+  const reviewed = reportWithCoreJudgements('复核判断');
+  const candidates = draft.sections.flatMap(section => section.items.map(item => ({
+    title: item.title,
+    url: item.source_url,
+    source_name: item.source_name,
+    snippet: '与报告条目对应的公开原文摘要。',
+  })));
+  let calls = 0;
+
+  globalThis.fetch = async () => {
+    calls += 1;
+    const content = calls === 1 ? draft : reviewed;
+    return new Response(JSON.stringify({ choices: [{ message: { content: JSON.stringify(content) } }] }), { status: 200 });
+  };
+
+  try {
+    const result = await deepseekAnalyze({
+      apiKey: 'test-key',
+      baseUrl: 'https://example.com/v1',
+      model: 'gpt-5.6-sol',
+      candidates,
+      sources: [],
+      period: draft.period,
+    });
+    assert.equal(calls, 2);
+    assert.ok(result.sections[0].items[0].core_judgement.startsWith('复核判断'));
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+}
+
+async function testDeepseekAnalyzeFallsBackWhenEvidenceReviewFails() {
+  const originalFetch = globalThis.fetch;
+  const draft = reportWithCoreJudgements('首轮保留');
+  let calls = 0;
+
+  globalThis.fetch = async () => {
+    calls += 1;
+    if (calls === 1) {
+      return new Response(JSON.stringify({ choices: [{ message: { content: JSON.stringify(draft) } }] }), { status: 200 });
+    }
+    return new Response('review unavailable', { status: 503 });
+  };
+
+  try {
+    const result = await deepseekAnalyze({
+      apiKey: 'test-key',
+      baseUrl: 'https://example.com/v1',
+      model: 'gpt-5.6-sol',
+      candidates: [],
+      sources: [],
+      period: draft.period,
+      logger: { warn() {} },
+    });
+    assert.equal(calls, 3);
+    assert.ok(result.sections[0].items[0].core_judgement.startsWith('首轮保留'));
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+}
+
+async function testDeepseekAnalyzeFallsBackWhenEvidenceReviewIsMalformed() {
+  const originalFetch = globalThis.fetch;
+  const draft = reportWithCoreJudgements('畸形复核前判断');
+  let calls = 0;
+
+  globalThis.fetch = async () => {
+    calls += 1;
+    const content = calls === 1 ? JSON.stringify(draft) : '{not-valid-json';
+    return new Response(JSON.stringify({ choices: [{ message: { content } }] }), { status: 200 });
+  };
+
+  try {
+    const result = await deepseekAnalyze({
+      apiKey: 'test-key',
+      baseUrl: 'https://example.com/v1',
+      model: 'gpt-5.6-sol',
+      candidates: [],
+      sources: [],
+      period: draft.period,
+      logger: { warn() {} },
+    });
+    assert.equal(calls, 2);
+    assert.ok(result.sections[0].items[0].core_judgement.startsWith('畸形复核前判断'));
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+}
+
+function testCheckedInModelDefaultsUseGpt55() {
+  const expected = 'gpt-5.5';
+  for (const relativePath of [
+    './index.js',
+    './run-local.js',
+    './wrangler.toml',
+    '../.github/workflows/weekly.yml',
+    '../README.md',
+  ]) {
+    const content = readFileSync(new URL(relativePath, import.meta.url), 'utf8');
+    assert.ok(content.includes(expected), `${relativePath} should configure ${expected}`);
+  }
+}
+
+function testActiveWorkerDoesNotUseDeprecatedDeepseekCredentials() {
+  const deprecated = [
+    'deepseek-v4-pro',
+    'DEEPSEEK_API_KEY',
+    'DEEPSEEK_API_BASE_URL',
+    'DEEPSEEK_MODEL',
+    'DEEPSEEK_WORKER_MODEL',
+    'https://api.deepseek.com/v1',
+  ];
+  for (const relativePath of [
+    './index.js',
+    './run-local.js',
+    './wrangler.toml',
+    '../.github/workflows/weekly.yml',
+    '../README.md',
+  ]) {
+    const content = readFileSync(new URL(relativePath, import.meta.url), 'utf8');
+    for (const value of deprecated) {
+      assert.equal(content.includes(value), false, `${relativePath} should not use deprecated ${value}`);
+    }
+  }
 }
 
 async function testDingTalkDocumentPublishCreatesAndWritesMarkdown() {
@@ -501,8 +1513,8 @@ function testBuildAnalysisPromptUsesModuleTarget() {
     targetModule: '进出口动态',
   });
   assert.ok(prompt.includes('当前只分析模块：进出口动态'));
-  assert.ok(prompt.includes('不要返回空数组'));
-  assert.ok(prompt.includes('待核验'));
+  assert.ok(prompt.includes('宁可返回空数组'));
+  assert.ok(prompt.includes('watch 关注事项'));
 }
 
 function testNormalizeModuleReportForcesTargetWorkbookModule() {
@@ -634,7 +1646,7 @@ async function testManualTestRouteAwaitsPipeline() {
   const response = await worker.fetch(
     new Request('https://example.com/test'),
     {
-      DEEPSEEK_API_KEY: 'test-key',
+      AI_API_KEY: 'test-key',
       FEISHU_WEBHOOK_URL: 'https://example.com/webhook',
       SEEN_NEWS: {
         async get() { return null; },
@@ -655,7 +1667,8 @@ async function testManualTestRouteAwaitsPipeline() {
   assert.equal(pipelineStarted, true);
   assert.ok(text.includes('weekly pipeline finished'));
   assert.ok(text.includes('status: done'));
-  assert.ok(text.includes('full_version: DingTalk document'));
+  assert.ok(text.includes('delivery: DingTalk webhook'));
+  assert.equal(text.includes('DingTalk document'), false);
   assert.equal(text.includes('/report/latest'), false);
 }
 
@@ -689,7 +1702,7 @@ async function testScheduledPipelineSendsFeishuWithoutHtmlReport() {
 
   globalThis.fetch = async (url, init = {}) => {
     const href = String(url);
-    if (href.includes('api.deepseek.com')) {
+    if (href.includes('/chat/completions')) {
       return new Response(JSON.stringify({
         choices: [{ message: { content: JSON.stringify(sampleReport) } }],
       }), { status: 200, headers: { 'Content-Type': 'application/json' } });
@@ -709,9 +1722,9 @@ async function testScheduledPipelineSendsFeishuWithoutHtmlReport() {
 
   try {
     await worker.scheduled({}, {
-      DEEPSEEK_API_KEY: 'test-key',
+      AI_API_KEY: 'test-key',
       FEISHU_WEBHOOK_URL: 'https://example.com/webhook',
-      DEEPSEEK_MODEL: 'deepseek-chat',
+      AI_MODEL: 'gpt-5.6-sol',
       SEEN_NEWS: kv,
     }, {});
   } finally {
@@ -722,6 +1735,135 @@ async function testScheduledPipelineSendsFeishuWithoutHtmlReport() {
   assert.equal([...store.keys()].some(key => /^report:\d{4}-\d{2}-\d{2}$/.test(key)), false);
   assert.ok(store.has('asset:decision-map:latest'));
   assert.equal(feishuSent, true);
+}
+
+async function testScheduledPipelineSendsDingTalkWithoutDocumentCredentials() {
+  const originalFetch = globalThis.fetch;
+  const store = new Map();
+  const kv = {
+    async get(key) { return store.get(key) || null; },
+    async put(key, value) { store.set(key, value); },
+  };
+  let dingTalkMessages = 0;
+  let dingTalkDocumentCalls = 0;
+
+  globalThis.fetch = async (url, init = {}) => {
+    const href = String(url);
+    if (href.includes('/chat/completions')) {
+      return new Response(JSON.stringify({
+        choices: [{ message: { content: JSON.stringify(sampleReport) } }],
+      }), { status: 200, headers: { 'Content-Type': 'application/json' } });
+    }
+    if (href.startsWith('https://oapi.dingtalk.com/robot/send')) {
+      dingTalkMessages += 1;
+      const body = JSON.parse(init.body);
+      assert.equal(body.msgtype, 'markdown');
+      assert.ok(body.markdown.title.includes('美妆法务资讯'));
+      assert.ok(body.markdown.text.startsWith('# 美妆法务资讯'));
+      return new Response(JSON.stringify({ errcode: 0, errmsg: 'ok' }), { status: 200 });
+    }
+    if (href.includes('api.dingtalk.com') || href.includes('/media/upload')) {
+      dingTalkDocumentCalls += 1;
+      return new Response(JSON.stringify({ code: 'should-not-be-called' }), { status: 500 });
+    }
+    return new Response('<a href="/cosmetic-rule">化妆品安全评估技术导则征求意见</a>', {
+      status: 200,
+      headers: { 'Content-Type': 'text/html' },
+    });
+  };
+
+  try {
+    await worker.scheduled({}, {
+      AI_API_KEY: 'test-key',
+      DINGTALK_WEBHOOK_URL: 'https://oapi.dingtalk.com/robot/send?access_token=test',
+      DINGTALK_MESSAGE_DELAY_MS: 0,
+      DINGTALK_CLIENT_ID: 'legacy-client',
+      DINGTALK_CLIENT_SECRET: 'legacy-secret',
+      DINGTALK_OPERATOR_ID: 'legacy-operator',
+      DINGTALK_WORKSPACE_ID: 'legacy-workspace',
+      AI_MODEL: 'test-model',
+      SEEN_NEWS: kv,
+    }, {});
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+
+  const lastRun = JSON.parse(store.get('run:last'));
+  assert.equal(dingTalkMessages, 1);
+  assert.equal(dingTalkDocumentCalls, 0);
+  assert.equal(lastRun.status, 'done');
+  assert.equal(lastRun.stage, 'dingtalk');
+}
+
+async function testScheduledPipelineRejectsDingTalkFailureWithoutMarkingSeen() {
+  const originalFetch = globalThis.fetch;
+  const store = new Map();
+  const kv = {
+    async get(key) { return store.get(key) || null; },
+    async put(key, value) { store.set(key, value); },
+  };
+  let dingTalkAttempts = 0;
+
+  globalThis.fetch = async url => {
+    const href = String(url);
+    if (href.includes('/chat/completions')) {
+      return new Response(JSON.stringify({
+        choices: [{ message: { content: JSON.stringify(sampleReport) } }],
+      }), { status: 200, headers: { 'Content-Type': 'application/json' } });
+    }
+    if (href.startsWith('https://oapi.dingtalk.com/robot/send')) {
+      dingTalkAttempts += 1;
+      return new Response(JSON.stringify({ errcode: 310000, errmsg: 'keywords not in content' }), { status: 200 });
+    }
+    return new Response('<a href="/cosmetic-rule">化妆品安全评估技术导则征求意见</a>', {
+      status: 200,
+      headers: { 'Content-Type': 'text/html' },
+    });
+  };
+
+  try {
+    await assert.rejects(
+      worker.scheduled({}, {
+        AI_API_KEY: 'test-key',
+        DINGTALK_WEBHOOK_URL: 'https://oapi.dingtalk.com/robot/send?access_token=test',
+        DINGTALK_MESSAGE_DELAY_MS: 0,
+        AI_MODEL: 'test-model',
+        SEEN_NEWS: kv,
+      }, {}),
+      /DingTalk delivery failed/
+    );
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+
+  const lastRun = JSON.parse(store.get('run:last'));
+  assert.equal(dingTalkAttempts, 1);
+  assert.equal(lastRun.status, 'failed');
+  assert.equal(store.has('seen_v3_report_items'), false);
+}
+
+async function testScheduledPipelineRejectsMissingAiKey() {
+  const store = new Map();
+  const kv = {
+    async get(key) { return store.get(key) || null; },
+    async put(key, value) { store.set(key, value); },
+  };
+  await assert.rejects(
+    worker.scheduled({}, {
+      DINGTALK_WEBHOOK_URL: 'https://oapi.dingtalk.com/robot/send?access_token=test',
+      SEEN_NEWS: kv,
+    }, {}),
+    /AI_API_KEY is required/
+  );
+  assert.equal(JSON.parse(store.get('run:last')).status, 'failed');
+}
+
+function testRunLocalPropagatesPipelineFailure() {
+  const source = readFileSync(new URL('./run-local.js', import.meta.url), 'utf8');
+  assert.ok(source.includes('result = await runPipeline'));
+  assert.ok(source.includes("result.status === 'failed'"));
+  assert.ok(source.includes('await browserSourceFetcher.close()'));
+  assert.equal(source.includes("process.env.DINGTALK_WEBHOOK_URL ? 'DingTalk webhook was called.'"), false);
 }
 
 async function testManualTestRouteRecordsFailure() {
@@ -824,6 +1966,11 @@ function testSourceCatalogUsesWorkbookModulesAndGlobalMarkets() {
   assert.equal(bpom.country, '印尼');
   assert.equal(bpom.module, '新规及案例动态');
   assert.equal(bpom.priority, 'high');
+
+  const monitoredSources = sources.filter(source => source.monitor_only);
+  assert.ok(monitoredSources.length >= 12);
+  assert.ok(monitoredSources.filter(source => source.country === '中国' && source.priority === 'high').length >= 9);
+  assert.ok(monitoredSources.every(source => source.monitor_reason && /^\d{4}-\d{2}-\d{2}$/.test(source.monitor_reviewed_at)));
 }
 
 function testPromptIncludesProductQualityRecallModule() {
@@ -853,15 +2000,34 @@ function testSelectSourcesForWorkerBudgetKeepsImportantCoverageUnderLimit() {
   }
 }
 
-function testWeeklyWorkflowRunsWorkerScriptAndPublishesDecisionMap() {
+function testWeeklyWorkflowDeploysRoutesBeforeVersionedAssetPipeline() {
   const workflow = readFileSync(new URL('../.github/workflows/weekly.yml', import.meta.url), 'utf8');
   assert.ok(workflow.includes('node worker/run-local.js'));
   assert.equal(workflow.includes('node run-local.js'), false);
   assert.ok(workflow.includes("cron: '17 0 * * 1'"));
   assert.equal(workflow.includes("cron: '0 0 * * 1'"), false);
   assert.ok(workflow.includes('npx wrangler deploy'));
-  assert.ok(workflow.includes('"asset:decision-map:latest.png"'));
-  assert.ok(workflow.includes('--path ../out/decision-map.png'));
+  assert.ok(workflow.indexOf('npx wrangler deploy') < workflow.indexOf('node worker/run-local.js'));
+  assert.ok(workflow.includes('vars.AI_API_BASE_URL'));
+  assert.ok(workflow.includes('vars.AI_MODEL'));
+  assert.ok(workflow.includes("MIN_CHINA_CRITICAL_COVERAGE || '0.9'"));
+  assert.ok(workflow.includes('npx playwright install --with-deps chromium'));
+  assert.ok(workflow.includes('fonts-noto-cjk'));
+  assert.ok(workflow.includes('node worker/probe-ai.js'));
+  assert.ok(workflow.indexOf('node worker/probe-ai.js') < workflow.indexOf('node worker/run-local.js'));
+  assert.ok(workflow.includes('CLOUDFLARE_KV_NAMESPACE_ID'));
+  assert.equal(workflow.includes('wrangler kv key put'), false);
+  assert.ok(workflow.includes('DINGTALK_WEBHOOK_URL: ${{ secrets.DINGTALK_WEBHOOK_URL }}'));
+  assert.ok(workflow.includes('DINGTALK_SECRET: ${{ secrets.DINGTALK_SECRET }}'));
+  for (const documentSetting of [
+    'DINGTALK_DOC_URL',
+    'DINGTALK_CLIENT_ID',
+    'DINGTALK_CLIENT_SECRET',
+    'DINGTALK_OPERATOR_ID',
+    'DINGTALK_WORKSPACE_ID',
+  ]) {
+    assert.equal(workflow.includes(documentSetting), false, `workflow should not require ${documentSetting}`);
+  }
 }
 
 function testDecisionMapPublicUrlCanOverrideWorkerAssetUrl() {
@@ -869,10 +2035,24 @@ function testDecisionMapPublicUrlCanOverrideWorkerAssetUrl() {
   assert.ok(source.includes('env.DECISION_MAP_PUBLIC_URL || env.DECISION_MAP_URL'));
 }
 
+testClassifySourceFetchFailures();
+await testRecoverPublicSourceRetriesAndRecordsAttempts();
+await testRecoverPublicSourceUsesBrowserThenOfficialAlternate();
+testSourceCoverageGatesChinaCriticalAndOverallCoverage();
+await testBrowserSourceFetcherReusesBrowserAndClosesPages();
+await testBrowserSourceFetcherUsesGovernmentSiteCompatibleNavigation();
+await testBrowserSourceFetcherRejectsAccessControlPages();
+await testPublishVersionedPngUploadsBeforeHealthCheck();
+await testCollectCandidatesReturnsRecoveryEvidenceAndRealCoverage();
+await testPipelinePublishesHealthyImageBeforeDingTalkAndDedupe();
+await testVersionedDecisionMapRouteUsesImmutableCache();
 await testFetchWithTimeoutAbortsSlowFetch();
 await testManualTestRouteAwaitsPipeline();
 await testMapWithConcurrencyLimitsParallelWork();
 await testScheduledPipelineSendsFeishuWithoutHtmlReport();
+await testScheduledPipelineSendsDingTalkWithoutDocumentCredentials();
+await testScheduledPipelineRejectsDingTalkFailureWithoutMarkingSeen();
+await testScheduledPipelineRejectsMissingAiKey();
 await testManualTestRouteRecordsFailure();
 testNormalizeUrl();
 testHtmlToText();
@@ -884,20 +2064,50 @@ testMakeCandidate();
 testParseAnalysisJson();
 testValidateReport();
 testValidateReportRequiresRegulationAnalysis();
+testValidateReportRequiresExplicitCoreJudgement();
+testValidateReportRejectsAiAssignedInternalDeadlines();
 testFilterReportQualityDropsItemsWithoutSourceUrl();
 testFilterReportQualityKeepsLeadBasedBeautyAndImportSignals();
+testReportQualitySeparatesActionWatchAndRejectedItems();
+testCurateReportQualityKeepsSixModulesButDropsEmptyDisplaySections();
+testExecutiveSummaryCapsJudgementsAndActionsAtThree();
+testExecutiveSummaryAvoidsRepeatedJudgementsAndActions();
 testNormalizeReportForValidationFillsDynamicAnalysisFields();
 testLimitReportSectionsKeepsEnterpriseModuleDepth();
 testLimitReportSectionsAcceptsQualityLimit();
 testRenderFeishuSummary();
 testRenderDingTalkMarkdownUsesModuleRegionCountryStructure();
 testRenderDingTalkMarkdownShowsAllModulesWhenEmpty();
+testRenderDingTalkMarkdownLeavesInternalCompletionTimeToLeader();
 testRenderDingTalkSummaryCardIsConciseAndIncludesKeyword();
+testBuildSingleDingTalkMessageContainsWholeReportInOneCard();
+testBuildSingleDingTalkMessagePrefersExplicitCoreJudgement();
+testSingleCardUsesExecutiveBriefAndOnlyActiveModules();
+testSingleCardRendersWatchItemAsCompactObservation();
+testBuildSingleDingTalkMessageCompactsOversizedReportWithoutSplitting();
+testActionDashboardUsesReadableChineseManagementLayout();
+testBuildDingTalkWebhookMessagesUsesOneCardWithSixModules();
+testBuildDingTalkWebhookMessagesPutsChinaFirstWithinModule();
+testBuildDingTalkWebhookMessagesCompactsOversizedModulesWithoutSplitting();
+testBuildDingTalkWebhookMessagesKeepsOversizedItemSourceInOneCard();
 await testBuildDingTalkWebhookUrlSignsSecret();
 await testSendToDingTalkPostsMarkdownPayload();
+await testSendDingTalkMessagesRetriesTransientFailuresInOrder();
+await testSendDingTalkMessagesThrottlesBetweenSuccessfulSegments();
+await testSendDingTalkMessagesStopsAfterTerminalFailure();
 await testNotifyReportPrefersDingTalkWhenConfigured();
 await testRequestAiChatUsesOpenAiCompatibleBaseUrl();
+await testRequestAiChatEnablesHighReasoningForSolModel();
+await testRequestAiChatRetriesHeadersTimeout();
 testBuildAnalysisPromptUsesConfigurableInputLimits();
+testBuildAnalysisPromptRequiresCoreJudgementWithoutInternalDeadlines();
+testAnalysisPromptSupportsWatchItemsWithoutForcedModuleFilling();
+await testModuleAnalysisFailureReturnsEmptySectionWithoutPlaceholder();
+await testDeepseekAnalyzeUsesValidatedEvidenceReview();
+await testDeepseekAnalyzeFallsBackWhenEvidenceReviewFails();
+await testDeepseekAnalyzeFallsBackWhenEvidenceReviewIsMalformed();
+testCheckedInModelDefaultsUseGpt55();
+testActiveWorkerDoesNotUseDeprecatedDeepseekCredentials();
 await testDingTalkDocumentPublishCreatesAndWritesMarkdown();
 await testUploadDingTalkImageReturnsMediaId();
 testBuildAnalysisPromptIncludesLeads();
@@ -915,6 +2125,7 @@ testSourceLeadCandidateKeepsWeaklyFetchableModulesAnalyzable();
 testSourceCatalogUsesWorkbookModulesAndGlobalMarkets();
 testSelectSourcesForWorkerBudgetKeepsImportantCoverageUnderLimit();
 testPromptIncludesProductQualityRecallModule();
-testWeeklyWorkflowRunsWorkerScriptAndPublishesDecisionMap();
+testWeeklyWorkflowDeploysRoutesBeforeVersionedAssetPipeline();
 testDecisionMapPublicUrlCanOverrideWorkerAssetUrl();
+testRunLocalPropagatesPipelineFailure();
 console.log('worker pure function tests ok');

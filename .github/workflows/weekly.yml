@@ -13,48 +13,48 @@ permissions:
 jobs:
   report:
     runs-on: ubuntu-latest
-    timeout-minutes: 30
+    timeout-minutes: 45
     env:
       AI_API_KEY: ${{ secrets.AI_API_KEY }}
-      AI_API_BASE_URL: https://hk.testvideo.site/v1
-      AI_MODEL: gpt-5.4-mini
+      AI_API_BASE_URL: ${{ vars.AI_API_BASE_URL || 'https://hk.testvideo.site/v1' }}
+      AI_MODEL: ${{ vars.AI_MODEL || 'gpt-5.5' }}
+      MIN_SOURCE_COVERAGE: ${{ vars.MIN_SOURCE_COVERAGE || '0.9' }}
+      MIN_CHINA_CRITICAL_COVERAGE: ${{ vars.MIN_CHINA_CRITICAL_COVERAGE || '0.9' }}
       REPORT_QUALITY_MODE: quality
-      ANALYSIS_CANDIDATE_LIMIT: 220
-      ANALYSIS_LEAD_LIMIT: 180
-      AI_MAX_TOKENS: 16000
+      ANALYSIS_CANDIDATE_LIMIT: 40
+      ANALYSIS_LEAD_LIMIT: 24
+      AI_MAX_TOKENS: 6000
       REPORT_ITEMS_PER_MODULE: 12
-      DINGTALK_DOC_URL: https://alidocs.dingtalk.com/i/spaces/3YxXA9e5bv7NDXNy/overview
-      DINGTALK_CLIENT_ID: ${{ secrets.DINGTALK_CLIENT_ID }}
-      DINGTALK_CLIENT_SECRET: ${{ secrets.DINGTALK_CLIENT_SECRET }}
-      DINGTALK_OPERATOR_ID: ${{ secrets.DINGTALK_OPERATOR_ID }}
-      DINGTALK_WORKSPACE_ID: ${{ secrets.DINGTALK_WORKSPACE_ID }}
       DINGTALK_WEBHOOK_URL: ${{ secrets.DINGTALK_WEBHOOK_URL }}
       DINGTALK_SECRET: ${{ secrets.DINGTALK_SECRET }}
       FEISHU_WEBHOOK_URL: ${{ secrets.FEISHU_WEBHOOK_URL }}
       CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+      CLOUDFLARE_ACCOUNT_ID: 34ddeeabd234776dc7c0f144257ecb7c
+      CLOUDFLARE_KV_NAMESPACE_ID: 3b38ee9b31b74c4faee81ee5b92b3bdb
+      PUBLIC_WORKER_BASE_URL: https://beauty-legal-bot.ai-cf.workers.dev
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
 
-      - uses: actions/setup-node@v4
+      - uses: actions/setup-node@v5
         with:
           node-version: '22'
 
       - name: Install dependencies
         run: npm ci
 
-      - name: Run pipeline
-        run: FULL_SOURCE_SCAN=1 node worker/run-local.js
+      - name: Install browser and Chinese fonts
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y fonts-noto-cjk
+          npx playwright install --with-deps chromium
+          fc-match "Noto Sans CJK SC"
 
       - name: Deploy worker routes
         working-directory: worker
         run: npx wrangler deploy
 
-      - name: Publish decision map asset
-        working-directory: worker
-        run: |
-          if [ -f "../out/decision-map.svg" ]; then
-            npx wrangler kv key put --remote --namespace-id=3b38ee9b31b74c4faee81ee5b92b3bdb "asset:decision-map:latest" --path ../out/decision-map.svg
-          fi
-          if [ -f "../out/decision-map.png" ]; then
-            npx wrangler kv key put --remote --namespace-id=3b38ee9b31b74c4faee81ee5b92b3bdb "asset:decision-map:latest.png" --path ../out/decision-map.png
-          fi
+      - name: Probe AI endpoint
+        run: node worker/probe-ai.js
+
+      - name: Run pipeline
+        run: FULL_SOURCE_SCAN=1 node worker/run-local.js

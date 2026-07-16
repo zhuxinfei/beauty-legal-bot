@@ -1,0 +1,23 @@
+name: Probe AI Model
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  probe:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    env:
+      AI_API_KEY: ${{ secrets.AI_API_KEY }}
+      AI_API_BASE_URL: https://hk.testvideo.site/v1
+      AI_MODEL: gpt-5.5
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-node@v5
+        with:
+          node-version: '22'
+      - name: Probe gpt-5.5
+        run: node worker/probe-ai.js
