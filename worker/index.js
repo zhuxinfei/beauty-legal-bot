@@ -15,6 +15,7 @@
 import sourceCatalog from './sources.json' with { type: 'json' };
 import { buildSingleDingTalkMessage } from './dingtalk-single-card.js';
 import { buildActionDashboardSvg } from './action-dashboard.js';
+import { curateReportQuality } from './report-quality.js';
 import {
   assertSourceCoverage,
   calculateSourceCoverage,
@@ -1095,7 +1096,8 @@ export async function runPipeline(env, requestUrl = 'https://beauty-legal-bot.wo
     const rawReport = await deepseekAnalyzeByModule({ apiKey: aiKey, baseUrl: aiBaseUrl, model, candidates, leads, sources, period, candidateLimit, leadLimit, maxTokens });
     const sourceCheckedReport = filterReportToObservedSources(rawReport, { candidates, sources });
     const imageAwareReport = attachReportImages(sourceCheckedReport, { candidates });
-    const report = limitReportSections(filterReportQuality(dedupeReport(enrichReportWithSourceSignals(imageAwareReport, { candidates, sources }))), itemsPerModule);
+    const normalizedReport = filterReportQuality(dedupeReport(imageAwareReport));
+    const report = limitReportSections(curateReportQuality(normalizedReport), itemsPerModule);
     validateReport(report);
     const itemCount = (report.sections || []).flatMap(section => section.items || []).length;
     console.log(`[stage 2/5] 完成，模块 ${report.sections.length} 个，去重后 ${itemCount} 条`);
@@ -1411,10 +1413,13 @@ function hasValue(value) {
 }
 
 export function getRequiredFields(item) {
-  return [
+  const required = [
     ...(TYPE_REQUIRED_FIELDS[item.type] || ['recommended_actions', 'owner_teams', 'risk_level', 'why_it_matters', 'confidence']),
     ...ENTERPRISE_REQUIRED_FIELDS,
   ];
+  return item.report_tier === 'watch'
+    ? required.filter(field => field !== 'recommended_actions')
+    : required;
 }
 
 export function hasSpecificActions(item) {
@@ -1447,8 +1452,13 @@ export function validateReport(report) {
       for (const field of getRequiredFields(item)) {
         if (!hasValue(item[field])) throw new Error(`${field} missing: ${item.title || 'unknown'}`);
       }
-      if (!hasSpecificActions(item)) throw new Error(`recommended_actions not specific: ${item.title || 'unknown'}`);
-      if (hasInternalCompletionDeadline(item)) throw new Error(`recommended_actions contains internal completion deadline: ${item.title || 'unknown'}`);
+      if (item.report_tier === 'watch') {
+        if (!hasValue(item.watch_value)) throw new Error(`watch_value missing: ${item.title || 'unknown'}`);
+        if (!hasValue(item.next_watch_signal)) throw new Error(`next_watch_signal missing: ${item.title || 'unknown'}`);
+      } else {
+        if (!hasSpecificActions(item)) throw new Error(`recommended_actions not specific: ${item.title || 'unknown'}`);
+        if (hasInternalCompletionDeadline(item)) throw new Error(`recommended_actions contains internal completion deadline: ${item.title || 'unknown'}`);
+      }
     }
   }
   return true;
@@ -1522,8 +1532,8 @@ export function buildAnalysisPrompt({ candidates, leads = [], sources, period, t
   const moduleInstruction = targetModule ? `
 当前只分析模块：${targetModule}
 - 只返回这个模块的 section。
-- 如果该模块有 candidates 或 leads，不要返回空数组；至少输出 2 条，优先 3 条。
-- 对无法直接打开原文的公众号/行业源，可以输出“待核验”线索型动态，但必须说明待核验点、业务影响和建议动作。
+- 只输出有可核验证据和实际价值的条目；宁可返回空数组，也不要为填满模块输出泛化内容。
+- 对无法直接打开原文的公众号/行业源，只能作为 watch 关注事项，并必须说明关注价值和下一观察点。
 - 美妆动态重点看行业监管趋势、平台治理、产品安全、功效宣称、渠道变化、头部品牌合规动作。
 - 进出口动态重点看进口准入、清关、口岸抽检、跨境电商、认证、海关监管、召回和贸易合规。
 - 产品质量/召回与安全风险重点看产品安全、抽检不合格、召回、禁限用成分、质量投诉、过敏/微生物/重金属风险和平台下架。
@@ -1558,10 +1568,12 @@ export function buildAnalysisPrompt({ candidates, leads = [], sources, period, t
 
 输出要求：
 - 输出合法 JSON，不要 Markdown，不要解释。
-- 目标覆盖全部 6 个模块；每个模块优先输出 2-3 条，总量控制在 10-18 条。只有确无高价值信息时才允许模块为空。
-- 美妆动态和进出口动态可以更多使用公众号/行业媒体作为线索，但必须标注 source_type 为 wechat_lead 或 industry_media，confidence 为 medium 或 low，并说明待核验点。
+- 六个模块分别监测，但只输出通过质量标准的条目；任何模块都允许为空，总量不设最低要求。
+- 美妆动态和进出口动态可以使用公众号/行业媒体作为关注线索，但必须标注 source_type 为 wechat_lead 或 industry_media，confidence 为 medium 或 low，并说明关注价值和下一观察点。
 - 字段要完整但表达精炼，避免超长 JSON。
-- 每条信息要有国家/大洲、直接/间接相关、行业影响力、业务影响面、建议动作。
+- 每条信息要有国家/大洲、直接/间接相关、行业影响力和业务影响面。
+- 行动事项 report_tier=action，必须提供具体 recommended_actions。
+- 暂不形成行动但值得关注的监管或行业新闻 report_tier=watch，必须提供 watch_value 和 next_watch_signal。
 - core_judgement 必须用 1-2 句话给出“监管或案件结论 + 对集团美妆业务的实质影响 + 必要的不确定性边界”，不能只复述标题或事实。
 - 案例必须拆解事实、认定逻辑、处罚/结果、业务启发。
 - 建议动作必须说明建议由哪个团队做什么，使用“建议...”口吻，不能是命令。
@@ -1594,6 +1606,9 @@ JSON 结构：
       "risk_level": "high|medium|low",
       "core_judgement": "监管或案件结论 + 对集团美妆业务的实质影响 + 必要的不确定性边界",
       "why_it_matters": "为什么值得国际化美妆电商集团法务关注",
+      "report_tier": "action|watch",
+      "watch_value": "关注事项的实质参考价值；行动事项可为空",
+      "next_watch_signal": "下一观察点；行动事项可为空",
       "recommended_actions": ["建议由哪个团队排查/更新/提交什么；不填写内部完成时间"],
       "owner_teams": ["法务|注册|供应链|电商|市场|品牌|客服|数据合规"],
       "confidence": "high|medium|low",
@@ -1650,6 +1665,8 @@ export function buildEvidenceReviewPrompt({ report, candidates = [] }) {
 - 没有证据支持的确定性表述必须降级为待核验，无法修正的条目应删除。
 - 不得新增条目、不得更换 source_url、不得改变 period 或六大模块名称。
 - core_judgement 必须包含监管或案件结论、对集团美妆业务的实质影响，以及必要的不确定性边界。
+- report_tier=watch 的条目必须核验 watch_value，并给出可观察的 next_watch_signal；不得把行业新闻写成确定法律义务。
+- report_tier=action 的条目必须有来源支持的业务影响和可分派建议动作。
 - 建议动作只说明建议由哪个团队做什么；内部完成时间由具体领导决定，不得编造内部完成日期、天数或“本周内”等期限。
 - effective_date、feedback_deadline、next_deadline 只保留 evidence 明确支持的法定节点。
 - 保持原 JSON 结构，不要输出解释、Markdown 或代码块。
@@ -1724,10 +1741,10 @@ export async function deepseekAnalyze({ apiKey, baseUrl, model, candidates, lead
   return reviewAnalysisReport({ apiKey, baseUrl, model, report: draft, candidates, maxTokens, fetcher, logger });
 }
 
-function mergeModuleReports(reports, period) {
+function mergeModuleReports(reports, period, modules = REPORT_MODULES) {
   const summary = reports.flatMap(report => report.summary || []).slice(0, 5);
   const riskAlerts = reports.flatMap(report => report.risk_alerts || []).slice(0, 8);
-  const sections = REPORT_MODULES.map(module => {
+  const sections = modules.map(module => {
     const items = reports
       .flatMap(report => report.sections || [])
       .filter(section => section.module === module)
@@ -1921,42 +1938,63 @@ export function attachReportImages(report, { candidates = [] } = {}) {
   };
 }
 
-async function deepseekAnalyzeByModule({ apiKey, baseUrl, model, candidates, leads = [], sources = sourceCatalog.sources, period = getPeriod(), candidateLimit = DEFAULT_ANALYSIS_CANDIDATE_LIMIT, leadLimit = DEFAULT_ANALYSIS_LEAD_LIMIT, maxTokens = DEFAULT_AI_MAX_TOKENS }) {
-  if (!candidates.length && !leads.length) {
-    return { period, summary: [], risk_alerts: [], sections: REPORT_MODULES.map(m => ({ module: m, items: [] })) };
-  }
-  const reports = await mapWithConcurrency(REPORT_MODULES, 2, async module => {
+export async function analyzeReportByModule({
+  modules = REPORT_MODULES,
+  analyze,
+  candidates = [],
+  leads = [],
+  sources = [],
+  period = getPeriod(),
+  logger = console,
+}) {
+  const reports = await mapWithConcurrency(modules, 2, async module => {
     const moduleCandidates = candidates.filter(candidate => candidate.module === module || signalMatchesModule(candidate, module));
     const moduleLeads = leads.filter(lead => lead.module === module || signalMatchesModule(lead, module));
     try {
-      const report = await deepseekAnalyze({
-        apiKey,
-        baseUrl,
-        model,
+      const report = await analyze({
+        module,
         candidates: moduleCandidates,
         leads: moduleLeads,
         sources: sources.filter(source => source.module === module),
         period,
-        candidateLimit: Math.min(candidateLimit, 16),
-        leadLimit: Math.min(leadLimit, 8),
-        maxTokens: Math.min(maxTokens, 2500),
-        targetModule: module,
       });
       return normalizeModuleReport(report, module);
     } catch (error) {
-      console.warn(`AI module fallback: ${module}: ${error.message}`);
-      const fallbackCandidates = [...moduleCandidates, ...moduleLeads]
-        .sort((a, b) => scoreCandidate(b) - scoreCandidate(a))
-        .slice(0, 3);
+      logger.warn(`AI module omitted: ${module}: ${error.message}`);
       return {
         period,
         summary: [],
         risk_alerts: [],
-        sections: [{ module, items: fallbackCandidates.map(candidate => buildSignalItem(candidate, module)) }],
+        sections: [{ module, items: [] }],
       };
     }
   });
-  return mergeModuleReports(reports, period);
+  return mergeModuleReports(reports, period, modules);
+}
+
+async function deepseekAnalyzeByModule({ apiKey, baseUrl, model, candidates, leads = [], sources = sourceCatalog.sources, period = getPeriod(), candidateLimit = DEFAULT_ANALYSIS_CANDIDATE_LIMIT, leadLimit = DEFAULT_ANALYSIS_LEAD_LIMIT, maxTokens = DEFAULT_AI_MAX_TOKENS }) {
+  if (!candidates.length && !leads.length) {
+    return { period, summary: [], risk_alerts: [], sections: REPORT_MODULES.map(m => ({ module: m, items: [] })) };
+  }
+  return analyzeReportByModule({
+    candidates,
+    leads,
+    sources,
+    period,
+    analyze: ({ module, candidates: moduleCandidates, leads: moduleLeads, sources: moduleSources }) => deepseekAnalyze({
+      apiKey,
+      baseUrl,
+      model,
+      candidates: moduleCandidates,
+      leads: moduleLeads,
+      sources: moduleSources,
+      period,
+      candidateLimit: Math.min(candidateLimit, 16),
+      leadLimit: Math.min(leadLimit, 8),
+      maxTokens: Math.min(maxTokens, 2500),
+      targetModule: module,
+    }),
+  });
 }
 
 export function escapeHtml(value) {
@@ -2362,7 +2400,8 @@ async function runFinalizePhase(date, env, requestUrl) {
   const sourceCheckedReport = filterReportToObservedSources(rawReport, candidatesMeta);
   const imageAwareReport = attachReportImages(sourceCheckedReport, candidatesMeta);
   const qualityOptions = pipelineQualityOptions(env);
-  const report = limitReportSections(filterReportQuality(dedupeReport(enrichReportWithSourceSignals(imageAwareReport, candidatesMeta))), qualityOptions.itemsPerModule);
+  const normalizedReport = filterReportQuality(dedupeReport(imageAwareReport));
+  const report = limitReportSections(curateReportQuality(normalizedReport), qualityOptions.itemsPerModule);
   validateReport(report);
 
   const generatedAt = new Date().toISOString();
