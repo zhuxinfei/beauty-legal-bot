@@ -1,11 +1,11 @@
-export const DINGTALK_REPORT_MODULES = [
-  '广告合规及处罚案例',
-  '美妆动态',
-  '知识产权动态',
-  '新规及案例动态',
-  '进出口动态',
-  '产品质量/召回与安全风险',
-];
+import {
+  REPORT_MODULES,
+  curateReportQuality,
+  rankReportQualityItem,
+  summarizeExecutiveReport,
+} from './report-quality.js';
+
+export const DINGTALK_REPORT_MODULES = REPORT_MODULES;
 
 const encoder = new TextEncoder();
 
@@ -23,153 +23,204 @@ function markdownText(value) {
 }
 
 function riskLabel(value) {
-  return value === 'high' ? '高风险' : value === 'medium' ? '中风险' : '一般风险';
+  if (value === 'high') return '高风险';
+  if (value === 'medium') return '中风险';
+  return '';
 }
 
-function itemScore(item) {
-  return (item.country === '中国' ? 1000 : 0)
-    + (item.risk_level === 'high' ? 100 : item.risk_level === 'medium' ? 50 : 10)
-    + (item.industry_impact === 'high' ? 40 : item.industry_impact === 'medium' ? 20 : 5)
-    + (item.relevance === 'direct' ? 30 : 0)
-    + (item.confidence === 'high' ? 20 : item.confidence === 'medium' ? 10 : 0);
+function joined(value) {
+  return Array.isArray(value) ? value.filter(Boolean).join('；') : String(value || '');
 }
 
 function itemJudgement(item) {
-  const candidates = [
-    item.core_judgement,
-    item.what_changed,
-    item.violation_logic,
-    item.regulatory_signal,
-    item.compliance_meaning,
-    item.why_it_matters,
-    item.facts,
-  ];
-  const value = candidates.find(candidate => Array.isArray(candidate)
-    ? candidate.some(Boolean)
-    : String(candidate || '').trim());
-  return Array.isArray(value) ? value.filter(Boolean).join('；') : String(value || '需结合原文评估具体合规影响。');
+  return joined(item.core_judgement)
+    || joined(item.what_changed)
+    || joined(item.violation_logic)
+    || joined(item.regulatory_signal)
+    || joined(item.compliance_meaning)
+    || joined(item.why_it_matters)
+    || '需结合原文评估具体合规影响。';
 }
 
 function itemImpact(item) {
-  const impacts = Array.isArray(item.business_impact) ? item.business_impact.filter(Boolean) : [];
-  return impacts.join('；') || item.affected_business || item.why_it_matters || '待结合法务与业务范围判断。';
+  return joined(item.business_impact)
+    || joined(item.affected_business)
+    || joined(item.why_it_matters)
+    || '待结合法务与业务范围判断。';
 }
 
 function itemAction(item) {
-  const actions = Array.isArray(item.recommended_actions) ? item.recommended_actions.filter(Boolean) : [];
-  return actions[0] || '核验原文，并判断是否需要更新内部合规清单。';
+  return (item.recommended_actions || []).find(Boolean)
+    || '建议责任团队核验原文并判断是否更新内部合规清单。';
 }
 
 function sourceLink(item) {
-  const title = markdownText(item.title || '未命名事项');
+  const title = markdownText(item.source_name || item.title || '查看原文');
   const url = String(item.source_url || '').trim();
   return /^https?:\/\//i.test(url) ? `[${title}](${url})` : title;
 }
 
-function renderItem(item, tier, index) {
+function renderActionItem(item, tier, index) {
   const meta = [item.country || item.region || '全球', riskLabel(item.risk_level)].filter(Boolean).join('｜');
-  if (tier === 'index') return `${index}. ${sourceLink(item)} · ${meta}`;
   if (tier === 'compact') {
     return [
-      `### ${index}. ${sourceLink(item)}`,
-      `> ${meta}｜判断：${markdownText(compactText(itemJudgement(item), 90))}`,
-      `- **行动**：${markdownText(compactText(itemAction(item), 72))}`,
-    ].join('\n');
+      `#### ${index}. ${markdownText(item.title || '未命名事项')}`,
+      meta ? `> ${meta}` : '',
+      `- **核心判断**：${markdownText(compactText(itemJudgement(item), 120))}`,
+      `- **建议行动**：${markdownText(compactText(itemAction(item), 90))}`,
+      `- **来源**：${sourceLink(item)}`,
+    ].filter(Boolean).join('\n');
   }
   return [
-    `### ${index}. ${sourceLink(item)}`,
-    `> ${meta}${item.relevance === 'direct' ? '｜直接相关' : ''}`,
-    `- **核心判断**：${markdownText(compactText(itemJudgement(item), 150))}`,
-    `- **业务影响**：${markdownText(compactText(itemImpact(item), 110))}`,
-    `- **建议行动**：${markdownText(compactText(itemAction(item), 100))}`,
-  ].join('\n');
+    `#### ${index}. ${markdownText(item.title || '未命名事项')}`,
+    meta ? `> ${meta}` : '',
+    `- **核心判断**：${markdownText(compactText(itemJudgement(item), 170))}`,
+    `- **业务影响**：${markdownText(compactText(itemImpact(item), 120))}`,
+    `- **建议行动**：${markdownText(compactText(itemAction(item), 110))}`,
+    `- **来源**：${sourceLink(item)}`,
+  ].filter(Boolean).join('\n');
+}
+
+function prepareReport(report) {
+  const items = (report.sections || []).flatMap(section => section.items || []);
+  return items.every(item => ['action', 'watch'].includes(item.report_tier) && Number.isFinite(item.quality_score))
+    ? report
+    : curateReportQuality(report);
 }
 
 function normalizedSections(report) {
   const byModule = new Map((report.sections || []).map(section => [section.module, section.items || []]));
-  return DINGTALK_REPORT_MODULES.map((module, moduleIndex) => ({
+  return REPORT_MODULES.map((module, moduleIndex) => ({
     module,
     moduleIndex,
     items: [...(byModule.get(module) || [])]
-      .sort((a, b) => itemScore(b) - itemScore(a) || String(a.title || '').localeCompare(String(b.title || ''), 'zh-Hans-CN')),
+      .sort((a, b) => rankReportQualityItem(b) - rankReportQualityItem(a)),
   }));
 }
 
 function renderMessage(report, sections, tiers, removed, { imageUrl, omittedItemCount }) {
-  const itemCount = sections.reduce((sum, section) => sum + section.items.length, 0);
-  const date = report.period?.end || '本期';
-  const chinaItems = sections.flatMap(section => section.items).filter(item => item.country === '中国').slice(0, 3);
-  const lines = [`# 美妆法务资讯｜${date}`];
-  if (imageUrl) lines.push('', `![管理层行动看板](${imageUrl})`);
-  if (chinaItems.length) {
-    lines.push('', '## 中国监管重点', ...chinaItems.map((item, index) => `${index + 1}. ${sourceLink(item)}`));
-  }
-  if (omittedItemCount > 0) {
-    lines.push('', `> 受单卡上限影响，另有 ${omittedItemCount} 条低优先级事项未展开；高风险、中国事项和来源链接优先保留。`);
+  const executive = summarizeExecutiveReport(report);
+  const lines = [`# 美妆法务资讯｜${report.period?.end || '本期'}`];
+  if (imageUrl) lines.push('', `![行动看板](${imageUrl})`);
+
+  if (executive.judgements.length) {
+    lines.push('', '## 本周核心判断');
+    executive.judgements.forEach((item, index) => {
+      lines.push(`${index + 1}. ${markdownText(compactText(item.text, 180))}`);
+    });
   }
 
+  if (executive.actions.length) {
+    lines.push('', '## 优先行动');
+    executive.actions.forEach((action, index) => {
+      const meta = [riskLabel(action.risk_level), action.owners.join('、') || '法务'].filter(Boolean).join('｜');
+      lines.push(
+        `### P${index + 1}｜${markdownText(action.title)}`,
+        meta ? `> ${meta}` : '',
+        `- **动作**：${markdownText(compactText(action.text, 110))}`,
+        `- **时间**：由责任领导确定`,
+        `- **来源**：${sourceLink(action)}`,
+      );
+    });
+  }
+
+  const activeSections = sections
+    .map(section => ({
+      ...section,
+      items: section.items.filter(item => item.report_tier === 'action' && !removed.has(item.__cardId)),
+    }))
+    .filter(section => section.items.length);
+  if (activeSections.length) lines.push('', '## 重点事项');
   let displayIndex = 0;
-  for (const section of sections) {
-    lines.push('', `## M${section.moduleIndex + 1} ${section.module}`);
-    const visibleItems = section.items.filter(item => !removed.has(item.__cardId));
-    if (!visibleItems.length) {
-      lines.push(section.items.length ? '- 本模块低优先级事项未在单卡中展开。' : '- 本周无高置信更新。');
-      continue;
-    }
-    for (const item of visibleItems) {
+  for (const section of activeSections) {
+    lines.push('', `### ${section.module}`);
+    for (const item of section.items) {
       displayIndex += 1;
-      lines.push(renderItem(item, tiers.get(item.__cardId) || 'index', displayIndex));
+      lines.push(renderActionItem(item, tiers.get(item.__cardId) || 'full', displayIndex));
     }
   }
 
-  lines.push('', '> 数据口径：仅纳入可核验公开来源；本报告用于内部合规研判，不替代正式法律意见。');
-  return lines.join('\n');
+  const watchItems = sections
+    .flatMap(section => section.items)
+    .filter(item => item.report_tier === 'watch' && !removed.has(item.__cardId))
+    .sort((a, b) => rankReportQualityItem(b) - rankReportQualityItem(a))
+    .slice(0, 3);
+  if (watchItems.length) {
+    lines.push('', '## 持续观察');
+    watchItems.forEach(item => lines.push(
+      `### ${markdownText(item.title || '行业动态')}`,
+      `- **发生了什么**：${markdownText(compactText(item.core_judgement, 120))}`,
+      `- **关注价值**：${markdownText(compactText(item.watch_value, 100))}`,
+      `- **下一观察点**：${markdownText(compactText(item.next_watch_signal, 100))}`,
+      `- **来源**：${sourceLink(item)}`,
+    ));
+  }
+
+  if (omittedItemCount > 0) lines.push('', `> 已省略 ${omittedItemCount} 条低优先级事项。`);
+  lines.push('', '> 公开来源可核验；仅供内部合规研判，不替代正式法律意见。');
+  return lines.filter(line => line !== '').join('\n\n');
 }
 
-/**
- * 把完整周报压入一个钉钉 Markdown 字节预算。
- * 压缩只改变展示深度，不改变中国优先和风险排序；只有最后一级才移除最低评分条目，并明确披露数量。
- */
-export function buildSingleDingTalkMessage(report, {
+export function buildSingleDingTalkMessage(inputReport, {
   imageUrl = '',
   maxBytes = 18000,
 } = {}) {
   const byteLimit = Math.max(1200, Number(maxBytes || 18000));
+  const report = prepareReport(inputReport);
   const sections = normalizedSections(report).map(section => ({
     ...section,
-    items: section.items.map((item, itemIndex) => ({ ...item, __cardId: `${section.moduleIndex}:${itemIndex}` })),
+    items: section.items.map((item, itemIndex) => ({
+      ...item,
+      __cardId: `${section.moduleIndex}:${itemIndex}`,
+    })),
   }));
   const allItems = sections.flatMap(section => section.items);
-  const tiers = new Map(allItems.map(item => [
-    item.__cardId,
-    item.country === '中国' || item.risk_level === 'high' ? 'full' : 'compact',
-  ]));
+  const actionItems = allItems.filter(item => item.report_tier === 'action');
+  const watchItems = allItems.filter(item => item.report_tier === 'watch');
+  const protectedIds = new Set(
+    [...actionItems]
+      .sort((a, b) => rankReportQualityItem(b) - rankReportQualityItem(a))
+      .slice(0, 3)
+      .map(item => item.__cardId),
+  );
+  const tiers = new Map(actionItems.map(item => [item.__cardId, 'full']));
   const removed = new Set();
-
   const build = () => renderMessage(report, sections, tiers, removed, {
     imageUrl,
     omittedItemCount: removed.size,
   });
   let markdown = build();
 
-  for (const targetTier of ['compact', 'index']) {
+  for (const item of [...watchItems].sort((a, b) => rankReportQualityItem(a) - rankReportQualityItem(b))) {
     if (utf8Bytes(markdown) <= byteLimit) break;
-    for (const item of [...allItems].sort((a, b) => itemScore(a) - itemScore(b))) {
-      const current = tiers.get(item.__cardId);
-      if ((targetTier === 'compact' && current === 'full') || (targetTier === 'index' && current !== 'index')) {
-        tiers.set(item.__cardId, targetTier);
-        markdown = build();
-        if (utf8Bytes(markdown) <= byteLimit) break;
-      }
-    }
+    removed.add(item.__cardId);
+    markdown = build();
   }
 
-  if (utf8Bytes(markdown) > byteLimit) {
-    for (const item of [...allItems].sort((a, b) => itemScore(a) - itemScore(b))) {
-      removed.add(item.__cardId);
-      markdown = build();
-      if (utf8Bytes(markdown) <= byteLimit) break;
-    }
+  for (const item of [...actionItems].sort((a, b) => rankReportQualityItem(a) - rankReportQualityItem(b))) {
+    if (utf8Bytes(markdown) <= byteLimit) break;
+    if (protectedIds.has(item.__cardId)) continue;
+    tiers.set(item.__cardId, 'compact');
+    markdown = build();
+  }
+
+  for (const item of [...actionItems].sort((a, b) => rankReportQualityItem(a) - rankReportQualityItem(b))) {
+    if (utf8Bytes(markdown) <= byteLimit) break;
+    if (protectedIds.has(item.__cardId)) continue;
+    removed.add(item.__cardId);
+    markdown = build();
+  }
+
+  for (const item of [...actionItems].sort((a, b) => rankReportQualityItem(a) - rankReportQualityItem(b))) {
+    if (utf8Bytes(markdown) <= byteLimit) break;
+    tiers.set(item.__cardId, 'compact');
+    markdown = build();
+  }
+
+  for (const item of [...actionItems].sort((a, b) => rankReportQualityItem(a) - rankReportQualityItem(b))) {
+    if (utf8Bytes(markdown) <= byteLimit) break;
+    removed.add(item.__cardId);
+    markdown = build();
   }
 
   const bytes = utf8Bytes(markdown);
