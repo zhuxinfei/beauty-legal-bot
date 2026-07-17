@@ -1375,6 +1375,7 @@ function testSingleCardAlwaysUsesCopyableNativeMarkdown() {
 
   assert.ok(message.markdown.includes('## 资讯正文'));
   assert.ok(message.markdown.includes('- **核心判断**\n  - '));
+  assert.ok(message.markdown.includes('直接**处罚风险**'));
   assert.ok(message.markdown.includes('- **事实摘要**\n  - '));
   assert.ok(message.markdown.includes('- **法务研判**\n  - '));
   assert.ok(message.markdown.includes('- **来源**\n  - [上海市监局]'));
@@ -1395,8 +1396,8 @@ function testSingleCardFallbackPreservesTypeSpecificLegalDetail() {
     '## 资讯正文',
     '- **事实摘要**\n  - 直播间使用功效宣称吸引消费者购买',
     '- **法务研判**\n  - 监管以直播录屏、详情页文案和备案资料不一致作为认定依据',
-    '- **处理结果**\n  - 责令停止相关宣传',
-    '- **法定节点**\n  - 2026-10-17',
+    '- **处理结果**\n  - **责令停止**相关宣传',
+    '- **法定节点**\n  - **2026-10-17**',
     '- **建议动作**\n  - 电商团队抽查 Top 20 SKU 直播脚本',
   ]) {
     assert.ok(message.markdown.includes(expected), `fallback should include ${expected}`);
@@ -1506,6 +1507,20 @@ function testBuildSingleDingTalkMessagePrefersExplicitCoreJudgement() {
 
   assert.ok(message.markdown.includes('- **核心判断**\n  - 独立核心判断：该规则直接改变中国市场的产品准入决策。'));
   assert.equal(message.markdown.includes('- **核心判断**\n  - 旧变化点不应覆盖独立核心判断。'), false);
+}
+
+function testSingleCardHighlightsOnlyHighSignalTermsInsideBullets() {
+  const report = structuredClone(sampleReport);
+  const item = report.sections[0].items[0];
+  item.core_judgement = '企业必须在2026-10-17前完成整改，逾期可能被处以50万元罚款。';
+  item.legal_obligation = ['普通背景说明，不构成新的操作要求。'];
+
+  const message = buildSingleDingTalkMessage(report, { maxBytes: 18000 });
+
+  assert.ok(message.markdown.includes('企业**必须**在**2026-10-17**前完成整改，逾期可能被处以**50万元**罚款。'));
+  assert.ok(message.markdown.includes('> 印尼｜**高风险**｜行动事项'));
+  assert.equal(message.markdown.includes('**普通背景说明**'), false);
+  assert.ok(message.markdown.includes('[BPOM](https://www.pom.go.id/)'));
 }
 
 function testSingleCardUsesExecutiveBriefAndOnlyActiveModules() {
@@ -2784,6 +2799,7 @@ testSingleCardDoesNotCapUsefulWatchItemsAtThree();
 testEditorialReportHtmlIsReadableDenseAndComplete();
 await testEditorialPngRendererUsesHighResolutionFullPageCapture();
 testBuildSingleDingTalkMessagePrefersExplicitCoreJudgement();
+testSingleCardHighlightsOnlyHighSignalTermsInsideBullets();
 testSingleCardUsesExecutiveBriefAndOnlyActiveModules();
 testSingleCardRendersWatchItemAsCompactObservation();
 testBuildSingleDingTalkMessageCompactsOversizedReportWithoutSplitting();
