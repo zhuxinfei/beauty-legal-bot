@@ -61,8 +61,10 @@ export async function publishVersionedPng({
     });
   }
 
-  const versionedUrl = `${String(publicBaseUrl || '').replace(/\/+$/, '')}/assets/decision-map/${date}.png`;
-  const healthResponse = await fetcher(`${versionedUrl}?verify=${Date.now()}`, {
+  const digest = new Uint8Array(await crypto.subtle.digest('SHA-256', png));
+  const contentVersion = [...digest.slice(0, 8)].map(byte => byte.toString(16).padStart(2, '0')).join('');
+  const versionedUrl = `${String(publicBaseUrl || '').replace(/\/+$/, '')}/assets/decision-map/${date}.png?v=${contentVersion}`;
+  const healthResponse = await fetcher(`${versionedUrl}&verify=${Date.now()}`, {
     method: 'GET',
     headers: { 'Cache-Control': 'no-cache' },
   });
