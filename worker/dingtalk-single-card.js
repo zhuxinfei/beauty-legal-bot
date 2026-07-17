@@ -47,29 +47,19 @@ function renderManagementSummary(editorial) {
   ];
 }
 
-function renderSourceIndex(editorial, removed) {
-  const items = editorial.sections.flatMap(section => section.items).filter(item => !removed.has(item.number));
-  if (!items.length) return [];
-  return [
-    '',
-    '## 来源索引',
-    ...items.map(item => `${item.number}. ${sourceLink(item)}｜${markdownText(item.title, 80)}｜${markdownText(item.published_at, 16)}`),
-  ];
-}
-
 function renderEditorialItem(item, tier = 'full') {
   const compact = tier === 'compact';
   if (tier === 'minimal') {
     return [
       `#### ${item.number}. ${markdownText(item.title, 60)}`,
-      `- **摘要**：${markdownText(item.summary, 100)}`,
+      `- **核心判断**：${markdownText(item.summary, 100)}`,
       `- **来源**：${sourceLink(item)}｜${markdownText(item.published_at, 16)}`,
     ].join('\n');
   }
   const lines = [
     `#### ${item.number}. ${markdownText(item.title, compact ? 70 : 110)}`,
     `> ${markdownText(item.country, 20)}｜${riskLabel(item.risk_level)}｜${item.report_tier === 'watch' ? '持续观察' : '行动事项'}`,
-    `- **摘要**：${markdownText(item.summary, compact ? 150 : 260)}`,
+    `- **核心判断**：${markdownText(item.summary, compact ? 150 : 260)}`,
   ];
   const facts = joined(item.facts, compact ? 100 : 180, compact ? 1 : 2);
   const legal = joined(item.legal_analysis, compact ? 100 : 180, compact ? 1 : 2);
@@ -91,7 +81,7 @@ function renderEditorialItem(item, tier = 'full') {
     const action = joined(item.recommended_actions, compact ? 100 : 170, compact ? 1 : 2);
     if (action) lines.push(`- **建议动作**：${markdownText(action)}`);
     const owners = joined(item.owner_teams, 20, 4);
-    if (owners) lines.push(`- **责任团队**：${markdownText(owners, 80)}｜**完成时间**：由责任领导确定`);
+    if (owners) lines.push(`- **责任岗位**：${markdownText(owners, 80)}｜**完成时间**：由责任领导确定`);
   }
   lines.push(`- **来源**：${sourceLink(item)}｜${markdownText(item.published_at, 16)}`);
   return lines.join('\n');
@@ -108,7 +98,7 @@ function renderFallbackBody(editorial, tiers, removed) {
   return lines;
 }
 
-function renderMessage(editorial, { imageUrl, tiers, removed }) {
+function renderMessage(editorial, { tiers, removed }) {
   const lines = [`# 美妆法务资讯｜${editorial.period?.end || '本期'}`];
   if (!editorial.item_count) {
     lines.push(
@@ -122,12 +112,7 @@ function renderMessage(editorial, { imageUrl, tiers, removed }) {
   }
 
   lines.push(...renderManagementSummary(editorial));
-  if (imageUrl) {
-    lines.push('', `![美妆法务资讯长图](${imageUrl})`, '', `[查看高清原图](${imageUrl})`);
-    lines.push(...renderSourceIndex(editorial, removed));
-  } else {
-    lines.push(...renderFallbackBody(editorial, tiers, removed));
-  }
+  lines.push(...renderFallbackBody(editorial, tiers, removed));
   lines.push('', '## 本期结论', markdownText(editorial.final_synthesis, 240));
   if (removed.size) lines.push('', `> 受消息长度限制，已省略 ${removed.size} 条低优先级事项；来源原文仍保留在采集存档中。`);
   lines.push('', '> 公开来源可核验；仅供内部合规研判，不替代正式法律意见。');
@@ -135,7 +120,6 @@ function renderMessage(editorial, { imageUrl, tiers, removed }) {
 }
 
 export function buildSingleDingTalkMessage(report, {
-  imageUrl = '',
   maxBytes = 18000,
 } = {}) {
   const byteLimit = Math.max(1200, Number(maxBytes || 18000));
@@ -143,7 +127,7 @@ export function buildSingleDingTalkMessage(report, {
   const items = editorial.sections.flatMap(section => section.items);
   const tiers = new Map(items.map(item => [item.number, 'full']));
   const removed = new Set();
-  const build = () => renderMessage(editorial, { imageUrl, tiers, removed });
+  const build = () => renderMessage(editorial, { tiers, removed });
   let markdown = build();
 
   const lowPriorityFirst = [...items].sort((a, b) => {
@@ -152,12 +136,10 @@ export function buildSingleDingTalkMessage(report, {
     return aChina - bChina || a.quality_score - b.quality_score || b.number - a.number;
   });
 
-  if (!imageUrl) {
-    for (const item of lowPriorityFirst) {
-      if (utf8Bytes(markdown) <= byteLimit) break;
-      tiers.set(item.number, 'compact');
-      markdown = build();
-    }
+  for (const item of lowPriorityFirst) {
+    if (utf8Bytes(markdown) <= byteLimit) break;
+    tiers.set(item.number, 'compact');
+    markdown = build();
   }
 
   let remaining = items.length;
@@ -169,7 +151,7 @@ export function buildSingleDingTalkMessage(report, {
     markdown = build();
   }
 
-  if (!imageUrl && utf8Bytes(markdown) > byteLimit) {
+  if (utf8Bytes(markdown) > byteLimit) {
     const retained = items.find(item => !removed.has(item.number));
     if (retained) {
       tiers.set(retained.number, 'minimal');

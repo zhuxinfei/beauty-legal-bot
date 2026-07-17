@@ -663,8 +663,6 @@ function renderDingTalkModuleDelivery(report, module, maxBytes) {
  */
 export function buildDingTalkWebhookMessages(report, options = {}) {
   return [buildSingleDingTalkMessage(report, {
-    imageUrl: options.editorialImageUrl || options.imageUrl || options.decisionMapUrl || '',
-    coverage: options.coverage,
     maxBytes: options.maxBytes,
   })];
 }
@@ -1059,8 +1057,6 @@ async function prepareEditorialReportImage({ report, env, kv, requestUrl, date, 
 export async function notifyReport({ report, reportUrl: latestUrl, env, sendDingTalk = sendToDingTalk, sendFeishu = sendToFeishu }) {
   if (env.DINGTALK_WEBHOOK_URL) {
     const messages = buildDingTalkWebhookMessages(report, {
-      editorialImageUrl: env.EDITORIAL_REPORT_URL || '',
-      coverage: env.SOURCE_COVERAGE,
       maxBytes: env.DINGTALK_MAX_BYTES,
     });
     const delivery = await sendDingTalkMessages({
@@ -1174,16 +1170,12 @@ export async function runPipeline(env, requestUrl = 'https://beauty-legal-bot.wo
     console.log(`[stage 2/5] 完成，模式 ${analysis.mode}，模块 ${report.sections.length} 个，准入 ${itemCount} 条`);
 
     console.log(itemCount > 0
-      ? "[stage 3/5] 生成高清资讯长图；失败时自动回退完整文字报告..."
+      ? "[stage 3/5] 生成单条原生 Markdown 报告..."
       : "[stage 3/5] 无准入事项，生成文字简报...");
     const generatedAt = new Date().toISOString();
-    const reportDate = report.period.end;
-    const editorialImageUrl = await prepareEditorialReportImage({
-      report, env, kv, requestUrl, date: reportDate, generatedAt,
-    });
-    const markdown = buildSingleDingTalkMessage(report, { imageUrl: editorialImageUrl }).markdown;
+    const markdown = buildSingleDingTalkMessage(report).markdown;
     if (typeof env.ON_REPORT_READY === 'function') {
-      await env.ON_REPORT_READY({ report, markdown, editorialImageUrl, generatedAt, failures, sourceResults, coverage });
+      await env.ON_REPORT_READY({ report, markdown, generatedAt, failures, sourceResults, coverage });
     }
     console.log("[stage 4/5] 内容去重检查...");
     const { isDup, seen, fps } = await isDuplicateFingerprints(extractReportFingerprints(report), kv);
@@ -1196,7 +1188,7 @@ export async function runPipeline(env, requestUrl = 'https://beauty-legal-bot.wo
     const notification = await notifyReport({
       report,
       reportUrl: '',
-      env: { ...env, EDITORIAL_REPORT_URL: editorialImageUrl, SOURCE_COVERAGE: coverage },
+      env: { ...env, SOURCE_COVERAGE: coverage },
     });
     const ok = notification.ok;
     if (ok) await markSeen(fps, seen, kv);
@@ -2911,13 +2903,6 @@ async function runFinalizePhase(date, env, requestUrl) {
   const report = processed.report;
   validateReport(report);
 
-  const generatedAt = new Date().toISOString();
-  const failures = candidatesMeta.failures || [];
-  const reportDate = report.period.end;
-  const itemCount = (report.sections || []).flatMap(s => s.items || []).length;
-  const editorialImageUrl = await prepareEditorialReportImage({
-    report, env, kv, requestUrl, date: reportDate, generatedAt,
-  });
   const { isDup, seen, fps } = await isDuplicateFingerprints(extractReportFingerprints(report), kv);
   if (shouldSkipDuplicateReport(isDup, env.FORCE_DELIVERY === '1')) {
     return { stage: 'dedupe', status: 'skipped', message: '30-day duplicate' };
@@ -2926,7 +2911,7 @@ async function runFinalizePhase(date, env, requestUrl) {
   const notification = await notifyReport({
     report,
     reportUrl: '',
-    env: { ...env, EDITORIAL_REPORT_URL: editorialImageUrl, SOURCE_COVERAGE: candidatesMeta.coverage },
+    env: { ...env, SOURCE_COVERAGE: candidatesMeta.coverage },
   });
   const ok = notification.ok;
   if (ok) await markSeen(fps, seen, kv);
