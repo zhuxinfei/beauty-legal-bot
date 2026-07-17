@@ -288,12 +288,13 @@ async function testPublishVersionedPngUploadsBeforeHealthCheck() {
     },
   });
 
-  assert.equal(url, 'https://worker.test/assets/decision-map/2026-07-14.png');
+  assert.match(url, /^https:\/\/worker\.test\/assets\/decision-map\/2026-07-14\.png\?v=[a-f0-9]{16}$/);
   assert.deepEqual(calls.map(call => call.method), ['PUT', 'PUT', 'GET']);
   assert.ok(calls[0].href.includes('/values/asset%3Adecision-map%3A2026-07-14.png'));
   assert.ok(calls[1].href.includes('/values/asset%3Adecision-map%3Alatest.png'));
   assert.equal(calls[0].auth, 'Bearer secret-token');
   assert.equal(calls[2].auth, undefined);
+  assert.ok(calls[2].href.includes('?v='));
 }
 
 async function testPipelinePublishesHealthyImageBeforeDingTalkAndDedupe() {
