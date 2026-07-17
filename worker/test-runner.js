@@ -6,8 +6,10 @@ import { createBrowserSourceFetcher } from './browser-fetch.js';
 import { buildSingleDingTalkMessage } from './dingtalk-single-card.js';
 import { buildActionDashboardSvg } from './action-dashboard.js';
 import {
+  REPORT_MODULES,
   classifyReportItem,
   curateReportQuality,
+  curateReportQualityWithAudit,
   summarizeExecutiveReport,
 } from './report-quality.js';
 import { publishVersionedPng } from './cloudflare-assets.js';
@@ -45,7 +47,10 @@ import {
   publishDingTalkDocument,
   requestAiChat,
   deepseekAnalyze,
+  deepseekRescueAnalyze,
   analyzeReportByModule,
+  analyzeReportWithRecovery,
+  processAnalyzedReport,
   dedupeReport,
   extractReportFingerprints,
   makeLead,
@@ -343,6 +348,63 @@ async function testPipelinePublishesHealthyImageBeforeDingTalkAndDedupe() {
   assert.deepEqual(calls, ['render-image', 'publish-versioned-image', 'health-check-image', 'send-dingtalk', 'mark-seen']);
 }
 
+async function testPipelineNoUpdateSkipsEmptyDashboardPublication() {
+  const originalFetch = globalThis.fetch;
+  const emptyReport = {
+    period: sampleReport.period,
+    summary: [],
+    risk_alerts: [],
+    sections: REPORT_MODULES.map(module => ({ module, items: [] })),
+  };
+  let rendered = false;
+  let published = false;
+  let delivered = false;
+  const kv = {
+    async get() { return null; },
+    async put() {},
+  };
+  globalThis.fetch = async (url, init = {}) => {
+    const href = String(url);
+    if (href.includes('/chat/completions')) {
+      return new Response(JSON.stringify({
+        choices: [{ message: { content: JSON.stringify(emptyReport) } }],
+      }), { status: 200 });
+    }
+    if (href.startsWith('https://oapi.dingtalk.com/robot/send')) {
+      delivered = true;
+      const payload = JSON.parse(init.body);
+      assert.ok(payload.markdown.text.includes('本期无重大合规更新'));
+      assert.equal(payload.markdown.text.includes('![行动看板]'), false);
+      return new Response(JSON.stringify({ errcode: 0, errmsg: 'ok' }), { status: 200 });
+    }
+    return new Response(`<html><body><a href="/notice">化妆品监管新规</a><p>${'公开监管正文。'.repeat(8)}</p></body></html>`, { status: 200 });
+  };
+
+  try {
+    const result = await runPipeline({
+      AI_API_KEY: 'test-key',
+      AI_MODEL: 'test-model',
+      DINGTALK_WEBHOOK_URL: 'https://oapi.dingtalk.com/robot/send?access_token=test',
+      SEEN_NEWS: kv,
+      CREATE_DECISION_MAP_PNG: async () => {
+        rendered = true;
+        return new Uint8Array(2048).fill(1);
+      },
+      PUBLISH_DECISION_MAP: async () => {
+        published = true;
+        return 'https://worker.test/assets/empty-dashboard.png';
+      },
+    });
+    assert.equal(result.status, 'done');
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+
+  assert.equal(rendered, false);
+  assert.equal(published, false);
+  assert.equal(delivered, true);
+}
+
 async function testVersionedDecisionMapRouteUsesImmutableCache() {
   const png = new Uint8Array(2048).fill(3);
   const response = await worker.fetch(
@@ -623,6 +685,132 @@ function testCurateReportQualityKeepsSixModulesButDropsEmptyDisplaySections() {
   assert.equal(curated.display_sections.length, 1);
   assert.equal(curated.display_sections[0].module, '新规及案例动态');
   assert.equal(curated.sections.flatMap(section => section.items).length, 2);
+}
+
+function testCurateReportQualityAuditExplainsRejectedItems() {
+  const rejected = highQualityWatchItem({
+    title: '无证据行业传闻',
+    source_url: '',
+    watch_value: '',
+    next_watch_signal: '',
+  });
+  const input = highQualityFixtureReport();
+  input.sections[1].items.push(rejected);
+
+  const { report, audit } = curateReportQualityWithAudit(input);
+
+  assert.equal(audit.inputItems, 3);
+  assert.equal(audit.acceptedItems, 2);
+  assert.equal(audit.rejectedItems, 1);
+  assert.ok(audit.reasons.evidence >= 1);
+  assert.equal(report.sections.flatMap(section => section.items).length, 2);
+}
+
+async function testAnalyzeReportWithRecoveryUsesOneRescuePass() {
+  const primary = {
+    period: sampleReport.period,
+    summary: [],
+    risk_alerts: [],
+    sections: REPORT_MODULES.map(module => ({ module, items: [] })),
+  };
+  const rescue = highQualityFixtureReport();
+  const observedUrls = rescue.sections.flatMap(section => section.items.map(item => ({
+    url: item.source_url,
+    source_url: item.source_url,
+  })));
+  let rescueCalls = 0;
+
+  const result = await analyzeReportWithRecovery({
+    candidates: observedUrls,
+    leads: [],
+    sources: [],
+    period: sampleReport.period,
+    itemsPerModule: 12,
+    analyzePrimary: async () => primary,
+    analyzeRescue: async () => {
+      rescueCalls += 1;
+      return rescue;
+    },
+    logger: { info() {}, warn() {} },
+  });
+
+  assert.equal(rescueCalls, 1);
+  assert.equal(result.mode, 'rescue');
+  assert.equal(result.audit.acceptedItems, 1);
+  assert.equal(result.report.sections.flatMap(section => section.items).length, 1);
+}
+
+async function testAnalyzeReportWithRecoveryRejectsTechnicalCollapse() {
+  const primary = highQualityFixtureReport();
+  const emptyRescue = {
+    period: sampleReport.period,
+    summary: [],
+    risk_alerts: [],
+    sections: REPORT_MODULES.map(module => ({ module, items: [] })),
+  };
+
+  await assert.rejects(
+    () => analyzeReportWithRecovery({
+      candidates: [{ url: 'https://different.example/source' }],
+      leads: [],
+      sources: [],
+      period: sampleReport.period,
+      analyzePrimary: async () => primary,
+      analyzeRescue: async () => emptyRescue,
+      logger: { info() {}, warn() {} },
+    }),
+    /technical collapse/i,
+  );
+}
+
+async function testDeepseekRescueAnalyzeUsesObservedCandidateIdentity() {
+  const candidate = {
+    title: '中国化妆品功效宣称监管通报',
+    url: 'https://samr.example.gov.cn/notices/2026-07-16',
+    source_name: '中国市场监管机构',
+    source_type: 'official_site',
+    authority_type: 'regulator',
+    module: '广告合规及处罚案例',
+    country: '中国',
+    region: '亚洲',
+    published_at: '2026-07-16',
+    priority: 'high',
+    snippet: '监管通报要求化妆品功效宣称与备案证据保持一致。',
+  };
+  const response = {
+    items: [{
+      candidate_index: 0,
+      report_tier: 'action',
+      core_judgement: '中国监管进一步核查化妆品功效宣称与备案证据的一致性，将直接影响直播话术、详情页和产品上架审核。',
+      why_it_matters: '同一产品在备案、广告和直播渠道的证据不一致，可能引发处罚、下架和消费者争议。',
+      recommended_actions: ['建议法务、注册和市场团队核对重点 SKU 的备案证据、直播话术和商品详情页。'],
+      owner_teams: ['法务', '注册', '市场'],
+      business_impact: ['功效宣称', '广告投放', '直播电商'],
+      market_scope: ['中国市场重点 SKU'],
+      risk_level: 'high',
+      relevance: 'direct',
+      industry_impact: 'high',
+    }],
+  };
+
+  const report = await deepseekRescueAnalyze({
+    apiKey: 'test-key',
+    baseUrl: 'https://example.com/v1',
+    model: 'gpt-5.6-sol',
+    candidates: [candidate],
+    leads: [],
+    period: sampleReport.period,
+    fetcher: async () => new Response(JSON.stringify({
+      choices: [{ message: { content: JSON.stringify(response) } }],
+    }), { status: 200 }),
+  });
+
+  const item = report.sections.find(section => section.module === candidate.module).items[0];
+  assert.equal(item.source_url, candidate.url);
+  assert.equal(item.source_name, candidate.source_name);
+  assert.equal(item.confidence, 'high');
+  const processed = processAnalyzedReport(report, { candidates: [candidate], sources: [] });
+  assert.equal(processed.audit.acceptedItems, 1);
 }
 
 function testExecutiveSummaryCapsJudgementsAndActionsAtThree() {
@@ -1591,6 +1779,38 @@ function testFilterReportToObservedSourcesDropsFabricatedUrls() {
   assert.equal(filtered.sections[0].items[0].title, sampleReport.sections[0].items[0].title);
 }
 
+function testFilterReportToObservedSourcesKeepsCanonicalUrlVariants() {
+  const report = structuredClone(sampleReport);
+  const originalUrl = report.sections[0].items[0].source_url;
+  report.sections[0].items[0].source_url = `${originalUrl}?utm_source=weekly#details`;
+
+  const filtered = filterReportToObservedSources(report, {
+    candidates: [{ url: originalUrl }],
+    sources: [],
+  });
+
+  assert.equal(filtered.sections[0].items.length, 1);
+  assert.equal(filtered.sections[0].items[0].source_url, originalUrl);
+}
+
+function testEmptySingleCardIsExplicitAndNeverShowsDashboard() {
+  const report = {
+    period: { start: '2026-07-10', end: '2026-07-16' },
+    summary: [],
+    risk_alerts: [],
+    sections: REPORT_MODULES.map(module => ({ module, items: [] })),
+  };
+
+  const message = buildSingleDingTalkMessage(report, {
+    imageUrl: 'https://worker.test/assets/empty-dashboard.png',
+  });
+
+  assert.equal(message.itemCount, 0);
+  assert.ok(message.markdown.includes('本期无重大合规更新'));
+  assert.equal(message.markdown.includes('![行动看板]'), false);
+  assert.equal(message.markdown.includes('本周无通过质量门槛的核心判断'), false);
+}
+
 function testAttachReportImagesUsesObservedCandidateImages() {
   const report = structuredClone(sampleReport);
   const sourceUrl = report.sections[0].items[0].source_url;
@@ -2045,6 +2265,7 @@ await testBrowserSourceFetcherRejectsAccessControlPages();
 await testPublishVersionedPngUploadsBeforeHealthCheck();
 await testCollectCandidatesReturnsRecoveryEvidenceAndRealCoverage();
 await testPipelinePublishesHealthyImageBeforeDingTalkAndDedupe();
+await testPipelineNoUpdateSkipsEmptyDashboardPublication();
 await testVersionedDecisionMapRouteUsesImmutableCache();
 await testFetchWithTimeoutAbortsSlowFetch();
 await testManualTestRouteAwaitsPipeline();
@@ -2070,6 +2291,10 @@ testFilterReportQualityDropsItemsWithoutSourceUrl();
 testFilterReportQualityKeepsLeadBasedBeautyAndImportSignals();
 testReportQualitySeparatesActionWatchAndRejectedItems();
 testCurateReportQualityKeepsSixModulesButDropsEmptyDisplaySections();
+testCurateReportQualityAuditExplainsRejectedItems();
+await testAnalyzeReportWithRecoveryUsesOneRescuePass();
+await testAnalyzeReportWithRecoveryRejectsTechnicalCollapse();
+await testDeepseekRescueAnalyzeUsesObservedCandidateIdentity();
 testExecutiveSummaryCapsJudgementsAndActionsAtThree();
 testExecutiveSummaryAvoidsRepeatedJudgementsAndActions();
 testNormalizeReportForValidationFillsDynamicAnalysisFields();
@@ -2115,6 +2340,8 @@ testBuildAnalysisPromptUsesModuleTarget();
 testNormalizeModuleReportForcesTargetWorkbookModule();
 testEnrichReportWithSourceSignalsFillsSparseWorkbookModules();
 testFilterReportToObservedSourcesDropsFabricatedUrls();
+testFilterReportToObservedSourcesKeepsCanonicalUrlVariants();
+testEmptySingleCardIsExplicitAndNeverShowsDashboard();
 testAttachReportImagesUsesObservedCandidateImages();
 testEnterprisePromptRequiresGlobalLegalIntelligence();
 testCandidateFreshnessAndInfluenceRanking();
