@@ -101,6 +101,17 @@ function normalizedSections(report) {
 function renderMessage(report, sections, tiers, removed, { imageUrl, omittedItemCount }) {
   const executive = summarizeExecutiveReport(report);
   const lines = [`# 美妆法务资讯｜${report.period?.end || '本期'}`];
+  const hasItems = sections.some(section => section.items.length);
+  if (!hasItems) {
+    lines.push(
+      '',
+      '## 本期结论',
+      '本期无重大合规更新。六大板块已完成监测，暂未发现达到行动或持续观察准入标准的新事项。',
+      '',
+      '> 公开来源可核验；仅供内部合规研判，不替代正式法律意见。',
+    );
+    return lines.filter(line => line !== '').join('\n\n');
+  }
   if (imageUrl) lines.push('', `![行动看板](${imageUrl})`);
 
   if (executive.judgements.length) {

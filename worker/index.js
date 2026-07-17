@@ -15,7 +15,7 @@
 import sourceCatalog from './sources.json' with { type: 'json' };
 import { buildSingleDingTalkMessage } from './dingtalk-single-card.js';
 import { buildActionDashboardSvg } from './action-dashboard.js';
-import { curateReportQuality } from './report-quality.js';
+import { curateReportQuality, curateReportQualityWithAudit } from './report-quality.js';
 import {
   assertSourceCoverage,
   calculateSourceCoverage,
@@ -1093,31 +1093,59 @@ export async function runPipeline(env, requestUrl = 'https://beauty-legal-bot.wo
 
     console.log("[stage 2/5] AI 结构化分析...");
     const period = getPeriod();
-    const rawReport = await deepseekAnalyzeByModule({ apiKey: aiKey, baseUrl: aiBaseUrl, model, candidates, leads, sources, period, candidateLimit, leadLimit, maxTokens });
-    const sourceCheckedReport = filterReportToObservedSources(rawReport, { candidates, sources });
-    const imageAwareReport = attachReportImages(sourceCheckedReport, { candidates });
-    const normalizedReport = filterReportQuality(dedupeReport(imageAwareReport));
-    const report = limitReportSections(curateReportQuality(normalizedReport), itemsPerModule);
+    const analysis = await analyzeReportWithRecovery({
+      candidates,
+      leads,
+      sources,
+      period,
+      itemsPerModule,
+      analyzePrimary: () => deepseekAnalyzeByModule({
+        apiKey: aiKey,
+        baseUrl: aiBaseUrl,
+        model,
+        candidates,
+        leads,
+        sources,
+        period,
+        candidateLimit,
+        leadLimit,
+        maxTokens,
+      }),
+      analyzeRescue: () => deepseekRescueAnalyze({
+        apiKey: aiKey,
+        baseUrl: aiBaseUrl,
+        model,
+        candidates,
+        leads,
+        period,
+      }),
+    });
+    const report = analysis.report;
     validateReport(report);
     const itemCount = (report.sections || []).flatMap(section => section.items || []).length;
-    console.log(`[stage 2/5] 完成，模块 ${report.sections.length} 个，去重后 ${itemCount} 条`);
+    console.log(`[stage 2/5] 完成，模式 ${analysis.mode}，模块 ${report.sections.length} 个，准入 ${itemCount} 条`);
 
-    console.log("[stage 3/5] 生成管理层行动看板并保存报告...");
+    console.log(itemCount > 0
+      ? "[stage 3/5] 生成管理层行动看板并保存报告..."
+      : "[stage 3/5] 无准入事项，跳过空看板并生成文字简报...");
     const generatedAt = new Date().toISOString();
     const reportDate = report.period.end;
-    const decisionMapSvg = buildDecisionMapSvg(
-      verifiedReportItems(report).sort((a, b) => rankReportItem(b) - rankReportItem(a)),
-      { period: report.period, coverage, generatedAt }
-    );
-    await saveDecisionMap(kv, reportDate, decisionMapSvg);
-    const decisionMapPng = env.CREATE_DECISION_MAP_PNG
-      ? await env.CREATE_DECISION_MAP_PNG({ svg: decisionMapSvg, date: reportDate, requestUrl })
-      : null;
-    if (decisionMapPng) await saveDecisionMapPng(kv, reportDate, decisionMapPng);
-    const decisionMapUrl = decisionMapPng && typeof env.PUBLISH_DECISION_MAP === 'function'
-      ? await env.PUBLISH_DECISION_MAP({ date: reportDate, png: decisionMapPng, svg: decisionMapSvg, requestUrl })
-      : await resolveDecisionMapUrl({ env, requestUrl, decisionMapPng, date: reportDate });
-    if (!decisionMapUrl) throw new Error('Decision map publication returned no public URL');
+    let decisionMapUrl = '';
+    if (itemCount > 0) {
+      const decisionMapSvg = buildDecisionMapSvg(
+        verifiedReportItems(report).sort((a, b) => rankReportItem(b) - rankReportItem(a)),
+        { period: report.period, coverage, generatedAt }
+      );
+      await saveDecisionMap(kv, reportDate, decisionMapSvg);
+      const decisionMapPng = env.CREATE_DECISION_MAP_PNG
+        ? await env.CREATE_DECISION_MAP_PNG({ svg: decisionMapSvg, date: reportDate, requestUrl })
+        : null;
+      if (decisionMapPng) await saveDecisionMapPng(kv, reportDate, decisionMapPng);
+      decisionMapUrl = decisionMapPng && typeof env.PUBLISH_DECISION_MAP === 'function'
+        ? await env.PUBLISH_DECISION_MAP({ date: reportDate, png: decisionMapPng, svg: decisionMapSvg, requestUrl })
+        : await resolveDecisionMapUrl({ env, requestUrl, decisionMapPng, date: reportDate });
+      if (!decisionMapUrl) throw new Error('Decision map publication returned no public URL');
+    }
     const markdown = renderDingTalkMarkdown(report, { decisionMapUrl });
     if (typeof env.ON_REPORT_READY === 'function') {
       await env.ON_REPORT_READY({ report, markdown, decisionMapUrl, generatedAt, failures, sourceResults, coverage });
@@ -1487,28 +1515,43 @@ export function normalizeReportForValidation(report) {
   };
 }
 
-export function filterReportQuality(report) {
+export function filterReportQualityWithAudit(report) {
   const normalizedReport = normalizeReportForValidation(report);
-  return {
+  const audit = { inputItems: 0, acceptedItems: 0, rejectedItems: 0, reasons: {} };
+  const reject = reason => {
+    audit.rejectedItems += 1;
+    audit.reasons[reason] = (audit.reasons[reason] || 0) + 1;
+    return [];
+  };
+  const filtered = {
     ...normalizedReport,
     sections: (normalizedReport.sections || []).map(section => ({
       ...section,
-      items: (section.items || []).filter(item => {
-        if (!hasValue(item.source_url)) return false;
+      items: (section.items || []).flatMap(item => {
+        audit.inputItems += 1;
+        if (!hasValue(item.source_url)) return reject('missing-source-url');
         const allowLeadSignal = ['美妆动态', '进出口动态'].includes(section.module)
           && ['wechat_lead', 'industry_media', 'wechat_public_account'].includes(item.source_type)
           && item.industry_impact !== 'low'
           && hasSpecificActions(item);
-        if (item.confidence === 'low' && item.relevance !== 'direct' && item.industry_impact !== 'high' && !allowLeadSignal) return false;
+        if (item.confidence === 'low' && item.relevance !== 'direct' && item.industry_impact !== 'high' && !allowLeadSignal) {
+          return reject('low-confidence');
+        }
         try {
           validateReport({ ...normalizedReport, sections: [{ ...section, items: [item] }] });
-          return true;
-        } catch {
-          return false;
+          audit.acceptedItems += 1;
+          return [item];
+        } catch (error) {
+          return reject(`validation:${String(error.message || 'unknown').split(':')[0]}`);
         }
       }),
     })),
   };
+  return { report: filtered, audit };
+}
+
+export function filterReportQuality(report) {
+  return filterReportQualityWithAudit(report).report;
 }
 
 export function limitReportSections(report, itemLimit = DEFAULT_REPORT_ITEMS_PER_MODULE) {
@@ -1741,6 +1784,145 @@ export async function deepseekAnalyze({ apiKey, baseUrl, model, candidates, lead
   return reviewAnalysisReport({ apiKey, baseUrl, model, report: draft, candidates, maxTokens, fetcher, logger });
 }
 
+function rescueEvidenceCandidates(candidates = [], leads = []) {
+  const combined = [...candidates, ...leads]
+    .filter(candidate => /^https?:\/\//i.test(String(candidate.url || candidate.source_url || '')));
+  return sortCandidatesForAnalysis(combined)
+    .sort((a, b) => Number(b.country === '中国') - Number(a.country === '中国'))
+    .slice(0, 18);
+}
+
+function buildRescueAnalysisPrompt(evidence, period) {
+  const candidates = evidence.map((candidate, candidateIndex) => ({
+    candidate_index: candidateIndex,
+    module: candidate.module,
+    title: candidate.title,
+    source_name: candidate.source_name || candidate.name,
+    country: candidate.country,
+    region: candidate.region,
+    published_at: candidate.published_at,
+    authority_type: candidate.authority_type,
+    source_type: candidate.source_type,
+    snippet: String(candidate.snippet || '').slice(0, 1600),
+  }));
+  return `你是国际化美妆电商集团的高级法务情报分析员。常规分析没有形成可用条目，请从下列已抓取证据中重新识别最多 5 条真正值得法务部门处理或持续观察的事项。
+
+规则：
+- 中国信息优先，但不得为凑数选择无实质内容的候选。
+- 只能引用 candidate_index，不得输出或编造 URL、来源名称、国家和发布日期。
+- action 必须有明确业务影响和可分派动作；watch 必须有具体关注价值和下一观察信号。
+- 核心判断必须包含事实结论、对集团美妆业务的影响和不确定性边界。
+- 不得编造内部完成日期，完成时间由责任领导确定。
+- 只输出合法 JSON；确实没有重要事项时输出 {"items":[]}。
+
+JSON 结构：
+{"items":[{
+  "candidate_index":0,
+  "report_tier":"action|watch",
+  "core_judgement":"事实结论 + 业务影响 + 边界",
+  "why_it_matters":"法务关注价值",
+  "recommended_actions":["建议具体团队核对或更新具体事项"],
+  "owner_teams":["法务"],
+  "business_impact":["功效宣称|广告投放|注册备案|跨境清关|供应链|品牌/IP|平台运营"],
+  "market_scope":["受影响市场/渠道/SKU"],
+  "risk_level":"high|medium|low",
+  "relevance":"direct|indirect",
+  "industry_impact":"high|medium|low",
+  "watch_value":"watch 必填，action 可空",
+  "next_watch_signal":"watch 必填，action 可空"
+}]}
+
+报告周期：${period.start} 至 ${period.end}
+证据候选：${JSON.stringify(candidates)}`;
+}
+
+function rescueItemFromSelection(selection, candidate) {
+  const module = REPORT_MODULES.includes(candidate.module) ? candidate.module : '美妆动态';
+  const actions = Array.isArray(selection.recommended_actions) ? selection.recommended_actions.filter(Boolean) : [];
+  const judgement = String(selection.core_judgement || '').trim();
+  const why = String(selection.why_it_matters || '').trim();
+  const sourceType = signalSourceType(candidate);
+  const official = ['official', 'official_site', 'regulator', 'court', 'database'].includes(sourceType)
+    || ['official', 'regulator', 'court'].includes(candidate.authority_type);
+  return {
+    type: '动态',
+    module,
+    region: candidate.region || '全球',
+    country: candidate.country || '全球',
+    title: candidate.title || `${candidate.source_name || candidate.name || '公开来源'}监管动态`,
+    source_name: candidate.source_name || candidate.name || '公开来源',
+    source_url: candidate.url || candidate.source_url,
+    source_type: official ? 'regulator' : sourceType,
+    published_at: candidate.published_at || '未知',
+    relevance: selection.relevance === 'indirect' ? 'indirect' : 'direct',
+    industry_impact: ['high', 'medium', 'low'].includes(selection.industry_impact) ? selection.industry_impact : 'medium',
+    business_impact: Array.isArray(selection.business_impact) && selection.business_impact.length
+      ? selection.business_impact.filter(Boolean)
+      : signalBusinessImpact(module),
+    market_scope: Array.isArray(selection.market_scope) && selection.market_scope.length
+      ? selection.market_scope.filter(Boolean)
+      : [`${candidate.country || '相关市场'} ${module}`],
+    risk_level: ['high', 'medium', 'low'].includes(selection.risk_level) ? selection.risk_level : 'medium',
+    core_judgement: judgement,
+    why_it_matters: why,
+    report_tier: selection.report_tier === 'watch' ? 'watch' : 'action',
+    watch_value: String(selection.watch_value || '').trim(),
+    next_watch_signal: String(selection.next_watch_signal || '').trim(),
+    recommended_actions: selection.report_tier === 'watch' ? [] : actions,
+    owner_teams: Array.isArray(selection.owner_teams) && selection.owner_teams.length
+      ? selection.owner_teams.filter(Boolean)
+      : ['法务'],
+    confidence: official ? 'high' : 'medium',
+    regulatory_signal: [judgement],
+    compliance_meaning: [why],
+    possible_follow_up: actions.length ? actions : [String(selection.next_watch_signal || '').trim()].filter(Boolean),
+  };
+}
+
+export async function deepseekRescueAnalyze({
+  apiKey,
+  baseUrl,
+  model,
+  candidates = [],
+  leads = [],
+  period = getPeriod(),
+  fetcher = fetch,
+}) {
+  const evidence = rescueEvidenceCandidates(candidates, leads);
+  if (!evidence.length) {
+    return { period, summary: [], risk_alerts: [], sections: REPORT_MODULES.map(module => ({ module, items: [] })) };
+  }
+  const content = await requestAiChat({
+    apiKey,
+    baseUrl,
+    model,
+    messages: [
+      { role: 'system', content: '你只输出合法 JSON，不输出 Markdown、代码块或解释。' },
+      { role: 'user', content: buildRescueAnalysisPrompt(evidence, period) },
+    ],
+    temperature: 0.1,
+    maxTokens: 3500,
+    fetcher,
+  });
+  const parsed = parseAnalysisJson(content);
+  const used = new Set();
+  const items = (Array.isArray(parsed.items) ? parsed.items : []).flatMap(selection => {
+    const index = Number(selection.candidate_index);
+    if (!Number.isInteger(index) || index < 0 || index >= evidence.length || used.has(index)) return [];
+    used.add(index);
+    return [rescueItemFromSelection(selection, evidence[index])];
+  });
+  return {
+    period,
+    summary: [],
+    risk_alerts: [],
+    sections: REPORT_MODULES.map(module => ({
+      module,
+      items: items.filter(item => item.module === module),
+    })),
+  };
+}
+
 function mergeModuleReports(reports, period, modules = REPORT_MODULES) {
   const summary = reports.flatMap(report => report.summary || []).slice(0, 5);
   const riskAlerts = reports.flatMap(report => report.risk_alerts || []).slice(0, 8);
@@ -1897,24 +2079,40 @@ export function enrichReportWithSourceSignals(report, { candidates = [], sources
 }
 
 function normalizeSourceUrl(url) {
-  return String(url || '').trim().replace(/\/$/, '');
+  const raw = String(url || '').trim();
+  if (!/^https?:\/\//i.test(raw)) return raw.replace(/\/$/, '');
+  try {
+    const parsed = new URL(raw);
+    parsed.hash = '';
+    for (const key of [...parsed.searchParams.keys()]) {
+      if (/^(?:utm_.+|fbclid|gclid|spm|from|source)$/i.test(key)) parsed.searchParams.delete(key);
+    }
+    parsed.searchParams.sort();
+    parsed.hostname = parsed.hostname.toLowerCase();
+    parsed.pathname = parsed.pathname.replace(/\/$/, '') || '/';
+    return parsed.toString().replace(/\/$/, '');
+  } catch {
+    return raw.replace(/\/$/, '');
+  }
 }
 
 export function filterReportToObservedSources(report, { candidates = [], sources = [] } = {}) {
-  const allowed = new Set([
+  const observedUrls = [
     ...candidates.map(candidate => candidate.url || candidate.source_url),
     ...sources.map(source => source.url),
     '微信公众号',
-  ].map(normalizeSourceUrl).filter(Boolean));
+  ].filter(Boolean);
+  const allowed = new Map(observedUrls.map(url => [normalizeSourceUrl(url), String(url).trim()]));
 
   return {
     ...report,
     sections: (report.sections || []).map(section => ({
       ...section,
-      items: (section.items || []).filter(item => {
+      items: (section.items || []).flatMap(item => {
         const url = normalizeSourceUrl(item.source_url);
-        if (!url || /xxx|example\.com|placeholder|待补充/i.test(url)) return false;
-        return allowed.has(url);
+        if (!url || /xxx|example\.com|placeholder|待补充/i.test(url)) return [];
+        const observedUrl = allowed.get(url);
+        return observedUrl ? [{ ...item, source_url: observedUrl }] : [];
       }),
     })),
   };
@@ -1935,6 +2133,87 @@ export function attachReportImages(report, { candidates = [] } = {}) {
         image_url: item.image_url || imagesByUrl.get(normalizeSourceUrl(item.source_url)) || '',
       })),
     })),
+  };
+}
+
+function reportItemCount(report) {
+  return (report?.sections || []).reduce((total, section) => total + (section.items || []).length, 0);
+}
+
+export function processAnalyzedReport(rawReport, {
+  candidates = [],
+  sources = [],
+  itemsPerModule = DEFAULT_REPORT_ITEMS_PER_MODULE,
+} = {}) {
+  const aiItems = reportItemCount(rawReport);
+  const sourceCheckedReport = filterReportToObservedSources(rawReport, { candidates, sources });
+  const sourceMatchedItems = reportItemCount(sourceCheckedReport);
+  const imageAwareReport = attachReportImages(sourceCheckedReport, { candidates });
+  const dedupedReport = dedupeReport(imageAwareReport);
+  const structural = filterReportQualityWithAudit(dedupedReport);
+  const quality = curateReportQualityWithAudit(structural.report);
+  const report = limitReportSections(quality.report, itemsPerModule);
+  const acceptedItems = reportItemCount(report);
+  return {
+    report,
+    audit: {
+      aiItems,
+      sourceMatchedItems,
+      structurallyValidItems: structural.audit.acceptedItems,
+      acceptedItems,
+      rejectedItems: aiItems - acceptedItems,
+      reasons: {
+        ...(aiItems > sourceMatchedItems ? { sourceMismatch: aiItems - sourceMatchedItems } : {}),
+        ...structural.audit.reasons,
+        ...Object.fromEntries(Object.entries(quality.audit.reasons).map(([key, value]) => [`quality:${key}`, value])),
+      },
+    },
+  };
+}
+
+function logReportAudit(logger, label, audit) {
+  const reasonText = Object.entries(audit.reasons || {})
+    .map(([reason, count]) => `${reason}=${count}`)
+    .join(', ') || 'none';
+  (logger.info || logger.log).call(
+    logger,
+    `[stage 2/5] ${label}审计：AI=${audit.aiItems}，来源匹配=${audit.sourceMatchedItems}，结构有效=${audit.structurallyValidItems}，质量准入=${audit.acceptedItems}，拒绝原因=${reasonText}`,
+  );
+}
+
+export async function analyzeReportWithRecovery({
+  candidates = [],
+  leads = [],
+  sources = [],
+  period,
+  itemsPerModule = DEFAULT_REPORT_ITEMS_PER_MODULE,
+  analyzePrimary,
+  analyzeRescue,
+  logger = console,
+}) {
+  const primaryRawReport = await analyzePrimary();
+  const primary = processAnalyzedReport(primaryRawReport, { candidates, sources, itemsPerModule });
+  logReportAudit(logger, '主分析', primary.audit);
+  if (primary.audit.acceptedItems > 0) return { ...primary, mode: 'primary', primaryAudit: primary.audit };
+
+  if (!analyzeRescue || candidates.length + leads.length === 0) {
+    return { ...primary, mode: 'no-update', primaryAudit: primary.audit };
+  }
+
+  logger.warn('[stage 2/5] 主分析无准入条目，启动一次高价值救援分析');
+  const rescueRawReport = await analyzeRescue();
+  const rescue = processAnalyzedReport(rescueRawReport, { candidates, sources, itemsPerModule });
+  logReportAudit(logger, '救援分析', rescue.audit);
+  if (rescue.audit.acceptedItems === 0 && (primary.audit.aiItems > 0 || rescue.audit.aiItems > 0)) {
+    throw new Error(
+      `Report technical collapse: AI produced ${primary.audit.aiItems + rescue.audit.aiItems} items but none survived source, structure, and quality gates`,
+    );
+  }
+  return {
+    ...rescue,
+    mode: rescue.audit.acceptedItems > 0 ? 'rescue' : 'no-update',
+    primaryAudit: primary.audit,
+    rescueAudit: rescue.audit,
   };
 }
 
@@ -2357,18 +2636,34 @@ async function runAnalysisPhase(date, env, additionalCandidates = []) {
   const baseUrl = env.AI_API_BASE_URL || DEFAULT_AI_API_BASE_URL;
   const qualityOptions = pipelineQualityOptions(env);
   const period = getPeriod();
-  const rawReport = await deepseekAnalyzeByModule({
-    apiKey: aiKey,
-    baseUrl,
-    model,
+  const analysis = await analyzeReportWithRecovery({
     candidates: allCandidates,
     leads: allLeads,
     sources: sourceCatalog.sources,
     period,
-    candidateLimit: qualityOptions.candidateLimit,
-    leadLimit: qualityOptions.leadLimit,
-    maxTokens: qualityOptions.maxTokens,
+    itemsPerModule: qualityOptions.itemsPerModule,
+    analyzePrimary: () => deepseekAnalyzeByModule({
+      apiKey: aiKey,
+      baseUrl,
+      model,
+      candidates: allCandidates,
+      leads: allLeads,
+      sources: sourceCatalog.sources,
+      period,
+      candidateLimit: qualityOptions.candidateLimit,
+      leadLimit: qualityOptions.leadLimit,
+      maxTokens: qualityOptions.maxTokens,
+    }),
+    analyzeRescue: () => deepseekRescueAnalyze({
+      apiKey: aiKey,
+      baseUrl,
+      model,
+      candidates: allCandidates,
+      leads: allLeads,
+      period,
+    }),
   });
+  const rawReport = analysis.report;
 
   await kv.put(`pipeline:${date}:rawReport`, JSON.stringify(rawReport));
   await kv.put(`pipeline:${date}:candidates`, JSON.stringify({
@@ -2397,30 +2692,36 @@ async function runFinalizePhase(date, env, requestUrl) {
     if (metaRaw) candidatesMeta = JSON.parse(metaRaw);
   } catch { /* use defaults */ }
 
-  const sourceCheckedReport = filterReportToObservedSources(rawReport, candidatesMeta);
-  const imageAwareReport = attachReportImages(sourceCheckedReport, candidatesMeta);
   const qualityOptions = pipelineQualityOptions(env);
-  const normalizedReport = filterReportQuality(dedupeReport(imageAwareReport));
-  const report = limitReportSections(curateReportQuality(normalizedReport), qualityOptions.itemsPerModule);
+  const processed = processAnalyzedReport(rawReport, {
+    candidates: candidatesMeta.candidates || [],
+    sources: candidatesMeta.sources || sourceCatalog.sources,
+    itemsPerModule: qualityOptions.itemsPerModule,
+  });
+  logReportAudit(console, '分阶段终审', processed.audit);
+  const report = processed.report;
   validateReport(report);
 
   const generatedAt = new Date().toISOString();
   const failures = candidatesMeta.failures || [];
   const reportDate = report.period.end;
   const itemCount = (report.sections || []).flatMap(s => s.items || []).length;
-  const decisionMapSvg = buildDecisionMapSvg(
-    verifiedReportItems(report).sort((a, b) => rankReportItem(b) - rankReportItem(a)),
-    { period: report.period, coverage: candidatesMeta.coverage, generatedAt }
-  );
-  await saveDecisionMap(kv, reportDate, decisionMapSvg);
-  const decisionMapPng = env.CREATE_DECISION_MAP_PNG
-    ? await env.CREATE_DECISION_MAP_PNG({ svg: decisionMapSvg, date: reportDate, requestUrl })
-    : null;
-  if (decisionMapPng) await saveDecisionMapPng(kv, reportDate, decisionMapPng);
-  const decisionMapUrl = decisionMapPng && typeof env.PUBLISH_DECISION_MAP === 'function'
-    ? await env.PUBLISH_DECISION_MAP({ date: reportDate, png: decisionMapPng, svg: decisionMapSvg, requestUrl })
-    : await resolveDecisionMapUrl({ env, requestUrl, decisionMapPng, date: reportDate });
-  if (!decisionMapUrl) throw new Error('Decision map publication returned no public URL');
+  let decisionMapUrl = '';
+  if (itemCount > 0) {
+    const decisionMapSvg = buildDecisionMapSvg(
+      verifiedReportItems(report).sort((a, b) => rankReportItem(b) - rankReportItem(a)),
+      { period: report.period, coverage: candidatesMeta.coverage, generatedAt }
+    );
+    await saveDecisionMap(kv, reportDate, decisionMapSvg);
+    const decisionMapPng = env.CREATE_DECISION_MAP_PNG
+      ? await env.CREATE_DECISION_MAP_PNG({ svg: decisionMapSvg, date: reportDate, requestUrl })
+      : null;
+    if (decisionMapPng) await saveDecisionMapPng(kv, reportDate, decisionMapPng);
+    decisionMapUrl = decisionMapPng && typeof env.PUBLISH_DECISION_MAP === 'function'
+      ? await env.PUBLISH_DECISION_MAP({ date: reportDate, png: decisionMapPng, svg: decisionMapSvg, requestUrl })
+      : await resolveDecisionMapUrl({ env, requestUrl, decisionMapPng, date: reportDate });
+    if (!decisionMapUrl) throw new Error('Decision map publication returned no public URL');
+  }
   const { isDup, seen, fps } = await isDuplicateFingerprints(extractReportFingerprints(report), kv);
   if (isDup) return { stage: 'dedupe', status: 'skipped', message: '30-day duplicate' };
 
