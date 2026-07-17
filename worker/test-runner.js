@@ -324,7 +324,7 @@ async function testPipelineSendsNativeMarkdownWithoutImageHooks() {
       calls.push('send-dingtalk');
       const payload = JSON.parse(init.body);
       assert.ok(payload.markdown.text.includes('## 资讯正文'));
-      assert.ok(payload.markdown.text.includes('**事实摘要**'));
+      assert.ok(payload.markdown.text.includes('- **事实摘要**\n  - '));
       assert.equal(payload.markdown.text.includes('![美妆法务资讯长图]'), false);
       assert.equal(payload.markdown.text.includes('查看高清原图'), false);
       return new Response(JSON.stringify({ errcode: 0, errmsg: 'ok' }), { status: 200 });
@@ -378,7 +378,7 @@ async function testPipelineIgnoresLegacyEditorialImageHooks() {
       calls.push('send-dingtalk');
       const payload = JSON.parse(init.body);
       assert.ok(payload.markdown.text.includes('## 资讯正文'));
-      assert.ok(payload.markdown.text.includes('**事实摘要**'));
+      assert.ok(payload.markdown.text.includes('- **事实摘要**\n  - '));
       assert.equal(payload.markdown.text.includes('![美妆法务资讯长图]'), false);
       return new Response(JSON.stringify({ errcode: 0, errmsg: 'ok' }), { status: 200 });
     }
@@ -1374,8 +1374,10 @@ function testSingleCardAlwaysUsesCopyableNativeMarkdown() {
   });
 
   assert.ok(message.markdown.includes('## 资讯正文'));
-  assert.ok(message.markdown.includes('**事实摘要**'));
-  assert.ok(message.markdown.includes('**法务研判**'));
+  assert.ok(message.markdown.includes('- **核心判断**\n  - '));
+  assert.ok(message.markdown.includes('- **事实摘要**\n  - '));
+  assert.ok(message.markdown.includes('- **法务研判**\n  - '));
+  assert.ok(message.markdown.includes('- **来源**\n  - [上海市监局]'));
   assert.ok(message.markdown.includes('[上海市监局]'));
   assert.ok(message.markdown.includes('[BPOM]'));
   assert.equal(message.markdown.includes('![美妆法务资讯长图]'), false);
@@ -1391,11 +1393,11 @@ function testSingleCardFallbackPreservesTypeSpecificLegalDetail() {
 
   for (const expected of [
     '## 资讯正文',
-    '**事实摘要**：直播间使用功效宣称吸引消费者购买',
-    '**法务研判**：监管以直播录屏、详情页文案和备案资料不一致作为认定依据',
-    '**处理结果**：责令停止相关宣传',
-    '**法定节点**：2026-10-17',
-    '**建议动作**：电商团队抽查 Top 20 SKU 直播脚本',
+    '- **事实摘要**\n  - 直播间使用功效宣称吸引消费者购买',
+    '- **法务研判**\n  - 监管以直播录屏、详情页文案和备案资料不一致作为认定依据',
+    '- **处理结果**\n  - 责令停止相关宣传',
+    '- **法定节点**\n  - 2026-10-17',
+    '- **建议动作**\n  - 电商团队抽查 Top 20 SKU 直播脚本',
   ]) {
     assert.ok(message.markdown.includes(expected), `fallback should include ${expected}`);
   }
@@ -1502,8 +1504,8 @@ function testBuildSingleDingTalkMessagePrefersExplicitCoreJudgement() {
 
   const message = buildSingleDingTalkMessage(report, { maxBytes: 18000 });
 
-  assert.ok(message.markdown.includes('**核心判断**：独立核心判断：该规则直接改变中国市场的产品准入决策。'));
-  assert.equal(message.markdown.includes('**核心判断**：旧变化点不应覆盖独立核心判断。'), false);
+  assert.ok(message.markdown.includes('- **核心判断**\n  - 独立核心判断：该规则直接改变中国市场的产品准入决策。'));
+  assert.equal(message.markdown.includes('- **核心判断**\n  - 旧变化点不应覆盖独立核心判断。'), false);
 }
 
 function testSingleCardUsesExecutiveBriefAndOnlyActiveModules() {
@@ -1519,7 +1521,7 @@ function testSingleCardUsesExecutiveBriefAndOnlyActiveModules() {
   assert.equal(message.markdown.includes('## 来源索引'), false);
   assert.ok(message.markdown.includes('中国监管要求强化化妆品功效证据'));
   assert.ok(message.markdown.includes('https://scjgj.sh.gov.cn/'));
-  assert.ok(message.markdown.includes('**责任岗位**'));
+  assert.ok(message.markdown.includes('- **责任岗位**\n  - '));
   assert.equal(message.markdown.includes('## 重点事项'), false);
   assert.equal(message.markdown.includes('行动看板'), false);
   assert.equal(/## M[1-6]/.test(message.markdown), false);
@@ -1533,8 +1535,8 @@ function testSingleCardRendersWatchItemAsCompactObservation() {
 
   assert.ok(message.markdown.includes('## 资讯正文'));
   assert.ok(message.markdown.includes('持续观察'));
-  assert.ok(message.markdown.includes('**关注价值**'));
-  assert.ok(message.markdown.includes('**下一观察点**'));
+  assert.ok(message.markdown.includes('- **关注价值**\n  - '));
+  assert.ok(message.markdown.includes('- **下一观察点**\n  - '));
   assert.equal(message.markdown.includes('建议持续关注'), false);
 }
 
