@@ -743,6 +743,43 @@ async function testAnalyzeReportWithRecoveryUsesOneRescuePass() {
   assert.equal(result.report.sections.flatMap(section => section.items).length, 1);
 }
 
+async function testAnalyzeReportWithRecoverySupplementsSparseWatchOnlyReport() {
+  const primary = {
+    ...structuredClone(sampleReport),
+    sections: [{ module: '美妆动态', items: [highQualityWatchItem({
+      report_tier: 'watch',
+      possible_follow_up: ['观察平台正式规则、商家后台通知以及头部品牌投放政策是否同步调整。'],
+    })] }],
+  };
+  const supplement = {
+    ...structuredClone(sampleReport),
+    sections: [{ module: '新规及案例动态', items: [highQualityActionItem()] }],
+  };
+  const observedUrls = [...primary.sections, ...supplement.sections]
+    .flatMap(section => section.items.map(item => ({ url: item.source_url })));
+  let rescueCalls = 0;
+
+  const result = await analyzeReportWithRecovery({
+    candidates: observedUrls,
+    leads: [],
+    sources: [],
+    period: sampleReport.period,
+    itemsPerModule: 12,
+    analyzePrimary: async () => primary,
+    analyzeRescue: async () => {
+      rescueCalls += 1;
+      return supplement;
+    },
+    logger: { info() {}, warn() {} },
+  });
+
+  const items = result.report.sections.flatMap(section => section.items);
+  assert.equal(rescueCalls, 1);
+  assert.equal(result.mode, 'supplemented');
+  assert.ok(items.some(item => item.report_tier === 'watch'));
+  assert.ok(items.some(item => item.report_tier === 'action'));
+}
+
 async function testAnalyzeReportWithRecoveryRejectsTechnicalCollapse() {
   const primary = highQualityFixtureReport();
   const emptyRescue = {
@@ -2313,6 +2350,7 @@ testReportQualitySeparatesActionWatchAndRejectedItems();
 testCurateReportQualityKeepsSixModulesButDropsEmptyDisplaySections();
 testCurateReportQualityAuditExplainsRejectedItems();
 await testAnalyzeReportWithRecoveryUsesOneRescuePass();
+await testAnalyzeReportWithRecoverySupplementsSparseWatchOnlyReport();
 await testAnalyzeReportWithRecoveryRejectsTechnicalCollapse();
 await testDeepseekRescueAnalyzeUsesObservedCandidateIdentity();
 testExecutiveSummaryCapsJudgementsAndActionsAtThree();
