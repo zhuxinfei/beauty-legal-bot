@@ -52,6 +52,7 @@ import {
   analyzeReportWithRecovery,
   processAnalyzedReport,
   shouldPublishDecisionMap,
+  shouldSkipDuplicateReport,
   dedupeReport,
   extractReportFingerprints,
   makeLead,
@@ -1822,6 +1823,12 @@ function testDecisionMapRequiresAtLeastOneActionItem() {
   assert.equal(shouldPublishDecisionMap(curateReportQuality(actionOnly)), true);
 }
 
+function testManualForceDeliveryBypassesDuplicateSkip() {
+  assert.equal(shouldSkipDuplicateReport(true, false), true);
+  assert.equal(shouldSkipDuplicateReport(true, true), false);
+  assert.equal(shouldSkipDuplicateReport(false, false), false);
+}
+
 function testAttachReportImagesUsesObservedCandidateImages() {
   const report = structuredClone(sampleReport);
   const sourceUrl = report.sections[0].items[0].source_url;
@@ -2250,6 +2257,7 @@ function testWeeklyWorkflowDeploysRoutesBeforeVersionedAssetPipeline() {
   assert.equal(workflow.includes('wrangler kv key put'), false);
   assert.ok(workflow.includes('DINGTALK_WEBHOOK_URL: ${{ secrets.DINGTALK_WEBHOOK_URL }}'));
   assert.ok(workflow.includes('DINGTALK_SECRET: ${{ secrets.DINGTALK_SECRET }}'));
+  assert.ok(workflow.includes("FORCE_DELIVERY: ${{ github.event_name == 'workflow_dispatch' && '1' || '0' }}"));
   for (const documentSetting of [
     'DINGTALK_DOC_URL',
     'DINGTALK_CLIENT_ID',
@@ -2354,6 +2362,7 @@ testFilterReportToObservedSourcesDropsFabricatedUrls();
 testFilterReportToObservedSourcesKeepsCanonicalUrlVariants();
 testEmptySingleCardIsExplicitAndNeverShowsDashboard();
 testDecisionMapRequiresAtLeastOneActionItem();
+testManualForceDeliveryBypassesDuplicateSkip();
 testAttachReportImagesUsesObservedCandidateImages();
 testEnterprisePromptRequiresGlobalLegalIntelligence();
 testCandidateFreshnessAndInfluenceRanking();
