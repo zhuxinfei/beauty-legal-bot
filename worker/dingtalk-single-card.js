@@ -90,6 +90,29 @@ function renderManagementSummary(editorial) {
   ];
 }
 
+export function splitConclusionPoints(value, maxPoints = 5) {
+  const text = markdownText(value);
+  if (!text) return [];
+
+  const sentences = text.match(/[^。；！？]+[。；！？]?/g) || [text];
+  const actionStarts = '(?:更新|建立|完善|核验|跟踪|评估|审查|留存)';
+  const points = sentences
+    .flatMap(sentence => sentence
+      .trim()
+      .split(new RegExp(`，(?=(?:同时|优先|先|再|应|需|建议|由))|(?=并${actionStarts})`)))
+    .map(point => point.trim().replace(new RegExp(`^并(?=${actionStarts})`), ''))
+    .filter(Boolean)
+    .map(point => /[。！？]$/.test(point) ? point : `${point.replace(/[；，]$/, '')}。`);
+
+  if (points.length <= maxPoints) return points;
+  return [...points.slice(0, maxPoints - 1), points.slice(maxPoints - 1).join('')];
+}
+
+function renderConclusion(value) {
+  const points = splitConclusionPoints(value);
+  return ['', '## 本期结论', ...points.map(point => `- ${point}`)];
+}
+
 function renderEditorialItem(item, tier = 'full') {
   const compact = tier === 'compact';
   if (tier === 'minimal') {
@@ -140,9 +163,7 @@ function renderMessage(editorial, { tiers, removed }) {
   const lines = [`# 美妆法务资讯｜${editorial.period?.end || '本期'}`];
   if (!editorial.item_count) {
     lines.push(
-      '',
-      '## 本期结论',
-      '本期无重大合规更新。六大板块已完成监测，暂未发现达到行动或持续观察准入标准的新事项。',
+      ...renderConclusion('本期无重大合规更新。六大板块已完成监测，暂未发现达到行动或持续观察准入标准的新事项。'),
       '',
       '> 公开来源可核验；仅供内部合规研判，不替代正式法律意见。',
     );
@@ -151,7 +172,7 @@ function renderMessage(editorial, { tiers, removed }) {
 
   lines.push(...renderManagementSummary(editorial));
   lines.push(...renderFallbackBody(editorial, tiers, removed));
-  lines.push('', '## 本期结论', markdownText(editorial.final_synthesis, 240));
+  lines.push(...renderConclusion(editorial.final_synthesis));
   if (removed.size) lines.push('', `> 受消息长度限制，已省略 ${removed.size} 条低优先级事项；来源原文仍保留在采集存档中。`);
   lines.push('', '> 公开来源可核验；仅供内部合规研判，不替代正式法律意见。');
   return lines.join('\n').replace(/\n{3,}/g, '\n\n').trim();

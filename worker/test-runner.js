@@ -3,7 +3,7 @@ import { readFileSync } from 'node:fs';
 import sampleReport from './sample-report.json' with { type: 'json' };
 import sourceCatalog from './sources.json' with { type: 'json' };
 import { createBrowserSourceFetcher } from './browser-fetch.js';
-import { buildSingleDingTalkMessage } from './dingtalk-single-card.js';
+import { buildSingleDingTalkMessage, splitConclusionPoints } from './dingtalk-single-card.js';
 import { buildEditorialReport } from './editorial-report.js';
 import { buildEditorialReportHtml } from './editorial-report-image.js';
 import { renderEditorialReportPng } from '../scripts/render-editorial-report-png.js';
@@ -1427,6 +1427,36 @@ function testSingleCardDoesNotCapUsefulWatchItemsAtThree() {
   assert.equal(message.omittedItemCount, 0);
 }
 
+function testSingleCardRendersFinalSynthesisAsReadableBullets() {
+  const message = buildSingleDingTalkMessage(sampleReport);
+  const conclusion = message.markdown.split('## 本期结论\n')[1].split('\n\n>')[0];
+  const lines = conclusion.split('\n').filter(Boolean);
+
+  assert.ok(lines.length >= 2, 'multi-clause conclusion should use multiple bullets');
+  assert.ok(lines.every(line => line.startsWith('- ')), 'every conclusion point should be a bullet');
+  assert.equal(lines.some(line => !line.startsWith('- ') && line.length >= 200), false);
+  assert.ok(lines.some(line => line.startsWith('- 先核验')));
+  assert.ok(lines.some(line => line.startsWith('- 更新')));
+  assert.equal(lines.some(line => line.includes('并更新相应审核')), false);
+  assert.ok(lines.some(line => line.includes('由责任领导确定')));
+}
+
+function testEmptySingleCardRendersEachConclusionSentenceAsABullet() {
+  const report = { ...structuredClone(sampleReport), sections: [] };
+  const message = buildSingleDingTalkMessage(report);
+  const conclusion = message.markdown.split('## 本期结论\n')[1].split('\n\n>')[0];
+  const lines = conclusion.split('\n');
+
+  assert.equal(lines.length, 2);
+  assert.ok(lines.every(line => line.startsWith('- ')));
+}
+
+function testSingleSentenceConclusionRendersAsOneBullet() {
+  assert.deepEqual(splitConclusionPoints('本期暂未发现需要立即处理的重大事项。'), [
+    '本期暂未发现需要立即处理的重大事项。',
+  ]);
+}
+
 function testEditorialReportHtmlIsReadableDenseAndComplete() {
   const html = buildEditorialReportHtml(sampleReport, {
     generatedAt: '2026-07-17T12:00:00+08:00',
@@ -2796,6 +2826,9 @@ testEditorialReportKeepsDifferentItemsFromTheSameSourceHomepage();
 testSingleCardAlwaysUsesCopyableNativeMarkdown();
 testSingleCardFallbackPreservesTypeSpecificLegalDetail();
 testSingleCardDoesNotCapUsefulWatchItemsAtThree();
+testSingleCardRendersFinalSynthesisAsReadableBullets();
+testEmptySingleCardRendersEachConclusionSentenceAsABullet();
+testSingleSentenceConclusionRendersAsOneBullet();
 testEditorialReportHtmlIsReadableDenseAndComplete();
 await testEditorialPngRendererUsesHighResolutionFullPageCapture();
 testBuildSingleDingTalkMessagePrefersExplicitCoreJudgement();
