@@ -81,6 +81,17 @@ export function classifyReportItem(item, period = {}) {
   return { tier: accepted ? candidateTier : 'reject', score, dimensions };
 }
 
+function rejectedDimensions(classification) {
+  if (classification.tier !== 'reject') return [];
+  const reasons = [];
+  if (classification.dimensions.evidence < 1) reasons.push('evidence');
+  if (classification.dimensions.relevance < 1) reasons.push('relevance');
+  if (classification.dimensions.depth < 1) reasons.push('depth');
+  if (classification.dimensions.value < 1) reasons.push('value');
+  if (!reasons.length) reasons.push('score');
+  return reasons;
+}
+
 export function rankReportQualityItem(item) {
   return (item.country === '中国' ? 1000 : 0)
     + Number(item.quality_score || 0) * 20
@@ -88,12 +99,27 @@ export function rankReportQualityItem(item) {
     + (item.relevance === 'direct' ? 20 : 0);
 }
 
-export function curateReportQuality(report) {
+export function curateReportQualityWithAudit(report) {
+  const audit = {
+    inputItems: 0,
+    acceptedItems: 0,
+    rejectedItems: 0,
+    reasons: {},
+  };
   const sections = REPORT_MODULES.map(module => {
     const source = (report.sections || []).find(section => section.module === module);
     const items = (source?.items || [])
       .map(item => {
         const classification = classifyReportItem(item, report.period);
+        audit.inputItems += 1;
+        if (classification.tier === 'reject') {
+          audit.rejectedItems += 1;
+          for (const reason of rejectedDimensions(classification)) {
+            audit.reasons[reason] = (audit.reasons[reason] || 0) + 1;
+          }
+        } else {
+          audit.acceptedItems += 1;
+        }
         return {
           ...item,
           report_tier: classification.tier,
@@ -104,11 +130,16 @@ export function curateReportQuality(report) {
       .sort((a, b) => rankReportQualityItem(b) - rankReportQualityItem(a));
     return { module, items };
   });
-  return {
+  const curated = {
     ...report,
     sections,
     display_sections: sections.filter(section => section.items.some(item => item.report_tier === 'action')),
   };
+  return { report: curated, audit };
+}
+
+export function curateReportQuality(report) {
+  return curateReportQualityWithAudit(report).report;
 }
 
 function uniqueItems(items, valueForItem) {
