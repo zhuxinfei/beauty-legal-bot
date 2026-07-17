@@ -51,6 +51,7 @@ import {
   analyzeReportByModule,
   analyzeReportWithRecovery,
   processAnalyzedReport,
+  shouldPublishDecisionMap,
   dedupeReport,
   extractReportFingerprints,
   makeLead,
@@ -1811,6 +1812,16 @@ function testEmptySingleCardIsExplicitAndNeverShowsDashboard() {
   assert.equal(message.markdown.includes('本周无通过质量门槛的核心判断'), false);
 }
 
+function testDecisionMapRequiresAtLeastOneActionItem() {
+  const watchOnly = highQualityFixtureReport();
+  watchOnly.sections = watchOnly.sections.filter(section => section.module === '美妆动态');
+  const actionOnly = highQualityFixtureReport();
+  actionOnly.sections = actionOnly.sections.filter(section => section.module === '新规及案例动态');
+
+  assert.equal(shouldPublishDecisionMap(curateReportQuality(watchOnly)), false);
+  assert.equal(shouldPublishDecisionMap(curateReportQuality(actionOnly)), true);
+}
+
 function testAttachReportImagesUsesObservedCandidateImages() {
   const report = structuredClone(sampleReport);
   const sourceUrl = report.sections[0].items[0].source_url;
@@ -2342,6 +2353,7 @@ testEnrichReportWithSourceSignalsFillsSparseWorkbookModules();
 testFilterReportToObservedSourcesDropsFabricatedUrls();
 testFilterReportToObservedSourcesKeepsCanonicalUrlVariants();
 testEmptySingleCardIsExplicitAndNeverShowsDashboard();
+testDecisionMapRequiresAtLeastOneActionItem();
 testAttachReportImagesUsesObservedCandidateImages();
 testEnterprisePromptRequiresGlobalLegalIntelligence();
 testCandidateFreshnessAndInfluenceRanking();

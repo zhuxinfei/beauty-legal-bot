@@ -332,6 +332,10 @@ function verifiedReportItems(report) {
     .filter(item => isHttpUrl(item.source_url));
 }
 
+export function shouldPublishDecisionMap(report) {
+  return verifiedReportItems(report).some(item => item.report_tier === 'action');
+}
+
 function buildLegacyDecisionMapSvg(items) {
   const graphItems = (items || []).slice(0, 10);
   const width = 1600;
@@ -1125,13 +1129,16 @@ export async function runPipeline(env, requestUrl = 'https://beauty-legal-bot.wo
     const itemCount = (report.sections || []).flatMap(section => section.items || []).length;
     console.log(`[stage 2/5] 完成，模式 ${analysis.mode}，模块 ${report.sections.length} 个，准入 ${itemCount} 条`);
 
-    console.log(itemCount > 0
+    const publishDecisionMap = shouldPublishDecisionMap(report);
+    console.log(publishDecisionMap
       ? "[stage 3/5] 生成管理层行动看板并保存报告..."
-      : "[stage 3/5] 无准入事项，跳过空看板并生成文字简报...");
+      : itemCount > 0
+        ? "[stage 3/5] 仅有持续观察事项，跳过行动看板并生成文字简报..."
+        : "[stage 3/5] 无准入事项，跳过空看板并生成文字简报...");
     const generatedAt = new Date().toISOString();
     const reportDate = report.period.end;
     let decisionMapUrl = '';
-    if (itemCount > 0) {
+    if (publishDecisionMap) {
       const decisionMapSvg = buildDecisionMapSvg(
         verifiedReportItems(report).sort((a, b) => rankReportItem(b) - rankReportItem(a)),
         { period: report.period, coverage, generatedAt }
@@ -2707,7 +2714,7 @@ async function runFinalizePhase(date, env, requestUrl) {
   const reportDate = report.period.end;
   const itemCount = (report.sections || []).flatMap(s => s.items || []).length;
   let decisionMapUrl = '';
-  if (itemCount > 0) {
+  if (shouldPublishDecisionMap(report)) {
     const decisionMapSvg = buildDecisionMapSvg(
       verifiedReportItems(report).sort((a, b) => rankReportItem(b) - rankReportItem(a)),
       { period: report.period, coverage: candidatesMeta.coverage, generatedAt }
