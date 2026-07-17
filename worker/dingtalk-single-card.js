@@ -4,6 +4,33 @@ import { REPORT_MODULES } from './report-quality.js';
 export const DINGTALK_REPORT_MODULES = REPORT_MODULES;
 
 const encoder = new TextEncoder();
+const EMPHASIS_PATTERN = [
+  String.raw`20\d{2}年\d{1,2}月\d{1,2}日`,
+  String.raw`20\d{2}[-/.]\d{1,2}[-/.]\d{1,2}`,
+  String.raw`\d+(?:\.\d+)?(?:万|亿)?元`,
+  String.raw`\d+(?:\.\d+)?%`,
+  '停止生产经营',
+  '责令停止',
+  '停止销售',
+  '暂停销售',
+  '禁止销售',
+  '刑事责任',
+  '处罚风险',
+  '召回风险',
+  '准入风险',
+  '合规风险',
+  '必须',
+  '不得',
+  '应当',
+  '禁止',
+  '召回',
+  '下架',
+  '罚款',
+  '吊销',
+  '撤销',
+  '生效',
+  '截止',
+].join('|');
 
 function utf8Bytes(value) {
   return encoder.encode(String(value || '')).length;
@@ -18,6 +45,16 @@ function markdownText(value, limit = 500) {
   return compactText(value, limit).replace(/[\[\]]/g, '').replace(/\|/g, '｜');
 }
 
+function emphasizeText(value, limit = 500, maxHighlights = 3) {
+  const text = markdownText(value, limit).replace(/\*\*/g, '');
+  let highlights = 0;
+  return text.replace(new RegExp(`(${EMPHASIS_PATTERN})`, 'g'), match => {
+    if (highlights >= maxHighlights) return match;
+    highlights += 1;
+    return `**${match}**`;
+  });
+}
+
 function listItems(value, limit, count = 2) {
   return (Array.isArray(value) ? value : [value])
     .map(item => compactText(item, limit))
@@ -25,14 +62,15 @@ function listItems(value, limit, count = 2) {
     .slice(0, count);
 }
 
-function pushListField(lines, label, value, limit, count = 2) {
+function pushListField(lines, label, value, limit, count = 2, emphasize = false) {
   const items = listItems(value, limit, count);
   if (!items.length) return;
-  lines.push(`- **${markdownText(label, 20)}**`, ...items.map(item => `  - ${markdownText(item, limit)}`));
+  const renderItem = emphasize ? emphasizeText : markdownText;
+  lines.push(`- **${markdownText(label, 20)}**`, ...items.map(item => `  - ${renderItem(item, limit)}`));
 }
 
 function riskLabel(value) {
-  if (value === 'high') return '高风险';
+  if (value === 'high') return '**高风险**';
   if (value === 'medium') return '中风险';
   return '一般关注';
 }
@@ -56,7 +94,7 @@ function renderEditorialItem(item, tier = 'full') {
   const compact = tier === 'compact';
   if (tier === 'minimal') {
     const lines = [`#### ${item.number}. ${markdownText(item.title, 60)}`];
-    pushListField(lines, '核心判断', item.summary, 100, 1);
+    pushListField(lines, '核心判断', item.summary, 100, 1, true);
     lines.push('- **来源**', `  - ${sourceLink(item)}｜${markdownText(item.published_at, 16)}`);
     return lines.join('\n');
   }
@@ -64,20 +102,20 @@ function renderEditorialItem(item, tier = 'full') {
     `#### ${item.number}. ${markdownText(item.title, compact ? 70 : 110)}`,
     `> ${markdownText(item.country, 20)}｜${riskLabel(item.risk_level)}｜${item.report_tier === 'watch' ? '持续观察' : '行动事项'}`,
   ];
-  pushListField(lines, '核心判断', item.summary, compact ? 150 : 260, 1);
-  pushListField(lines, '事实摘要', item.facts, compact ? 100 : 180, compact ? 1 : 2);
-  pushListField(lines, '法务研判', item.legal_analysis, compact ? 100 : 180, compact ? 1 : 2);
-  pushListField(lines, '处理结果', item.results, compact ? 90 : 160, compact ? 1 : 2);
-  pushListField(lines, item.practical_label || '执行提示', item.practical_insights, compact ? 90 : 150, compact ? 1 : 2);
+  pushListField(lines, '核心判断', item.summary, compact ? 150 : 260, 1, true);
+  pushListField(lines, '事实摘要', item.facts, compact ? 100 : 180, compact ? 1 : 2, true);
+  pushListField(lines, '法务研判', item.legal_analysis, compact ? 100 : 180, compact ? 1 : 2, true);
+  pushListField(lines, '处理结果', item.results, compact ? 90 : 160, compact ? 1 : 2, true);
+  pushListField(lines, item.practical_label || '执行提示', item.practical_insights, compact ? 90 : 150, compact ? 1 : 2, true);
   pushListField(lines, '业务影响', item.business_impact, 45, compact ? 2 : 4);
   if (item.statutory_date && item.statutory_date !== '未知') {
-    pushListField(lines, '法定节点', item.statutory_date, 40, 1);
+    pushListField(lines, '法定节点', item.statutory_date, 40, 1, true);
   }
   if (item.report_tier === 'watch') {
-    pushListField(lines, '关注价值', item.watch_value || item.why_it_matters, compact ? 110 : 190, 1);
-    pushListField(lines, '下一观察点', item.next_watch_signal, compact ? 100 : 170, 1);
+    pushListField(lines, '关注价值', item.watch_value || item.why_it_matters, compact ? 110 : 190, 1, true);
+    pushListField(lines, '下一观察点', item.next_watch_signal, compact ? 100 : 170, 1, true);
   } else {
-    pushListField(lines, '建议动作', item.recommended_actions, compact ? 100 : 170, compact ? 1 : 2);
+    pushListField(lines, '建议动作', item.recommended_actions, compact ? 100 : 170, compact ? 1 : 2, true);
     const owners = listItems(item.owner_teams, 20, 4);
     if (owners.length) {
       lines.push('- **责任岗位**', ...owners.map(owner => `  - ${markdownText(owner, 20)}`), '  - 完成时间：由责任领导确定');
