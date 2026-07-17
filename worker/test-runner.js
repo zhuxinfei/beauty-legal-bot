@@ -866,6 +866,36 @@ async function testAnalyzeReportWithRecoverySupplementsSparseWatchOnlyReport() {
   assert.ok(items.some(item => item.report_tier === 'action'));
 }
 
+async function testAnalyzeReportWithRecoveryContinuesBelowEightQualityItems() {
+  const modules = REPORT_MODULES.slice(0, 4);
+  const primary = {
+    ...structuredClone(sampleReport),
+    sections: modules.map((module, index) => ({
+      module,
+      items: [highQualityActionItem({
+        module,
+        title: `${module}高价值事项${index + 1}`,
+        source_url: `https://official.example.cn/item/${index + 1}`,
+      })],
+    })),
+  };
+  let rescueCalls = 0;
+  const result = await analyzeReportWithRecovery({
+    candidates: primary.sections.flatMap(section => section.items.map(item => ({ url: item.source_url }))),
+    sources: [],
+    period: sampleReport.period,
+    analyzePrimary: async () => primary,
+    analyzeRescue: async () => {
+      rescueCalls += 1;
+      return { period: sampleReport.period, summary: [], risk_alerts: [], sections: [] };
+    },
+    logger: { info() {}, warn() {} },
+  });
+
+  assert.equal(result.audit.acceptedItems, 4);
+  assert.equal(rescueCalls, 1);
+}
+
 async function testAnalyzeReportWithRecoveryRejectsTechnicalCollapse() {
   const primary = highQualityFixtureReport();
   const emptyRescue = {
@@ -2415,6 +2445,7 @@ function testWeeklyWorkflowDeploysRoutesBeforeVersionedAssetPipeline() {
   assert.ok(workflow.includes('npx playwright install --with-deps chromium'));
   assert.ok(workflow.includes('DETAIL_FETCH_ENABLED: 1'));
   assert.ok(workflow.includes('DETAIL_CANDIDATE_LIMIT: 48'));
+  assert.ok(workflow.includes('REPORT_TARGET_ITEMS: 8'));
   assert.ok(workflow.includes('fonts-noto-cjk'));
   assert.ok(workflow.includes('node worker/probe-ai.js'));
   assert.ok(workflow.indexOf('node worker/probe-ai.js') < workflow.indexOf('node worker/run-local.js'));
@@ -2481,6 +2512,7 @@ testCurateReportQualityKeepsSixModulesButDropsEmptyDisplaySections();
 testCurateReportQualityAuditExplainsRejectedItems();
 await testAnalyzeReportWithRecoveryUsesOneRescuePass();
 await testAnalyzeReportWithRecoverySupplementsSparseWatchOnlyReport();
+await testAnalyzeReportWithRecoveryContinuesBelowEightQualityItems();
 await testAnalyzeReportWithRecoveryRejectsTechnicalCollapse();
 await testDeepseekRescueAnalyzeUsesObservedCandidateIdentity();
 testRescueEvidenceCandidatesPreserveModuleDiversity();

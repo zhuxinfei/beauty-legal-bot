@@ -1116,6 +1116,7 @@ export async function runPipeline(env, requestUrl = 'https://beauty-legal-bot.wo
       sources,
       period,
       itemsPerModule,
+      supplementThreshold: Number(env.REPORT_TARGET_ITEMS || 8),
       analyzePrimary: () => deepseekAnalyzeByModule({
         apiKey: aiKey,
         baseUrl: aiBaseUrl,
@@ -2348,6 +2349,7 @@ export async function analyzeReportWithRecovery({
   sources = [],
   period,
   itemsPerModule = DEFAULT_REPORT_ITEMS_PER_MODULE,
+  supplementThreshold = 8,
   analyzePrimary,
   analyzeRescue,
   logger = console,
@@ -2358,7 +2360,8 @@ export async function analyzeReportWithRecovery({
   const primaryItems = (primary.report.sections || []).flatMap(section => section.items || []);
   const primaryActionItems = primaryItems.filter(item => item.report_tier === 'action').length;
   const primaryActiveModules = (primary.report.sections || []).filter(section => (section.items || []).length > 0).length;
-  const needsSupplement = primary.audit.acceptedItems < 4 || primaryActionItems === 0 || primaryActiveModules < 2;
+  const targetItems = Math.max(1, Number(supplementThreshold) || 8);
+  const needsSupplement = primary.audit.acceptedItems < targetItems || primaryActionItems === 0 || primaryActiveModules < 2;
   if (!needsSupplement) return { ...primary, mode: 'primary', primaryAudit: primary.audit };
 
   if (!analyzeRescue || candidates.length + leads.length === 0) {
@@ -2367,7 +2370,7 @@ export async function analyzeReportWithRecovery({
 
   logger.warn(primary.audit.acceptedItems === 0
     ? '[stage 2/5] 主分析无准入条目，启动一次高价值救援分析'
-    : `[stage 2/5] 主分析整体不足（准入 ${primary.audit.acceptedItems}、行动 ${primaryActionItems}、活跃模块 ${primaryActiveModules}），启动一次补充分析`);
+    : `[stage 2/5] 主分析整体不足（准入 ${primary.audit.acceptedItems}/${targetItems}、行动 ${primaryActionItems}、活跃模块 ${primaryActiveModules}），启动一次补充分析`);
   const rescueRawReport = await analyzeRescue({ report: primary.report });
   const rescue = processAnalyzedReport(rescueRawReport, { candidates, sources, itemsPerModule });
   logReportAudit(logger, '救援分析', rescue.audit);
@@ -2834,6 +2837,7 @@ async function runAnalysisPhase(date, env, additionalCandidates = []) {
     sources: sourceCatalog.sources,
     period,
     itemsPerModule: qualityOptions.itemsPerModule,
+    supplementThreshold: Number(env.REPORT_TARGET_ITEMS || 8),
     analyzePrimary: () => deepseekAnalyzeByModule({
       apiKey: aiKey,
       baseUrl,
