@@ -18,12 +18,17 @@ function markdownText(value, limit = 500) {
   return compactText(value, limit).replace(/[\[\]]/g, '').replace(/\|/g, '｜');
 }
 
-function joined(value, limit, count = 2) {
+function listItems(value, limit, count = 2) {
   return (Array.isArray(value) ? value : [value])
     .map(item => compactText(item, limit))
     .filter(Boolean)
-    .slice(0, count)
-    .join('；');
+    .slice(0, count);
+}
+
+function pushListField(lines, label, value, limit, count = 2) {
+  const items = listItems(value, limit, count);
+  if (!items.length) return;
+  lines.push(`- **${markdownText(label, 20)}**`, ...items.map(item => `  - ${markdownText(item, limit)}`));
 }
 
 function riskLabel(value) {
@@ -50,40 +55,35 @@ function renderManagementSummary(editorial) {
 function renderEditorialItem(item, tier = 'full') {
   const compact = tier === 'compact';
   if (tier === 'minimal') {
-    return [
-      `#### ${item.number}. ${markdownText(item.title, 60)}`,
-      `- **核心判断**：${markdownText(item.summary, 100)}`,
-      `- **来源**：${sourceLink(item)}｜${markdownText(item.published_at, 16)}`,
-    ].join('\n');
+    const lines = [`#### ${item.number}. ${markdownText(item.title, 60)}`];
+    pushListField(lines, '核心判断', item.summary, 100, 1);
+    lines.push('- **来源**', `  - ${sourceLink(item)}｜${markdownText(item.published_at, 16)}`);
+    return lines.join('\n');
   }
   const lines = [
     `#### ${item.number}. ${markdownText(item.title, compact ? 70 : 110)}`,
     `> ${markdownText(item.country, 20)}｜${riskLabel(item.risk_level)}｜${item.report_tier === 'watch' ? '持续观察' : '行动事项'}`,
-    `- **核心判断**：${markdownText(item.summary, compact ? 150 : 260)}`,
   ];
-  const facts = joined(item.facts, compact ? 100 : 180, compact ? 1 : 2);
-  const legal = joined(item.legal_analysis, compact ? 100 : 180, compact ? 1 : 2);
-  const results = joined(item.results, compact ? 90 : 160, compact ? 1 : 2);
-  const insights = joined(item.practical_insights, compact ? 90 : 150, compact ? 1 : 2);
-  const impact = joined(item.business_impact, 45, compact ? 2 : 4);
-  if (facts) lines.push(`- **事实摘要**：${markdownText(facts)}`);
-  if (legal) lines.push(`- **法务研判**：${markdownText(legal)}`);
-  if (results) lines.push(`- **处理结果**：${markdownText(results)}`);
-  if (insights) lines.push(`- **${markdownText(item.practical_label || '执行提示', 20)}**：${markdownText(insights)}`);
-  if (impact) lines.push(`- **业务影响**：${markdownText(impact)}`);
+  pushListField(lines, '核心判断', item.summary, compact ? 150 : 260, 1);
+  pushListField(lines, '事实摘要', item.facts, compact ? 100 : 180, compact ? 1 : 2);
+  pushListField(lines, '法务研判', item.legal_analysis, compact ? 100 : 180, compact ? 1 : 2);
+  pushListField(lines, '处理结果', item.results, compact ? 90 : 160, compact ? 1 : 2);
+  pushListField(lines, item.practical_label || '执行提示', item.practical_insights, compact ? 90 : 150, compact ? 1 : 2);
+  pushListField(lines, '业务影响', item.business_impact, 45, compact ? 2 : 4);
   if (item.statutory_date && item.statutory_date !== '未知') {
-    lines.push(`- **法定节点**：${markdownText(item.statutory_date, 40)}`);
+    pushListField(lines, '法定节点', item.statutory_date, 40, 1);
   }
   if (item.report_tier === 'watch') {
-    lines.push(`- **关注价值**：${markdownText(item.watch_value || item.why_it_matters, compact ? 110 : 190)}`);
-    lines.push(`- **下一观察点**：${markdownText(item.next_watch_signal, compact ? 100 : 170)}`);
+    pushListField(lines, '关注价值', item.watch_value || item.why_it_matters, compact ? 110 : 190, 1);
+    pushListField(lines, '下一观察点', item.next_watch_signal, compact ? 100 : 170, 1);
   } else {
-    const action = joined(item.recommended_actions, compact ? 100 : 170, compact ? 1 : 2);
-    if (action) lines.push(`- **建议动作**：${markdownText(action)}`);
-    const owners = joined(item.owner_teams, 20, 4);
-    if (owners) lines.push(`- **责任岗位**：${markdownText(owners, 80)}｜**完成时间**：由责任领导确定`);
+    pushListField(lines, '建议动作', item.recommended_actions, compact ? 100 : 170, compact ? 1 : 2);
+    const owners = listItems(item.owner_teams, 20, 4);
+    if (owners.length) {
+      lines.push('- **责任岗位**', ...owners.map(owner => `  - ${markdownText(owner, 20)}`), '  - 完成时间：由责任领导确定');
+    }
   }
-  lines.push(`- **来源**：${sourceLink(item)}｜${markdownText(item.published_at, 16)}`);
+  lines.push('- **来源**', `  - ${sourceLink(item)}｜${markdownText(item.published_at, 16)}`);
   return lines.join('\n');
 }
 
