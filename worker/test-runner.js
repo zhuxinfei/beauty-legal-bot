@@ -72,6 +72,8 @@ import {
   selectSourcesForWorkerBudget,
   mapWithConcurrency,
   extractPublishedDate,
+  extractArticleText,
+  hydrateCandidateDetails,
   sortCandidatesForAnalysis,
   runPipeline,
 } from './index.js';
@@ -502,6 +504,89 @@ function testExtractImageUrl() {
   assert.equal(isLikelyContentImage('https://site.test/logo.png'), false);
   assert.equal(isLikelyContentImage('https://site.test/news/cosmetics-recall-cover.jpg'), true);
   assert.equal(extractImageUrl('<meta property="og:image" content="/logo.png"><img src="/news/cosmetics-recall-cover.jpg">', 'https://site.test/news/a'), 'https://site.test/news/cosmetics-recall-cover.jpg');
+}
+
+function testExtractArticleTextRemovesPageChromeAndKeepsMetadata() {
+  const html = `<!doctype html><html><head><title>化妆品监管新规</title></head><body>
+    <header>首页 导航 登录 注册</header><nav>新闻 政务 服务</nav>
+    <main><article><h1>化妆品功效宣称监管新规</h1><time>2026-07-16</time>
+      <p>${'监管部门要求企业核对备案资料、功效评价证据与对外宣称的一致性。'.repeat(12)}</p>
+    </article></main><footer>版权信息 联系我们</footer></body></html>`;
+
+  const article = extractArticleText(html);
+
+  assert.ok(article.text.includes('功效评价证据'));
+  assert.ok(article.text.length > 300);
+  assert.equal(article.text.includes('首页 导航 登录 注册'), false);
+  assert.equal(article.published_at, '2026-07-16');
+  assert.ok(article.title.includes('化妆品功效宣称监管新规'));
+}
+
+async function testHydrateCandidateDetailsFetchesArticleBodiesWithoutDroppingFailures() {
+  const candidates = [
+    {
+      title: '中国化妆品功效宣称监管新规',
+      url: 'https://regulator.example.cn/rule/1',
+      snippet: '监管网站首页导航文字',
+      source_name: '中国监管机构',
+      source_type: 'official_site',
+      authority_type: 'regulator',
+      module: '新规及案例动态',
+      country: '中国',
+      region: '亚洲',
+      priority: 'high',
+    },
+    {
+      title: '欧盟化妆品行业动态',
+      url: 'https://regulator.example.eu/news/2',
+      snippet: '原始列表页摘要',
+      source_name: '欧盟监管机构',
+      source_type: 'official_site',
+      authority_type: 'regulator',
+      module: '美妆动态',
+      country: '欧盟',
+      region: '欧洲',
+      priority: 'medium',
+    },
+  ];
+  const hydrated = await hydrateCandidateDetails(candidates, {
+    detailLimit: 12,
+    fetcher: async url => {
+      if (String(url).includes('/news/2')) return new Response('blocked', { status: 403 });
+      return new Response(`<main><article><h1>中国化妆品功效宣称监管新规</h1><time>2026-07-16</time><p>${'企业需要核对备案资料、功效评价证据、直播话术和商品详情页。'.repeat(15)}</p></article></main>`, { status: 200 });
+    },
+    timeoutMs: 1000,
+  });
+
+  assert.ok(hydrated.candidates[0].snippet.includes('直播话术'));
+  assert.equal(hydrated.candidates[0].published_at, '2026-07-16');
+  assert.equal(hydrated.candidates[0].detail_status, 'hydrated');
+  assert.equal(hydrated.candidates[1].snippet, '原始列表页摘要');
+  assert.equal(hydrated.candidates[1].detail_status, 'failed');
+  assert.equal(hydrated.audit.hydrated, 1);
+  assert.equal(hydrated.audit.failed, 1);
+}
+
+async function testHydrateCandidateDetailsContainsBrowserRecoveryFailures() {
+  const candidate = {
+    title: '化妆品监管详情',
+    url: 'https://blocked.example.cn/detail',
+    snippet: '保留的原始摘要',
+    source_name: '监管机构',
+    module: '新规及案例动态',
+    country: '中国',
+    region: '亚洲',
+    priority: 'high',
+  };
+  const result = await hydrateCandidateDetails([candidate], {
+    fetcher: async () => new Response('blocked', { status: 403 }),
+    browserFetcher: async () => { throw new Error('browser timeout'); },
+    timeoutMs: 1000,
+  });
+
+  assert.equal(result.candidates[0].snippet, '保留的原始摘要');
+  assert.equal(result.candidates[0].detail_status, 'failed');
+  assert.equal(result.audit.failed, 1);
 }
 
 function testGetSourceStats() {
@@ -1491,6 +1576,7 @@ function testBuildAnalysisPromptUsesConfigurableInputLimits() {
     url: `https://example.com/${i}`,
     source_name: '官方源',
     module: '新规及案例动态',
+    snippet: i === 0 ? `${'有效正文'.repeat(800)}截断后内容不应进入模型` : '',
   }));
   const leads = Array.from({ length: 5 }, (_, i) => ({
     title: `线索${i}`,
@@ -1508,6 +1594,8 @@ function testBuildAnalysisPromptUsesConfigurableInputLimits() {
   });
   assert.ok(prompt.includes('候选0'));
   assert.ok(prompt.includes('候选1'));
+  assert.ok(prompt.includes('有效正文'));
+  assert.equal(prompt.includes('截断后内容不应进入模型'), false);
   assert.equal(prompt.includes('候选2'), false);
   assert.ok(prompt.includes('线索0'));
   assert.ok(prompt.includes('线索2'));
@@ -2325,6 +2413,8 @@ function testWeeklyWorkflowDeploysRoutesBeforeVersionedAssetPipeline() {
   assert.ok(workflow.includes('vars.AI_MODEL'));
   assert.ok(workflow.includes("MIN_CHINA_CRITICAL_COVERAGE || '0.9'"));
   assert.ok(workflow.includes('npx playwright install --with-deps chromium'));
+  assert.ok(workflow.includes('DETAIL_FETCH_ENABLED: 1'));
+  assert.ok(workflow.includes('DETAIL_CANDIDATE_LIMIT: 48'));
   assert.ok(workflow.includes('fonts-noto-cjk'));
   assert.ok(workflow.includes('node worker/probe-ai.js'));
   assert.ok(workflow.indexOf('node worker/probe-ai.js') < workflow.indexOf('node worker/run-local.js'));
@@ -2373,6 +2463,9 @@ testNormalizeUrl();
 testHtmlToText();
 testExtractLinks();
 testExtractImageUrl();
+testExtractArticleTextRemovesPageChromeAndKeepsMetadata();
+await testHydrateCandidateDetailsFetchesArticleBodiesWithoutDroppingFailures();
+await testHydrateCandidateDetailsContainsBrowserRecoveryFailures();
 testGetSourceStats();
 testIsRelevantTitle();
 testMakeCandidate();

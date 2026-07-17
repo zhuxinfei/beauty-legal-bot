@@ -57,6 +57,10 @@ const REPORT_MODULES = [
 const ACTION_NOISE = ['建议关注', '持续关注', '企业应留意', '可能产生影响', '需持续观察'];
 const SOURCE_FETCH_TIMEOUT_MS = 30000;
 const SOURCE_FETCH_CONCURRENCY = 4;
+const DETAIL_FETCH_CONCURRENCY = 8;
+const DETAIL_CANDIDATE_LIMIT = 48;
+const DETAIL_FETCH_TIMEOUT_MS = 12000;
+const DETAIL_BROWSER_RECOVERY_LIMIT = 18;
 const WORKER_FETCH_SOURCE_BUDGET = 15;
 const AI_REQUEST_TIMEOUT_MS = 120000;
 const AI_REQUEST_MAX_ATTEMPTS = 2;
@@ -1092,6 +1096,11 @@ export async function runPipeline(env, requestUrl = 'https://beauty-legal-bot.wo
       timeoutMs: Number(env.SOURCE_FETCH_TIMEOUT_MS || SOURCE_FETCH_TIMEOUT_MS),
       sleepFn: env.SOURCE_RETRY_SLEEP,
       jitter: env.SOURCE_RETRY_JITTER,
+      hydrateDetails: env.DETAIL_FETCH_ENABLED === '1',
+      detailLimit: Number(env.DETAIL_CANDIDATE_LIMIT || DETAIL_CANDIDATE_LIMIT),
+      detailTimeoutMs: Number(env.DETAIL_FETCH_TIMEOUT_MS || DETAIL_FETCH_TIMEOUT_MS),
+      detailConcurrency: Number(env.DETAIL_FETCH_CONCURRENCY || DETAIL_FETCH_CONCURRENCY),
+      detailBrowserRecoveryLimit: Number(env.DETAIL_BROWSER_RECOVERY_LIMIT || DETAIL_BROWSER_RECOVERY_LIMIT),
     });
     assertSourceCoverage(coverage, {
       minOverall: Number(env.MIN_SOURCE_COVERAGE || 0.9),
@@ -1244,6 +1253,112 @@ export function htmlToText(html) {
     .replace(/&gt;/g, '>')
     .replace(/\s+/g, ' ')
     .trim();
+}
+
+function firstTagText(html, tag) {
+  const match = String(html || '').match(new RegExp(`<${tag}\\b[^>]*>([\\s\\S]*?)<\\/${tag}>`, 'i'));
+  return match ? htmlToText(match[1]) : '';
+}
+
+export function extractArticleText(html) {
+  const raw = String(html || '');
+  const title = firstTagText(raw, 'h1') || firstTagText(raw, 'title');
+  const mainMatch = raw.match(/<article\b[^>]*>([\s\S]*?)<\/article>/i)
+    || raw.match(/<main\b[^>]*>([\s\S]*?)<\/main>/i);
+  const content = (mainMatch?.[1] || raw)
+    .replace(/<(?:script|style|noscript|svg|nav|header|footer|aside|form)\b[\s\S]*?<\/(?:script|style|noscript|svg|nav|header|footer|aside|form)>/gi, ' ')
+    .replace(/<!--([\s\S]*?)-->/g, ' ');
+  const text = htmlToText(content).slice(0, 12000);
+  return {
+    title,
+    text,
+    published_at: extractPublishedDate(title, text),
+  };
+}
+
+function selectDetailCandidates(candidates, limit = DETAIL_CANDIDATE_LIMIT) {
+  const ranked = sortCandidatesForAnalysis(candidates)
+    .filter(candidate => /^https?:\/\//i.test(String(candidate.url || '')))
+    .filter(candidate => !/信息源入口|行业线索/.test(String(candidate.title || '')))
+    .sort((a, b) => Number(b.country === '中国') - Number(a.country === '中国'));
+  const selected = [];
+  const selectedUrls = new Set();
+  const sourceCounts = new Map();
+  const take = candidate => {
+    if (!candidate || selected.length >= limit) return;
+    const url = normalizeSourceUrl(candidate.url);
+    const source = candidate.source_name || new URL(candidate.url).hostname;
+    if (!url || selectedUrls.has(url) || (sourceCounts.get(source) || 0) >= 6) return;
+    selected.push(candidate);
+    selectedUrls.add(url);
+    sourceCounts.set(source, (sourceCounts.get(source) || 0) + 1);
+  };
+  for (let round = 0; round < 6; round += 1) {
+    for (const module of REPORT_MODULES) {
+      const available = ranked.filter(candidate => candidate.module === module && !selectedUrls.has(normalizeSourceUrl(candidate.url)));
+      take(available.find(candidate => (sourceCounts.get(candidate.source_name || new URL(candidate.url).hostname) || 0) < 6));
+    }
+  }
+  for (const candidate of ranked) take(candidate);
+  return selected;
+}
+
+export async function hydrateCandidateDetails(candidates = [], {
+  fetcher = fetch,
+  browserFetcher,
+  detailLimit = DETAIL_CANDIDATE_LIMIT,
+  timeoutMs = DETAIL_FETCH_TIMEOUT_MS,
+  concurrency = DETAIL_FETCH_CONCURRENCY,
+  browserRecoveryLimit = DETAIL_BROWSER_RECOVERY_LIMIT,
+} = {}) {
+  const selected = selectDetailCandidates(candidates, Math.max(0, Number(detailLimit) || DETAIL_CANDIDATE_LIMIT));
+  const replacements = new Map();
+  const audit = { selected: selected.length, hydrated: 0, browserRecovered: 0, failed: 0 };
+
+  await mapWithConcurrency(selected, concurrency, async (candidate, index) => {
+    let result = null;
+    try {
+      const response = await fetchWithTimeout(candidate.url, {
+        headers: SOURCE_REQUEST_HEADERS,
+        redirect: 'follow',
+      }, timeoutMs, fetcher);
+      if (response.ok) result = { ok: true, html: await response.text(), finalUrl: response.url || candidate.url };
+    } catch {}
+
+    let article = result?.ok ? extractArticleText(result.html) : { text: '' };
+    if (article.text.length < 240 && typeof browserFetcher === 'function' && index < browserRecoveryLimit) {
+      try {
+        const recovered = await browserFetcher(candidate.url, { timeoutMs: Math.max(timeoutMs, 20000) });
+        if (recovered?.ok) {
+          result = recovered;
+          article = extractArticleText(recovered.html);
+          if (article.text.length >= 240) audit.browserRecovered += 1;
+        }
+      } catch {}
+    }
+
+    const key = normalizeSourceUrl(candidate.url);
+    if (article.text.length < 240) {
+      audit.failed += 1;
+      replacements.set(key, { ...candidate, detail_status: 'failed' });
+      return;
+    }
+    audit.hydrated += 1;
+    replacements.set(key, {
+      ...candidate,
+      title: article.title || candidate.title,
+      url: result?.finalUrl || candidate.url,
+      snippet: article.text,
+      published_at: article.published_at || candidate.published_at,
+      image_url: extractImageUrl(result?.html || '', result?.finalUrl || candidate.url) || candidate.image_url || '',
+      detail_status: 'hydrated',
+    });
+  });
+
+  return {
+    candidates: candidates.map(candidate => replacements.get(normalizeSourceUrl(candidate.url)) || candidate),
+    audit,
+  };
 }
 
 export function extractLinks(html, baseUrl) {
@@ -1687,7 +1802,10 @@ JSON 结构：
 }
 
 信息源统计：${JSON.stringify(getSourceStats(sources))}
-候选信息 candidates（已按7天新鲜度、国家/大洲、来源权威性和行业影响力预排序）：${JSON.stringify(sortCandidatesForAnalysis(candidates).slice(0, candidateLimit))}
+候选信息 candidates（已按7天新鲜度、国家/大洲、来源权威性和行业影响力预排序）：${JSON.stringify(sortCandidatesForAnalysis(candidates).slice(0, candidateLimit).map(candidate => ({
+  ...candidate,
+  snippet: String(candidate.snippet || '').slice(0, 2800),
+})))}
 线索 leads（公众号和不可抓来源，可作为强线索但需标注可信度）：${JSON.stringify(leads.slice(0, leadLimit))}`;
 }
 
@@ -2588,7 +2706,22 @@ export async function collectCandidates(sources = sourceCatalog.sources, onProgr
       unique.push(item);
     }
   }
-  return { candidates: unique, leads, failures, sourceResults, coverage };
+  let hydratedCandidates = unique;
+  let detailAudit = { selected: 0, hydrated: 0, browserRecovered: 0, failed: 0 };
+  if (options.hydrateDetails) {
+    const hydrated = await hydrateCandidateDetails(unique, {
+      fetcher: options.fetcher || fetch,
+      browserFetcher: options.browserFetcher,
+      detailLimit: options.detailLimit,
+      timeoutMs: options.detailTimeoutMs,
+      concurrency: options.detailConcurrency,
+      browserRecoveryLimit: options.detailBrowserRecoveryLimit,
+    });
+    hydratedCandidates = hydrated.candidates;
+    detailAudit = hydrated.audit;
+    console.log(`[stage 1/5] 详情页审计：选择 ${detailAudit.selected}，全文成功 ${detailAudit.hydrated}，浏览器恢复 ${detailAudit.browserRecovered}，失败保留 ${detailAudit.failed}`);
+  }
+  return { candidates: hydratedCandidates, leads, failures, sourceResults, coverage, detailAudit };
 }
 
 // ---------------------------------------------------------------------------
@@ -2652,6 +2785,11 @@ async function runCollectPhase(sources, batchId, date, env) {
     timeoutMs: Number(env.SOURCE_FETCH_TIMEOUT_MS || SOURCE_FETCH_TIMEOUT_MS),
     sleepFn: env.SOURCE_RETRY_SLEEP,
     jitter: env.SOURCE_RETRY_JITTER,
+    hydrateDetails: env.DETAIL_FETCH_ENABLED === '1',
+    detailLimit: Number(env.DETAIL_CANDIDATE_LIMIT || DETAIL_CANDIDATE_LIMIT),
+    detailTimeoutMs: Number(env.DETAIL_FETCH_TIMEOUT_MS || DETAIL_FETCH_TIMEOUT_MS),
+    detailConcurrency: Number(env.DETAIL_FETCH_CONCURRENCY || DETAIL_FETCH_CONCURRENCY),
+    detailBrowserRecoveryLimit: Number(env.DETAIL_BROWSER_RECOVERY_LIMIT || DETAIL_BROWSER_RECOVERY_LIMIT),
   });
   await env.SEEN_NEWS.put(
     `pipeline:${date}:batch:${batchId}`,
