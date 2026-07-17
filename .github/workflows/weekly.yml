@@ -25,6 +25,7 @@ jobs:
       ANALYSIS_LEAD_LIMIT: 24
       AI_MAX_TOKENS: 6000
       REPORT_ITEMS_PER_MODULE: 12
+      FORCE_DELIVERY: ${{ github.event_name == 'workflow_dispatch' && '1' || '0' }}
       DINGTALK_WEBHOOK_URL: ${{ secrets.DINGTALK_WEBHOOK_URL }}
       DINGTALK_SECRET: ${{ secrets.DINGTALK_SECRET }}
       FEISHU_WEBHOOK_URL: ${{ secrets.FEISHU_WEBHOOK_URL }}
