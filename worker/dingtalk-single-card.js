@@ -1,9 +1,5 @@
-import {
-  REPORT_MODULES,
-  curateReportQuality,
-  rankReportQualityItem,
-  summarizeExecutiveReport,
-} from './report-quality.js';
+import { buildEditorialReport } from './editorial-report.js';
+import { REPORT_MODULES } from './report-quality.js';
 
 export const DINGTALK_REPORT_MODULES = REPORT_MODULES;
 
@@ -13,96 +9,108 @@ function utf8Bytes(value) {
   return encoder.encode(String(value || '')).length;
 }
 
-function compactText(value, limit) {
-  const text = String(value || '').replace(/\s+/g, ' ').trim();
-  return text.length > limit ? `${text.slice(0, Math.max(1, limit - 1))}…` : text;
+function compactText(value, limit = 500) {
+  const result = String(value || '').replace(/\s+/g, ' ').trim();
+  return result.length > limit ? `${result.slice(0, Math.max(1, limit - 1))}…` : result;
 }
 
-function markdownText(value) {
-  return compactText(value, 500).replace(/[\[\]]/g, '').replace(/\|/g, '｜');
+function markdownText(value, limit = 500) {
+  return compactText(value, limit).replace(/[\[\]]/g, '').replace(/\|/g, '｜');
+}
+
+function joined(value, limit, count = 2) {
+  return (Array.isArray(value) ? value : [value])
+    .map(item => compactText(item, limit))
+    .filter(Boolean)
+    .slice(0, count)
+    .join('；');
 }
 
 function riskLabel(value) {
   if (value === 'high') return '高风险';
   if (value === 'medium') return '中风险';
-  return '';
-}
-
-function joined(value) {
-  return Array.isArray(value) ? value.filter(Boolean).join('；') : String(value || '');
-}
-
-function itemJudgement(item) {
-  return joined(item.core_judgement)
-    || joined(item.what_changed)
-    || joined(item.violation_logic)
-    || joined(item.regulatory_signal)
-    || joined(item.compliance_meaning)
-    || joined(item.why_it_matters)
-    || '需结合原文评估具体合规影响。';
-}
-
-function itemImpact(item) {
-  return joined(item.business_impact)
-    || joined(item.affected_business)
-    || joined(item.why_it_matters)
-    || '待结合法务与业务范围判断。';
-}
-
-function itemAction(item) {
-  return (item.recommended_actions || []).find(Boolean)
-    || '建议责任团队核验原文并判断是否更新内部合规清单。';
+  return '一般关注';
 }
 
 function sourceLink(item) {
-  const title = markdownText(item.source_name || item.title || '查看原文');
+  const title = markdownText(item.source_name || item.title || '查看原文', 60);
   const url = String(item.source_url || '').trim();
   return /^https?:\/\//i.test(url) ? `[${title}](${url})` : title;
 }
 
-function renderActionItem(item, tier, index) {
-  const meta = [item.country || item.region || '全球', riskLabel(item.risk_level)].filter(Boolean).join('｜');
-  if (tier === 'compact') {
-    return [
-      `#### ${index}. ${markdownText(item.title || '未命名事项')}`,
-      meta ? `> ${meta}` : '',
-      `- **核心判断**：${markdownText(compactText(itemJudgement(item), 120))}`,
-      `- **建议行动**：${markdownText(compactText(itemAction(item), 90))}`,
-      `- **来源**：${sourceLink(item)}`,
-    ].filter(Boolean).join('\n');
-  }
+function renderManagementSummary(editorial) {
+  if (!editorial.management_conclusions.length) return [];
   return [
-    `#### ${index}. ${markdownText(item.title || '未命名事项')}`,
-    meta ? `> ${meta}` : '',
-    `- **核心判断**：${markdownText(compactText(itemJudgement(item), 170))}`,
-    `- **业务影响**：${markdownText(compactText(itemImpact(item), 120))}`,
-    `- **建议行动**：${markdownText(compactText(itemAction(item), 110))}`,
-    `- **来源**：${sourceLink(item)}`,
-  ].filter(Boolean).join('\n');
+    '',
+    '## 管理层摘要',
+    ...editorial.management_conclusions.map((item, index) => `${index + 1}. ${markdownText(item, 220)}`),
+  ];
 }
 
-function prepareReport(report) {
-  const items = (report.sections || []).flatMap(section => section.items || []);
-  return items.every(item => ['action', 'watch'].includes(item.report_tier) && Number.isFinite(item.quality_score))
-    ? report
-    : curateReportQuality(report);
+function renderSourceIndex(editorial, removed) {
+  const items = editorial.sections.flatMap(section => section.items).filter(item => !removed.has(item.number));
+  if (!items.length) return [];
+  return [
+    '',
+    '## 来源索引',
+    ...items.map(item => `${item.number}. ${sourceLink(item)}｜${markdownText(item.title, 80)}｜${markdownText(item.published_at, 16)}`),
+  ];
 }
 
-function normalizedSections(report) {
-  const byModule = new Map((report.sections || []).map(section => [section.module, section.items || []]));
-  return REPORT_MODULES.map((module, moduleIndex) => ({
-    module,
-    moduleIndex,
-    items: [...(byModule.get(module) || [])]
-      .sort((a, b) => rankReportQualityItem(b) - rankReportQualityItem(a)),
-  }));
+function renderEditorialItem(item, tier = 'full') {
+  const compact = tier === 'compact';
+  if (tier === 'minimal') {
+    return [
+      `#### ${item.number}. ${markdownText(item.title, 60)}`,
+      `- **摘要**：${markdownText(item.summary, 100)}`,
+      `- **来源**：${sourceLink(item)}｜${markdownText(item.published_at, 16)}`,
+    ].join('\n');
+  }
+  const lines = [
+    `#### ${item.number}. ${markdownText(item.title, compact ? 70 : 110)}`,
+    `> ${markdownText(item.country, 20)}｜${riskLabel(item.risk_level)}｜${item.report_tier === 'watch' ? '持续观察' : '行动事项'}`,
+    `- **摘要**：${markdownText(item.summary, compact ? 150 : 260)}`,
+  ];
+  const facts = joined(item.facts, compact ? 100 : 180, compact ? 1 : 2);
+  const legal = joined(item.legal_analysis, compact ? 100 : 180, compact ? 1 : 2);
+  const results = joined(item.results, compact ? 90 : 160, compact ? 1 : 2);
+  const insights = joined(item.practical_insights, compact ? 90 : 150, compact ? 1 : 2);
+  const impact = joined(item.business_impact, 45, compact ? 2 : 4);
+  if (facts) lines.push(`- **事实摘要**：${markdownText(facts)}`);
+  if (legal) lines.push(`- **法务研判**：${markdownText(legal)}`);
+  if (results) lines.push(`- **处理结果**：${markdownText(results)}`);
+  if (insights) lines.push(`- **${markdownText(item.practical_label || '执行提示', 20)}**：${markdownText(insights)}`);
+  if (impact) lines.push(`- **业务影响**：${markdownText(impact)}`);
+  if (item.statutory_date && item.statutory_date !== '未知') {
+    lines.push(`- **法定节点**：${markdownText(item.statutory_date, 40)}`);
+  }
+  if (item.report_tier === 'watch') {
+    lines.push(`- **关注价值**：${markdownText(item.watch_value || item.why_it_matters, compact ? 110 : 190)}`);
+    lines.push(`- **下一观察点**：${markdownText(item.next_watch_signal, compact ? 100 : 170)}`);
+  } else {
+    const action = joined(item.recommended_actions, compact ? 100 : 170, compact ? 1 : 2);
+    if (action) lines.push(`- **建议动作**：${markdownText(action)}`);
+    const owners = joined(item.owner_teams, 20, 4);
+    if (owners) lines.push(`- **责任团队**：${markdownText(owners, 80)}｜**完成时间**：由责任领导确定`);
+  }
+  lines.push(`- **来源**：${sourceLink(item)}｜${markdownText(item.published_at, 16)}`);
+  return lines.join('\n');
 }
 
-function renderMessage(report, sections, tiers, removed, { imageUrl, omittedItemCount }) {
-  const executive = summarizeExecutiveReport(report);
-  const lines = [`# 美妆法务资讯｜${report.period?.end || '本期'}`];
-  const hasItems = sections.some(section => section.items.length);
-  if (!hasItems) {
+function renderFallbackBody(editorial, tiers, removed) {
+  const lines = ['', '## 资讯正文'];
+  for (const section of editorial.sections) {
+    const items = section.items.filter(item => !removed.has(item.number));
+    if (!items.length) continue;
+    lines.push('', `### ${section.module}`);
+    for (const item of items) lines.push(renderEditorialItem(item, tiers.get(item.number) || 'full'));
+  }
+  return lines;
+}
+
+function renderMessage(editorial, { imageUrl, tiers, removed }) {
+  const lines = [`# 美妆法务资讯｜${editorial.period?.end || '本期'}`];
+  if (!editorial.item_count) {
     lines.push(
       '',
       '## 本期结论',
@@ -110,139 +118,74 @@ function renderMessage(report, sections, tiers, removed, { imageUrl, omittedItem
       '',
       '> 公开来源可核验；仅供内部合规研判，不替代正式法律意见。',
     );
-    return lines.filter(line => line !== '').join('\n\n');
-  }
-  if (imageUrl) lines.push('', `![行动看板](${imageUrl})`);
-
-  if (executive.judgements.length) {
-    lines.push('', '## 本周核心判断');
-    executive.judgements.forEach((item, index) => {
-      lines.push(`${index + 1}. ${markdownText(compactText(item.text, 180))}`);
-    });
+    return lines.join('\n').replace(/\n{3,}/g, '\n\n').trim();
   }
 
-  if (executive.actions.length) {
-    lines.push('', '## 优先行动');
-    executive.actions.forEach((action, index) => {
-      const meta = [riskLabel(action.risk_level), action.owners.join('、') || '法务'].filter(Boolean).join('｜');
-      lines.push(
-        `### P${index + 1}｜${markdownText(action.title)}`,
-        meta ? `> ${meta}` : '',
-        `- **动作**：${markdownText(compactText(action.text, 110))}`,
-        `- **时间**：由责任领导确定`,
-        `- **来源**：${sourceLink(action)}`,
-      );
-    });
+  lines.push(...renderManagementSummary(editorial));
+  if (imageUrl) {
+    lines.push('', `![美妆法务资讯长图](${imageUrl})`, '', `[查看高清原图](${imageUrl})`);
+    lines.push(...renderSourceIndex(editorial, removed));
+  } else {
+    lines.push(...renderFallbackBody(editorial, tiers, removed));
   }
-
-  const activeSections = sections
-    .map(section => ({
-      ...section,
-      items: section.items.filter(item => item.report_tier === 'action' && !removed.has(item.__cardId)),
-    }))
-    .filter(section => section.items.length);
-  if (activeSections.length) lines.push('', '## 重点事项');
-  let displayIndex = 0;
-  for (const section of activeSections) {
-    lines.push('', `### ${section.module}`);
-    for (const item of section.items) {
-      displayIndex += 1;
-      lines.push(renderActionItem(item, tiers.get(item.__cardId) || 'full', displayIndex));
-    }
-  }
-
-  const watchItems = sections
-    .flatMap(section => section.items)
-    .filter(item => item.report_tier === 'watch' && !removed.has(item.__cardId))
-    .sort((a, b) => rankReportQualityItem(b) - rankReportQualityItem(a))
-    .slice(0, 3);
-  if (watchItems.length) {
-    lines.push('', '## 持续观察');
-    watchItems.forEach(item => lines.push(
-      `### ${markdownText(item.title || '行业动态')}`,
-      `- **发生了什么**：${markdownText(compactText(item.core_judgement, 120))}`,
-      `- **关注价值**：${markdownText(compactText(item.watch_value, 100))}`,
-      `- **下一观察点**：${markdownText(compactText(item.next_watch_signal, 100))}`,
-      `- **来源**：${sourceLink(item)}`,
-    ));
-  }
-
-  if (omittedItemCount > 0) lines.push('', `> 已省略 ${omittedItemCount} 条低优先级事项。`);
+  lines.push('', '## 本期结论', markdownText(editorial.final_synthesis, 240));
+  if (removed.size) lines.push('', `> 受消息长度限制，已省略 ${removed.size} 条低优先级事项；来源原文仍保留在采集存档中。`);
   lines.push('', '> 公开来源可核验；仅供内部合规研判，不替代正式法律意见。');
-  return lines.filter(line => line !== '').join('\n\n');
+  return lines.join('\n').replace(/\n{3,}/g, '\n\n').trim();
 }
 
-export function buildSingleDingTalkMessage(inputReport, {
+export function buildSingleDingTalkMessage(report, {
   imageUrl = '',
   maxBytes = 18000,
 } = {}) {
   const byteLimit = Math.max(1200, Number(maxBytes || 18000));
-  const report = prepareReport(inputReport);
-  const sections = normalizedSections(report).map(section => ({
-    ...section,
-    items: section.items.map((item, itemIndex) => ({
-      ...item,
-      __cardId: `${section.moduleIndex}:${itemIndex}`,
-    })),
-  }));
-  const allItems = sections.flatMap(section => section.items);
-  const actionItems = allItems.filter(item => item.report_tier === 'action');
-  const watchItems = allItems.filter(item => item.report_tier === 'watch');
-  const protectedIds = new Set(
-    [...actionItems]
-      .sort((a, b) => rankReportQualityItem(b) - rankReportQualityItem(a))
-      .slice(0, 3)
-      .map(item => item.__cardId),
-  );
-  const tiers = new Map(actionItems.map(item => [item.__cardId, 'full']));
+  const editorial = buildEditorialReport(report);
+  const items = editorial.sections.flatMap(section => section.items);
+  const tiers = new Map(items.map(item => [item.number, 'full']));
   const removed = new Set();
-  const build = () => renderMessage(report, sections, tiers, removed, {
-    imageUrl,
-    omittedItemCount: removed.size,
-  });
+  const build = () => renderMessage(editorial, { imageUrl, tiers, removed });
   let markdown = build();
 
-  for (const item of [...watchItems].sort((a, b) => rankReportQualityItem(a) - rankReportQualityItem(b))) {
+  const lowPriorityFirst = [...items].sort((a, b) => {
+    const aChina = a.country === '中国' ? 1 : 0;
+    const bChina = b.country === '中国' ? 1 : 0;
+    return aChina - bChina || a.quality_score - b.quality_score || b.number - a.number;
+  });
+
+  if (!imageUrl) {
+    for (const item of lowPriorityFirst) {
+      if (utf8Bytes(markdown) <= byteLimit) break;
+      tiers.set(item.number, 'compact');
+      markdown = build();
+    }
+  }
+
+  let remaining = items.length;
+  for (const item of lowPriorityFirst) {
     if (utf8Bytes(markdown) <= byteLimit) break;
-    removed.add(item.__cardId);
+    if (remaining <= 1) break;
+    removed.add(item.number);
+    remaining -= 1;
     markdown = build();
   }
 
-  for (const item of [...actionItems].sort((a, b) => rankReportQualityItem(a) - rankReportQualityItem(b))) {
-    if (utf8Bytes(markdown) <= byteLimit) break;
-    if (protectedIds.has(item.__cardId)) continue;
-    tiers.set(item.__cardId, 'compact');
-    markdown = build();
-  }
-
-  for (const item of [...actionItems].sort((a, b) => rankReportQualityItem(a) - rankReportQualityItem(b))) {
-    if (utf8Bytes(markdown) <= byteLimit) break;
-    if (protectedIds.has(item.__cardId)) continue;
-    removed.add(item.__cardId);
-    markdown = build();
-  }
-
-  for (const item of [...actionItems].sort((a, b) => rankReportQualityItem(a) - rankReportQualityItem(b))) {
-    if (utf8Bytes(markdown) <= byteLimit) break;
-    tiers.set(item.__cardId, 'compact');
-    markdown = build();
-  }
-
-  for (const item of [...actionItems].sort((a, b) => rankReportQualityItem(a) - rankReportQualityItem(b))) {
-    if (utf8Bytes(markdown) <= byteLimit) break;
-    removed.add(item.__cardId);
-    markdown = build();
+  if (!imageUrl && utf8Bytes(markdown) > byteLimit) {
+    const retained = items.find(item => !removed.has(item.number));
+    if (retained) {
+      tiers.set(retained.number, 'minimal');
+      markdown = build();
+    }
   }
 
   const bytes = utf8Bytes(markdown);
   if (bytes > byteLimit) throw new Error(`Minimum DingTalk report exceeds byte budget: ${bytes}/${byteLimit}`);
   return {
     id: 'weekly-report',
-    title: `美妆法务资讯｜${report.period?.end || '本期'}`,
+    title: `美妆法务资讯｜${editorial.period?.end || '本期'}`,
     markdown,
     bytes,
-    itemCount: allItems.length,
-    displayedItemCount: allItems.length - removed.size,
+    itemCount: editorial.item_count,
+    displayedItemCount: editorial.item_count - removed.size,
     omittedItemCount: removed.size,
   };
 }
