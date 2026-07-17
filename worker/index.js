@@ -208,6 +208,10 @@ async function isDuplicateFingerprints(fingerprints, kv) {
   }
 }
 
+export function shouldSkipDuplicateReport(isDuplicate, forceDelivery = false) {
+  return Boolean(isDuplicate) && !forceDelivery;
+}
+
 async function markSeen(fps, seen, kv) {
   if (!kv || !fps.length) return;
   try {
@@ -1159,7 +1163,7 @@ export async function runPipeline(env, requestUrl = 'https://beauty-legal-bot.wo
     }
     console.log("[stage 4/5] 内容去重检查...");
     const { isDup, seen, fps } = await isDuplicateFingerprints(extractReportFingerprints(report), kv);
-    if (isDup) {
+    if (shouldSkipDuplicateReport(isDup, env.FORCE_DELIVERY === '1')) {
       console.log("[stage 4/5] 报告条目 30 天内已全部推送过，跳过摘要推送");
       return { stage: 'dedupe', status: 'skipped', message: 'all report items were already pushed in 30 days' };
     }
@@ -2730,7 +2734,9 @@ async function runFinalizePhase(date, env, requestUrl) {
     if (!decisionMapUrl) throw new Error('Decision map publication returned no public URL');
   }
   const { isDup, seen, fps } = await isDuplicateFingerprints(extractReportFingerprints(report), kv);
-  if (isDup) return { stage: 'dedupe', status: 'skipped', message: '30-day duplicate' };
+  if (shouldSkipDuplicateReport(isDup, env.FORCE_DELIVERY === '1')) {
+    return { stage: 'dedupe', status: 'skipped', message: '30-day duplicate' };
+  }
 
   const notification = await notifyReport({
     report,
