@@ -48,6 +48,7 @@ import {
   requestAiChat,
   deepseekAnalyze,
   deepseekRescueAnalyze,
+  selectRescueEvidenceCandidates,
   analyzeReportByModule,
   analyzeReportWithRecovery,
   processAnalyzedReport,
@@ -851,6 +852,42 @@ async function testDeepseekRescueAnalyzeUsesObservedCandidateIdentity() {
   assert.equal(item.confidence, 'high');
   const processed = processAnalyzedReport(report, { candidates: [candidate], sources: [] });
   assert.equal(processed.audit.acceptedItems, 1);
+}
+
+function testRescueEvidenceCandidatesPreserveModuleDiversity() {
+  const crowded = Array.from({ length: 24 }, (_, index) => ({
+    title: `中国广告监管候选 ${index}`,
+    url: `https://samr.example.gov.cn/ads/${index}`,
+    source_name: '中国市场监管机构',
+    source_type: 'official_site',
+    authority_type: 'regulator',
+    module: '广告合规及处罚案例',
+    country: '中国',
+    region: '亚洲',
+    published_at: '2026-07-17',
+    priority: 'high',
+    snippet: '化妆品广告监管信息。',
+  }));
+  const otherModules = REPORT_MODULES.slice(1).map((module, index) => ({
+    title: `${module}代表候选`,
+    url: `https://official-${index}.example.gov.cn/notice`,
+    source_name: `${module}监管来源`,
+    source_type: 'official_site',
+    authority_type: 'regulator',
+    module,
+    country: index % 2 === 0 ? '中国' : '欧盟',
+    region: index % 2 === 0 ? '亚洲' : '欧洲',
+    published_at: '2026-07-16',
+    priority: 'medium',
+    snippet: `${module}的实质监管信息。`,
+  }));
+
+  const selected = selectRescueEvidenceCandidates([...crowded, ...otherModules]);
+  const modules = new Set(selected.map(candidate => candidate.module));
+
+  assert.equal(modules.size, REPORT_MODULES.length);
+  assert.ok(selected.length >= REPORT_MODULES.length);
+  assert.ok(selected.filter(candidate => candidate.source_name === '中国市场监管机构').length <= 3);
 }
 
 function testExecutiveSummaryCapsJudgementsAndActionsAtThree() {
@@ -2353,6 +2390,7 @@ await testAnalyzeReportWithRecoveryUsesOneRescuePass();
 await testAnalyzeReportWithRecoverySupplementsSparseWatchOnlyReport();
 await testAnalyzeReportWithRecoveryRejectsTechnicalCollapse();
 await testDeepseekRescueAnalyzeUsesObservedCandidateIdentity();
+testRescueEvidenceCandidatesPreserveModuleDiversity();
 testExecutiveSummaryCapsJudgementsAndActionsAtThree();
 testExecutiveSummaryAvoidsRepeatedJudgementsAndActions();
 testNormalizeReportForValidationFillsDynamicAnalysisFields();
