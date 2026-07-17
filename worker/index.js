@@ -1119,13 +1119,14 @@ export async function runPipeline(env, requestUrl = 'https://beauty-legal-bot.wo
         leadLimit,
         maxTokens,
       }),
-      analyzeRescue: () => deepseekRescueAnalyze({
+      analyzeRescue: ({ report: existingReport } = {}) => deepseekRescueAnalyze({
         apiKey: aiKey,
         baseUrl: aiBaseUrl,
         model,
         candidates,
         leads,
         period,
+        existingReport,
       }),
     });
     const report = analysis.report;
@@ -1795,9 +1796,14 @@ export async function deepseekAnalyze({ apiKey, baseUrl, model, candidates, lead
   return reviewAnalysisReport({ apiKey, baseUrl, model, report: draft, candidates, maxTokens, fetcher, logger });
 }
 
-function rescueEvidenceCandidates(candidates = [], leads = []) {
+function rescueEvidenceCandidates(candidates = [], leads = [], existingReport = null) {
+  const usedUrls = new Set((existingReport?.sections || [])
+    .flatMap(section => section.items || [])
+    .map(item => normalizeSourceUrl(item.source_url))
+    .filter(Boolean));
   const combined = [...candidates, ...leads]
-    .filter(candidate => /^https?:\/\//i.test(String(candidate.url || candidate.source_url || '')));
+    .filter(candidate => /^https?:\/\//i.test(String(candidate.url || candidate.source_url || '')))
+    .filter(candidate => !usedUrls.has(normalizeSourceUrl(candidate.url || candidate.source_url)));
   return sortCandidatesForAnalysis(combined)
     .sort((a, b) => Number(b.country === '中国') - Number(a.country === '中国'))
     .slice(0, 18);
@@ -1897,9 +1903,10 @@ export async function deepseekRescueAnalyze({
   candidates = [],
   leads = [],
   period = getPeriod(),
+  existingReport = null,
   fetcher = fetch,
 }) {
-  const evidence = rescueEvidenceCandidates(candidates, leads);
+  const evidence = rescueEvidenceCandidates(candidates, leads, existingReport);
   if (!evidence.length) {
     return { period, summary: [], risk_alerts: [], sections: REPORT_MODULES.map(module => ({ module, items: [] })) };
   }
@@ -2205,24 +2212,35 @@ export async function analyzeReportWithRecovery({
   const primaryRawReport = await analyzePrimary();
   const primary = processAnalyzedReport(primaryRawReport, { candidates, sources, itemsPerModule });
   logReportAudit(logger, '主分析', primary.audit);
-  if (primary.audit.acceptedItems > 0) return { ...primary, mode: 'primary', primaryAudit: primary.audit };
+  const primaryItems = (primary.report.sections || []).flatMap(section => section.items || []);
+  const primaryActionItems = primaryItems.filter(item => item.report_tier === 'action').length;
+  const primaryActiveModules = (primary.report.sections || []).filter(section => (section.items || []).length > 0).length;
+  const needsSupplement = primary.audit.acceptedItems < 4 || primaryActionItems === 0 || primaryActiveModules < 2;
+  if (!needsSupplement) return { ...primary, mode: 'primary', primaryAudit: primary.audit };
 
   if (!analyzeRescue || candidates.length + leads.length === 0) {
-    return { ...primary, mode: 'no-update', primaryAudit: primary.audit };
+    return { ...primary, mode: primary.audit.acceptedItems > 0 ? 'primary' : 'no-update', primaryAudit: primary.audit };
   }
 
-  logger.warn('[stage 2/5] 主分析无准入条目，启动一次高价值救援分析');
-  const rescueRawReport = await analyzeRescue();
+  logger.warn(primary.audit.acceptedItems === 0
+    ? '[stage 2/5] 主分析无准入条目，启动一次高价值救援分析'
+    : `[stage 2/5] 主分析整体不足（准入 ${primary.audit.acceptedItems}、行动 ${primaryActionItems}、活跃模块 ${primaryActiveModules}），启动一次补充分析`);
+  const rescueRawReport = await analyzeRescue({ report: primary.report });
   const rescue = processAnalyzedReport(rescueRawReport, { candidates, sources, itemsPerModule });
   logReportAudit(logger, '救援分析', rescue.audit);
-  if (rescue.audit.acceptedItems === 0 && (primary.audit.aiItems > 0 || rescue.audit.aiItems > 0)) {
+  const combinedRawReport = mergeModuleReports([primary.report, rescue.report], period);
+  const combined = processAnalyzedReport(combinedRawReport, { candidates, sources, itemsPerModule });
+  if (combined.audit.acceptedItems === 0 && (primary.audit.aiItems > 0 || rescue.audit.aiItems > 0)) {
     throw new Error(
       `Report technical collapse: AI produced ${primary.audit.aiItems + rescue.audit.aiItems} items but none survived source, structure, and quality gates`,
     );
   }
+  const addedItems = combined.audit.acceptedItems > primary.audit.acceptedItems;
   return {
-    ...rescue,
-    mode: rescue.audit.acceptedItems > 0 ? 'rescue' : 'no-update',
+    ...combined,
+    mode: primary.audit.acceptedItems === 0
+      ? (combined.audit.acceptedItems > 0 ? 'rescue' : 'no-update')
+      : (addedItems ? 'supplemented' : 'primary'),
     primaryAudit: primary.audit,
     rescueAudit: rescue.audit,
   };
