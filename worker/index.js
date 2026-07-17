@@ -1796,7 +1796,7 @@ export async function deepseekAnalyze({ apiKey, baseUrl, model, candidates, lead
   return reviewAnalysisReport({ apiKey, baseUrl, model, report: draft, candidates, maxTokens, fetcher, logger });
 }
 
-function rescueEvidenceCandidates(candidates = [], leads = [], existingReport = null) {
+export function selectRescueEvidenceCandidates(candidates = [], leads = [], existingReport = null) {
   const usedUrls = new Set((existingReport?.sections || [])
     .flatMap(section => section.items || [])
     .map(item => normalizeSourceUrl(item.source_url))
@@ -1804,9 +1804,34 @@ function rescueEvidenceCandidates(candidates = [], leads = [], existingReport = 
   const combined = [...candidates, ...leads]
     .filter(candidate => /^https?:\/\//i.test(String(candidate.url || candidate.source_url || '')))
     .filter(candidate => !usedUrls.has(normalizeSourceUrl(candidate.url || candidate.source_url)));
-  return sortCandidatesForAnalysis(combined)
-    .sort((a, b) => Number(b.country === '中国') - Number(a.country === '中国'))
-    .slice(0, 18);
+  const ranked = sortCandidatesForAnalysis(combined)
+    .sort((a, b) => Number(b.country === '中国') - Number(a.country === '中国'));
+  const selected = [];
+  const selectedUrls = new Set();
+  const sourceCounts = new Map();
+  const sourceKey = candidate => String(candidate.source_name || candidate.name || new URL(candidate.url || candidate.source_url).hostname);
+  const take = candidate => {
+    if (!candidate) return false;
+    const url = normalizeSourceUrl(candidate.url || candidate.source_url);
+    const source = sourceKey(candidate);
+    if (!url || selectedUrls.has(url) || (sourceCounts.get(source) || 0) >= 3) return false;
+    selected.push(candidate);
+    selectedUrls.add(url);
+    sourceCounts.set(source, (sourceCounts.get(source) || 0) + 1);
+    return true;
+  };
+
+  for (let round = 0; round < 3; round += 1) {
+    for (const module of REPORT_MODULES) {
+      const available = ranked.filter(candidate => candidate.module === module && !selectedUrls.has(normalizeSourceUrl(candidate.url || candidate.source_url)));
+      take(available[round] || available.find(candidate => (sourceCounts.get(sourceKey(candidate)) || 0) < 3));
+    }
+  }
+  for (const candidate of ranked) {
+    if (selected.length >= 24) break;
+    take(candidate);
+  }
+  return selected;
 }
 
 function buildRescueAnalysisPrompt(evidence, period) {
@@ -1906,7 +1931,7 @@ export async function deepseekRescueAnalyze({
   existingReport = null,
   fetcher = fetch,
 }) {
-  const evidence = rescueEvidenceCandidates(candidates, leads, existingReport);
+  const evidence = selectRescueEvidenceCandidates(candidates, leads, existingReport);
   if (!evidence.length) {
     return { period, summary: [], risk_alerts: [], sections: REPORT_MODULES.map(module => ({ module, items: [] })) };
   }
