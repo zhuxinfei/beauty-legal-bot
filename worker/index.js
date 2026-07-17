@@ -46,6 +46,7 @@ const REPORT_INDEX_KEY = 'report:index';
 const LAST_RUN_KEY = 'run:last';
 const LATEST_DECISION_MAP_KEY = 'asset:decision-map:latest';
 const LATEST_DECISION_MAP_PNG_KEY = 'asset:decision-map:latest.png';
+const LATEST_EDITORIAL_REPORT_PNG_KEY = 'asset:editorial-report:latest.png';
 const REPORT_MODULES = [
   '广告合规及处罚案例',
   '美妆动态',
@@ -662,7 +663,7 @@ function renderDingTalkModuleDelivery(report, module, maxBytes) {
  */
 export function buildDingTalkWebhookMessages(report, options = {}) {
   return [buildSingleDingTalkMessage(report, {
-    imageUrl: options.decisionMapUrl || options.imageUrl || '',
+    imageUrl: options.editorialImageUrl || options.imageUrl || options.decisionMapUrl || '',
     coverage: options.coverage,
     maxBytes: options.maxBytes,
   })];
@@ -1027,10 +1028,38 @@ async function resolveDecisionMapUrl({ env, requestUrl, decisionMapPng, date }) 
     : reportUrl(requestUrl, '/assets/decision-map.svg');
 }
 
+function editorialReportPngKeyForDate(date) {
+  return `asset:editorial-report:${date}.png`;
+}
+
+async function saveEditorialReportPng(kv, date, png) {
+  if (!png) return;
+  await kv.put(editorialReportPngKeyForDate(date), png, { metadata: { contentType: 'image/png', date } });
+  await kv.put(LATEST_EDITORIAL_REPORT_PNG_KEY, png, { metadata: { contentType: 'image/png', date } });
+}
+
+async function prepareEditorialReportImage({ report, env, kv, requestUrl, date, generatedAt, logger = console }) {
+  const itemCount = (report.sections || []).flatMap(section => section.items || []).length;
+  if (!itemCount || typeof env.CREATE_EDITORIAL_REPORT_PNG !== 'function') return '';
+  try {
+    const png = await env.CREATE_EDITORIAL_REPORT_PNG({ report, date, generatedAt, requestUrl });
+    if (!(png instanceof Uint8Array) || !png.byteLength) throw new Error('image renderer returned no PNG data');
+    await saveEditorialReportPng(kv, date, png);
+    const url = typeof env.PUBLISH_EDITORIAL_REPORT === 'function'
+      ? await env.PUBLISH_EDITORIAL_REPORT({ date, png, report, requestUrl })
+      : reportUrl(requestUrl, `/assets/editorial-report/${date}.png`);
+    if (!url) throw new Error('image publication returned no public URL');
+    return url;
+  } catch (error) {
+    logger.warn(`资讯长图不可用，自动回退完整文字报告: ${error.message}`);
+    return '';
+  }
+}
+
 export async function notifyReport({ report, reportUrl: latestUrl, env, sendDingTalk = sendToDingTalk, sendFeishu = sendToFeishu }) {
   if (env.DINGTALK_WEBHOOK_URL) {
     const messages = buildDingTalkWebhookMessages(report, {
-      decisionMapUrl: env.DECISION_MAP_URL || '',
+      editorialImageUrl: env.EDITORIAL_REPORT_URL || '',
       coverage: env.SOURCE_COVERAGE,
       maxBytes: env.DINGTALK_MAX_BYTES,
     });
@@ -1144,33 +1173,17 @@ export async function runPipeline(env, requestUrl = 'https://beauty-legal-bot.wo
     const itemCount = (report.sections || []).flatMap(section => section.items || []).length;
     console.log(`[stage 2/5] 完成，模式 ${analysis.mode}，模块 ${report.sections.length} 个，准入 ${itemCount} 条`);
 
-    const publishDecisionMap = shouldPublishDecisionMap(report);
-    console.log(publishDecisionMap
-      ? "[stage 3/5] 生成管理层行动看板并保存报告..."
-      : itemCount > 0
-        ? "[stage 3/5] 仅有持续观察事项，跳过行动看板并生成文字简报..."
-        : "[stage 3/5] 无准入事项，跳过空看板并生成文字简报...");
+    console.log(itemCount > 0
+      ? "[stage 3/5] 生成高清资讯长图；失败时自动回退完整文字报告..."
+      : "[stage 3/5] 无准入事项，生成文字简报...");
     const generatedAt = new Date().toISOString();
     const reportDate = report.period.end;
-    let decisionMapUrl = '';
-    if (publishDecisionMap) {
-      const decisionMapSvg = buildDecisionMapSvg(
-        verifiedReportItems(report).sort((a, b) => rankReportItem(b) - rankReportItem(a)),
-        { period: report.period, coverage, generatedAt }
-      );
-      await saveDecisionMap(kv, reportDate, decisionMapSvg);
-      const decisionMapPng = env.CREATE_DECISION_MAP_PNG
-        ? await env.CREATE_DECISION_MAP_PNG({ svg: decisionMapSvg, date: reportDate, requestUrl })
-        : null;
-      if (decisionMapPng) await saveDecisionMapPng(kv, reportDate, decisionMapPng);
-      decisionMapUrl = decisionMapPng && typeof env.PUBLISH_DECISION_MAP === 'function'
-        ? await env.PUBLISH_DECISION_MAP({ date: reportDate, png: decisionMapPng, svg: decisionMapSvg, requestUrl })
-        : await resolveDecisionMapUrl({ env, requestUrl, decisionMapPng, date: reportDate });
-      if (!decisionMapUrl) throw new Error('Decision map publication returned no public URL');
-    }
-    const markdown = renderDingTalkMarkdown(report, { decisionMapUrl });
+    const editorialImageUrl = await prepareEditorialReportImage({
+      report, env, kv, requestUrl, date: reportDate, generatedAt,
+    });
+    const markdown = buildSingleDingTalkMessage(report, { imageUrl: editorialImageUrl }).markdown;
     if (typeof env.ON_REPORT_READY === 'function') {
-      await env.ON_REPORT_READY({ report, markdown, decisionMapUrl, generatedAt, failures, sourceResults, coverage });
+      await env.ON_REPORT_READY({ report, markdown, editorialImageUrl, generatedAt, failures, sourceResults, coverage });
     }
     console.log("[stage 4/5] 内容去重检查...");
     const { isDup, seen, fps } = await isDuplicateFingerprints(extractReportFingerprints(report), kv);
@@ -1183,7 +1196,7 @@ export async function runPipeline(env, requestUrl = 'https://beauty-legal-bot.wo
     const notification = await notifyReport({
       report,
       reportUrl: '',
-      env: { ...env, DECISION_MAP_URL: decisionMapUrl, SOURCE_COVERAGE: coverage },
+      env: { ...env, EDITORIAL_REPORT_URL: editorialImageUrl, SOURCE_COVERAGE: coverage },
     });
     const ok = notification.ok;
     if (ok) await markSeen(fps, seen, kv);
@@ -2902,22 +2915,9 @@ async function runFinalizePhase(date, env, requestUrl) {
   const failures = candidatesMeta.failures || [];
   const reportDate = report.period.end;
   const itemCount = (report.sections || []).flatMap(s => s.items || []).length;
-  let decisionMapUrl = '';
-  if (shouldPublishDecisionMap(report)) {
-    const decisionMapSvg = buildDecisionMapSvg(
-      verifiedReportItems(report).sort((a, b) => rankReportItem(b) - rankReportItem(a)),
-      { period: report.period, coverage: candidatesMeta.coverage, generatedAt }
-    );
-    await saveDecisionMap(kv, reportDate, decisionMapSvg);
-    const decisionMapPng = env.CREATE_DECISION_MAP_PNG
-      ? await env.CREATE_DECISION_MAP_PNG({ svg: decisionMapSvg, date: reportDate, requestUrl })
-      : null;
-    if (decisionMapPng) await saveDecisionMapPng(kv, reportDate, decisionMapPng);
-    decisionMapUrl = decisionMapPng && typeof env.PUBLISH_DECISION_MAP === 'function'
-      ? await env.PUBLISH_DECISION_MAP({ date: reportDate, png: decisionMapPng, svg: decisionMapSvg, requestUrl })
-      : await resolveDecisionMapUrl({ env, requestUrl, decisionMapPng, date: reportDate });
-    if (!decisionMapUrl) throw new Error('Decision map publication returned no public URL');
-  }
+  const editorialImageUrl = await prepareEditorialReportImage({
+    report, env, kv, requestUrl, date: reportDate, generatedAt,
+  });
   const { isDup, seen, fps } = await isDuplicateFingerprints(extractReportFingerprints(report), kv);
   if (shouldSkipDuplicateReport(isDup, env.FORCE_DELIVERY === '1')) {
     return { stage: 'dedupe', status: 'skipped', message: '30-day duplicate' };
@@ -2926,7 +2926,7 @@ async function runFinalizePhase(date, env, requestUrl) {
   const notification = await notifyReport({
     report,
     reportUrl: '',
-    env: { ...env, DECISION_MAP_URL: decisionMapUrl, SOURCE_COVERAGE: candidatesMeta.coverage },
+    env: { ...env, EDITORIAL_REPORT_URL: editorialImageUrl, SOURCE_COVERAGE: candidatesMeta.coverage },
   });
   const ok = notification.ok;
   if (ok) await markSeen(fps, seen, kv);
@@ -3049,6 +3049,21 @@ export default {
       return png
         ? new Response(png, { headers: { "Content-Type": "image/png", "Cache-Control": "public, max-age=300" } })
         : new Response("Decision map PNG not found", { status: 404 });
+    }
+
+    if (url.pathname === "/assets/editorial-report.png") {
+      const png = await env.SEEN_NEWS?.get(LATEST_EDITORIAL_REPORT_PNG_KEY, 'arrayBuffer');
+      return png
+        ? new Response(png, { headers: { "Content-Type": "image/png", "Cache-Control": "public, max-age=300" } })
+        : new Response("Editorial report PNG not found", { status: 404 });
+    }
+
+    const editorialReportPngMatch = url.pathname.match(/^\/assets\/editorial-report\/(\d{4}-\d{2}-\d{2})\.png$/);
+    if (editorialReportPngMatch) {
+      const png = await env.SEEN_NEWS?.get(editorialReportPngKeyForDate(editorialReportPngMatch[1]), 'arrayBuffer');
+      return png
+        ? new Response(png, { headers: { "Content-Type": "image/png", "Cache-Control": "public, max-age=31536000, immutable" } })
+        : new Response("Editorial report PNG not found", { status: 404 });
     }
 
     const decisionMapPngMatch = url.pathname.match(/^\/assets\/decision-map\/(\d{4}-\d{2}-\d{2})\.png$/);

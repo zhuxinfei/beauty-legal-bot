@@ -4,6 +4,9 @@ import sampleReport from './sample-report.json' with { type: 'json' };
 import sourceCatalog from './sources.json' with { type: 'json' };
 import { createBrowserSourceFetcher } from './browser-fetch.js';
 import { buildSingleDingTalkMessage } from './dingtalk-single-card.js';
+import { buildEditorialReport } from './editorial-report.js';
+import { buildEditorialReportHtml } from './editorial-report-image.js';
+import { renderEditorialReportPng } from '../scripts/render-editorial-report-png.js';
 import { buildActionDashboardSvg } from './action-dashboard.js';
 import {
   REPORT_MODULES,
@@ -280,6 +283,7 @@ async function testPublishVersionedPngUploadsBeforeHealthCheck() {
     apiToken: 'secret-token',
     date: '2026-07-14',
     png,
+    assetName: 'editorial-report',
     publicBaseUrl: 'https://worker.test',
     sleepFn: async () => {},
     fetcher: async (href, init = {}) => {
@@ -291,10 +295,10 @@ async function testPublishVersionedPngUploadsBeforeHealthCheck() {
     },
   });
 
-  assert.match(url, /^https:\/\/worker\.test\/assets\/decision-map\/2026-07-14\.png\?v=[a-f0-9]{16}$/);
+  assert.match(url, /^https:\/\/worker\.test\/assets\/editorial-report\/2026-07-14\.png\?v=[a-f0-9]{16}$/);
   assert.deepEqual(calls.map(call => call.method), ['PUT', 'PUT', 'GET']);
-  assert.ok(calls[0].href.includes('/values/asset%3Adecision-map%3A2026-07-14.png'));
-  assert.ok(calls[1].href.includes('/values/asset%3Adecision-map%3Alatest.png'));
+  assert.ok(calls[0].href.includes('/values/asset%3Aeditorial-report%3A2026-07-14.png'));
+  assert.ok(calls[1].href.includes('/values/asset%3Aeditorial-report%3Alatest.png'));
   assert.equal(calls[0].auth, 'Bearer secret-token');
   assert.equal(calls[2].auth, undefined);
   assert.ok(calls[2].href.includes('?v='));
@@ -319,7 +323,8 @@ async function testPipelinePublishesHealthyImageBeforeDingTalkAndDedupe() {
     if (href.startsWith('https://oapi.dingtalk.com/robot/send')) {
       calls.push('send-dingtalk');
       const payload = JSON.parse(init.body);
-      assert.ok(payload.markdown.text.includes('https://worker.test/assets/decision-map/2026-07-14.png'));
+      assert.ok(payload.markdown.text.includes('https://worker.test/assets/editorial-report/2026-07-14.png'));
+      assert.ok(payload.markdown.text.includes('![美妆法务资讯长图]'));
       return new Response(JSON.stringify({ errcode: 0, errmsg: 'ok' }), { status: 200 });
     }
     return new Response(`<html><body><a href="/notice">化妆品监管新规</a><p>${'公开监管正文。'.repeat(8)}</p></body></html>`, { status: 200 });
@@ -332,14 +337,15 @@ async function testPipelinePublishesHealthyImageBeforeDingTalkAndDedupe() {
       DINGTALK_WEBHOOK_URL: 'https://oapi.dingtalk.com/robot/send?access_token=test',
       DINGTALK_MESSAGE_DELAY_MS: 0,
       SEEN_NEWS: kv,
-      CREATE_DECISION_MAP_PNG: async () => {
+      CREATE_EDITORIAL_REPORT_PNG: async ({ report }) => {
+        assert.ok(report.sections.flatMap(section => section.items).length > 0);
         calls.push('render-image');
         return new Uint8Array(2048).fill(1);
       },
-      PUBLISH_DECISION_MAP: async () => {
+      PUBLISH_EDITORIAL_REPORT: async () => {
         calls.push('publish-versioned-image');
         calls.push('health-check-image');
-        return 'https://worker.test/assets/decision-map/2026-07-14.png';
+        return 'https://worker.test/assets/editorial-report/2026-07-14.png';
       },
       ON_REPORT_READY: async ({ report }) => {
         assert.equal(report.sections.length, 6);
@@ -352,6 +358,55 @@ async function testPipelinePublishesHealthyImageBeforeDingTalkAndDedupe() {
     globalThis.fetch = originalFetch;
   }
   assert.deepEqual(calls, ['render-image', 'publish-versioned-image', 'health-check-image', 'send-dingtalk', 'mark-seen']);
+}
+
+async function testPipelineFallsBackToFullMarkdownWhenEditorialImageFails() {
+  const originalFetch = globalThis.fetch;
+  const calls = [];
+  const store = new Map();
+  const kv = {
+    async get(key) { return store.get(key) || null; },
+    async put(key, value) {
+      store.set(key, value);
+      if (key === 'seen_v3_report_items') calls.push('mark-seen');
+    },
+  };
+  globalThis.fetch = async (url, init = {}) => {
+    const href = String(url);
+    if (href.includes('/chat/completions')) {
+      return new Response(JSON.stringify({ choices: [{ message: { content: JSON.stringify(sampleReport) } }] }), { status: 200 });
+    }
+    if (href.startsWith('https://oapi.dingtalk.com/robot/send')) {
+      calls.push('send-dingtalk');
+      const payload = JSON.parse(init.body);
+      assert.ok(payload.markdown.text.includes('## 资讯正文'));
+      assert.ok(payload.markdown.text.includes('**事实摘要**'));
+      assert.equal(payload.markdown.text.includes('![美妆法务资讯长图]'), false);
+      return new Response(JSON.stringify({ errcode: 0, errmsg: 'ok' }), { status: 200 });
+    }
+    return new Response(`<html><body><a href="/notice">化妆品监管新规</a><p>${'公开监管正文。'.repeat(8)}</p></body></html>`, { status: 200 });
+  };
+
+  try {
+    const result = await runPipeline({
+      AI_API_KEY: 'test-key',
+      AI_MODEL: 'test-model',
+      DINGTALK_WEBHOOK_URL: 'https://oapi.dingtalk.com/robot/send?access_token=test',
+      SEEN_NEWS: kv,
+      CREATE_EDITORIAL_REPORT_PNG: async () => {
+        calls.push('render-image');
+        throw new Error('synthetic render failure');
+      },
+      PUBLISH_EDITORIAL_REPORT: async () => {
+        calls.push('unexpected-publish');
+        return '';
+      },
+    });
+    assert.equal(result.status, 'done');
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+  assert.deepEqual(calls, ['render-image', 'send-dingtalk', 'mark-seen']);
 }
 
 async function testPipelineNoUpdateSkipsEmptyDashboardPublication() {
@@ -380,7 +435,7 @@ async function testPipelineNoUpdateSkipsEmptyDashboardPublication() {
       delivered = true;
       const payload = JSON.parse(init.body);
       assert.ok(payload.markdown.text.includes('本期无重大合规更新'));
-      assert.equal(payload.markdown.text.includes('![行动看板]'), false);
+      assert.equal(payload.markdown.text.includes('![美妆法务资讯长图]'), false);
       return new Response(JSON.stringify({ errcode: 0, errmsg: 'ok' }), { status: 200 });
     }
     return new Response(`<html><body><a href="/notice">化妆品监管新规</a><p>${'公开监管正文。'.repeat(8)}</p></body></html>`, { status: 200 });
@@ -392,11 +447,11 @@ async function testPipelineNoUpdateSkipsEmptyDashboardPublication() {
       AI_MODEL: 'test-model',
       DINGTALK_WEBHOOK_URL: 'https://oapi.dingtalk.com/robot/send?access_token=test',
       SEEN_NEWS: kv,
-      CREATE_DECISION_MAP_PNG: async () => {
+      CREATE_EDITORIAL_REPORT_PNG: async () => {
         rendered = true;
         return new Uint8Array(2048).fill(1);
       },
-      PUBLISH_DECISION_MAP: async () => {
+      PUBLISH_EDITORIAL_REPORT: async () => {
         published = true;
         return 'https://worker.test/assets/empty-dashboard.png';
       },
@@ -414,11 +469,11 @@ async function testPipelineNoUpdateSkipsEmptyDashboardPublication() {
 async function testVersionedDecisionMapRouteUsesImmutableCache() {
   const png = new Uint8Array(2048).fill(3);
   const response = await worker.fetch(
-    new Request('https://worker.test/assets/decision-map/2026-07-14.png'),
+    new Request('https://worker.test/assets/editorial-report/2026-07-14.png'),
     {
       SEEN_NEWS: {
         async get(key, type) {
-          assert.equal(key, 'asset:decision-map:2026-07-14.png');
+          assert.equal(key, 'asset:editorial-report:2026-07-14.png');
           assert.equal(type, 'arrayBuffer');
           return png.buffer;
         },
@@ -1241,14 +1296,202 @@ function testBuildSingleDingTalkMessageContainsWholeReportInOneCard() {
   for (const hiddenMetric of ['来源覆盖：', '中国关键源：', '受限监测源：', '正式条目：']) {
     assert.equal(message.markdown.includes(hiddenMetric), false);
   }
-  assert.ok(message.markdown.includes('![行动看板](https://worker.test/assets/decision-map/2026-07-14.png)'));
-  const regulationSection = message.markdown.slice(message.markdown.indexOf('### 新规及案例动态'));
-  assert.ok(regulationSection.indexOf('中国监管事项') < regulationSection.indexOf('海外监管事项'));
-  assert.ok(message.markdown.includes('### 广告合规及处罚案例'));
-  assert.ok(message.markdown.includes('### 新规及案例动态'));
+  assert.ok(message.markdown.includes('![美妆法务资讯长图](https://worker.test/assets/decision-map/2026-07-14.png)'));
+  assert.ok(message.markdown.indexOf('中国监管事项') < message.markdown.indexOf('海外监管事项'));
+  assert.ok(message.markdown.includes('## 来源索引'));
   assert.equal(/## M[1-6]/.test(message.markdown), false);
   assert.equal(message.bytes, new TextEncoder().encode(message.markdown).length);
   assert.ok(message.bytes <= 18000);
+}
+
+function testEditorialReportPreservesLegalDepthAndStatutoryDates() {
+  const report = structuredClone(sampleReport);
+  const editorial = buildEditorialReport(report);
+  const caseItem = editorial.sections
+    .flatMap(section => section.items)
+    .find(item => item.type === '案例');
+  const regulationItem = editorial.sections
+    .flatMap(section => section.items)
+    .find(item => item.type === '法规');
+
+  assert.deepEqual(caseItem.facts, report.sections[1].items[0].facts);
+  assert.deepEqual(caseItem.legal_analysis, report.sections[1].items[0].violation_logic);
+  assert.deepEqual(caseItem.results, report.sections[1].items[0].penalty_or_result);
+  assert.deepEqual(regulationItem.facts, report.sections[0].items[0].what_changed);
+  assert.deepEqual(regulationItem.legal_analysis, report.sections[0].items[0].legal_obligation);
+  assert.equal(regulationItem.statutory_date, '2026-10-17');
+  assert.equal(regulationItem.source_url, 'https://www.pom.go.id/');
+  assert.equal(editorial.sections.length, 2);
+  assert.equal(editorial.management_conclusions.length, 2);
+  assert.notEqual(editorial.final_synthesis, editorial.management_conclusions[0]);
+  assert.ok(editorial.final_synthesis.includes('由责任领导确定'));
+  assert.equal(caseItem.practical_label, '业务启示');
+  assert.equal(regulationItem.practical_label, '影响范围');
+}
+
+function testEditorialReportOrdersChinaFirstAndDeduplicatesWithinReport() {
+  const china = structuredClone(sampleReport.sections[1].items[0]);
+  const overseas = structuredClone(sampleReport.sections[0].items[0]);
+  const duplicateChina = structuredClone(china);
+  duplicateChina.source_url = `${china.source_url}?utm_source=duplicate#section`;
+  const report = {
+    ...structuredClone(sampleReport),
+    sections: [
+      { module: '新规及案例动态', items: [overseas] },
+      { module: '广告合规及处罚案例', items: [china, duplicateChina] },
+    ],
+  };
+
+  const editorial = buildEditorialReport(report);
+  const items = editorial.sections.flatMap(section => section.items);
+  assert.equal(items.length, 2);
+  assert.equal(items[0].country, '中国');
+  assert.equal(items[0].number, 1);
+  assert.equal(items[1].country, '印尼');
+  assert.equal(items[1].number, 2);
+  assert.deepEqual(editorial.sections.map(section => section.module), [
+    '广告合规及处罚案例',
+    '新规及案例动态',
+  ]);
+}
+
+function testEditorialReportKeepsDifferentItemsFromTheSameSourceHomepage() {
+  const report = {
+    ...structuredClone(sampleReport),
+    sections: [{
+      module: '新规及案例动态',
+      items: [
+        highQualityActionItem({ title: '同一监管主页的事项甲', source_url: 'https://regulator.example.cn/' }),
+        highQualityActionItem({ title: '同一监管主页的事项乙', source_url: 'https://regulator.example.cn/' }),
+      ],
+    }],
+  };
+
+  const editorial = buildEditorialReport(curateReportQuality(report));
+  assert.equal(editorial.item_count, 2);
+}
+
+function testSingleCardUsesEditorialImageAndMatchingSourceIndex() {
+  const message = buildSingleDingTalkMessage(sampleReport, {
+    imageUrl: 'https://worker.test/assets/editorial-report/2026-05-24.png?v=abc',
+  });
+
+  assert.ok(message.markdown.includes('![美妆法务资讯长图]'));
+  assert.ok(message.markdown.includes('[查看高清原图]'));
+  assert.ok(message.markdown.includes('## 来源索引'));
+  assert.ok(message.markdown.includes('1. [上海市监局]'));
+  assert.ok(message.markdown.includes('2. [BPOM]'));
+  assert.equal(message.markdown.includes('行动看板'), false);
+  assert.equal(message.markdown.includes('重点事项'), false);
+  assert.equal(message.markdown.includes('来源覆盖：'), false);
+}
+
+function testSingleCardFallbackPreservesTypeSpecificLegalDetail() {
+  const message = buildSingleDingTalkMessage(sampleReport, { imageUrl: '' });
+
+  for (const expected of [
+    '## 资讯正文',
+    '**事实摘要**：直播间使用功效宣称吸引消费者购买',
+    '**法务研判**：监管以直播录屏、详情页文案和备案资料不一致作为认定依据',
+    '**处理结果**：责令停止相关宣传',
+    '**法定节点**：2026-10-17',
+    '**建议动作**：电商团队抽查 Top 20 SKU 直播脚本',
+  ]) {
+    assert.ok(message.markdown.includes(expected), `fallback should include ${expected}`);
+  }
+  assert.equal(message.markdown.includes('行动看板'), false);
+  assert.equal(message.displayedItemCount, 2);
+}
+
+function testSingleCardDoesNotCapUsefulWatchItemsAtThree() {
+  const report = {
+    ...structuredClone(sampleReport),
+    sections: [{
+      module: '美妆动态',
+      items: Array.from({ length: 5 }, (_, index) => highQualityWatchItem({
+        title: `值得持续观察的行业信号 ${index + 1}`,
+        source_name: `行业来源 ${index + 1}`,
+        source_url: `https://industry.example.com/watch/${index + 1}`,
+      })),
+    }],
+  };
+  const message = buildSingleDingTalkMessage(curateReportQuality(report), { maxBytes: 18000 });
+
+  for (let index = 1; index <= 5; index += 1) {
+    assert.ok(message.markdown.includes(`值得持续观察的行业信号 ${index}`));
+  }
+  assert.equal(message.displayedItemCount, 5);
+  assert.equal(message.omittedItemCount, 0);
+}
+
+function testEditorialReportHtmlIsReadableDenseAndComplete() {
+  const html = buildEditorialReportHtml(sampleReport, {
+    generatedAt: '2026-07-17T12:00:00+08:00',
+  });
+
+  for (const expected of [
+    '--page-width: 1080px',
+    'font-size: 36px',
+    '国际美妆法务资讯周报',
+    '管理层摘要',
+    '广告合规及处罚案例',
+    '新规及案例动态',
+    '01',
+    '02',
+    '事实摘要',
+    '法务研判',
+    '处理结果',
+    '业务启示',
+    '影响范围',
+    '法定节点',
+    '由责任领导确定',
+    '本期结论',
+  ]) {
+    assert.ok(html.includes(expected), `image HTML should include ${expected}`);
+  }
+  assert.ok(html.indexOf('直播功效宣称与备案资料不一致被处罚') < html.indexOf('BPOM 更新化妆品清真认证要求'));
+  for (const forbidden of ['行动看板', '来源覆盖：', '中国关键源：', '受限监测源：', '正式条目：']) {
+    assert.equal(html.includes(forbidden), false, `image HTML should omit ${forbidden}`);
+  }
+}
+
+async function testEditorialPngRendererUsesHighResolutionFullPageCapture() {
+  let contextOptions = null;
+  let screenshotOptions = null;
+  let renderedHtml = '';
+  let closed = 0;
+  const browserType = {
+    async launch() {
+      return {
+        async newContext(options) {
+          contextOptions = options;
+          return {
+            async newPage() {
+              return {
+                async setContent(html) { renderedHtml = html; },
+                async evaluate() {},
+                async screenshot(options) {
+                  screenshotOptions = options;
+                  return new Uint8Array([137, 80, 78, 71]);
+                },
+              };
+            },
+            async close() { closed += 1; },
+          };
+        },
+        async close() { closed += 1; },
+      };
+    },
+  };
+
+  const png = await renderEditorialReportPng({ report: sampleReport, browserType });
+  assert.deepEqual(contextOptions.viewport, { width: 1080, height: 1600 });
+  assert.equal(contextOptions.deviceScaleFactor, 2);
+  assert.equal(screenshotOptions.fullPage, true);
+  assert.equal(screenshotOptions.type, 'png');
+  assert.ok(renderedHtml.includes('国际美妆法务资讯周报'));
+  assert.deepEqual([...png], [137, 80, 78, 71]);
+  assert.equal(closed, 2);
 }
 
 function testBuildSingleDingTalkMessagePrefersExplicitCoreJudgement() {
@@ -1259,8 +1502,8 @@ function testBuildSingleDingTalkMessagePrefersExplicitCoreJudgement() {
 
   const message = buildSingleDingTalkMessage(report, { maxBytes: 18000 });
 
-  assert.ok(message.markdown.includes('**核心判断**：独立核心判断：该规则直接改变中国市场的产品准入决策。'));
-  assert.equal(message.markdown.includes('**核心判断**：旧变化点不应覆盖独立核心判断。'), false);
+  assert.ok(message.markdown.includes('**摘要**：独立核心判断：该规则直接改变中国市场的产品准入决策。'));
+  assert.equal(message.markdown.includes('**摘要**：旧变化点不应覆盖独立核心判断。'), false);
 }
 
 function testSingleCardUsesExecutiveBriefAndOnlyActiveModules() {
@@ -1270,14 +1513,13 @@ function testSingleCardUsesExecutiveBriefAndOnlyActiveModules() {
     maxBytes: 18000,
   });
 
-  assert.ok(message.markdown.includes('## 本周核心判断'));
-  assert.ok(message.markdown.includes('## 优先行动'));
-  assert.ok(message.markdown.includes('## 重点事项'));
-  assert.ok(message.markdown.includes('### 新规及案例动态'));
-  assert.equal(/^## 新规及案例动态$/m.test(message.markdown), false);
-  assert.ok(message.markdown.includes('## 持续观察'));
-  assert.ok(message.markdown.includes('时间**：由责任领导确定'));
-  assert.equal(message.markdown.includes('## 美妆动态'), false);
+  assert.ok(message.markdown.includes('## 管理层摘要'));
+  assert.ok(message.markdown.includes('![美妆法务资讯长图]'));
+  assert.ok(message.markdown.includes('## 来源索引'));
+  assert.ok(message.markdown.includes('中国监管要求强化化妆品功效证据'));
+  assert.ok(message.markdown.includes('https://scjgj.sh.gov.cn/'));
+  assert.equal(message.markdown.includes('## 重点事项'), false);
+  assert.equal(message.markdown.includes('行动看板'), false);
   assert.equal(/## M[1-6]/.test(message.markdown), false);
   assert.equal(message.markdown.includes('本周无高价值更新'), false);
 }
@@ -1287,7 +1529,8 @@ function testSingleCardRendersWatchItemAsCompactObservation() {
   report.sections = report.sections.filter(section => section.module === '美妆动态');
   const message = buildSingleDingTalkMessage(curateReportQuality(report));
 
-  assert.ok(message.markdown.includes('## 持续观察'));
+  assert.ok(message.markdown.includes('## 资讯正文'));
+  assert.ok(message.markdown.includes('持续观察'));
   assert.ok(message.markdown.includes('**关注价值**'));
   assert.ok(message.markdown.includes('**下一观察点**'));
   assert.equal(message.markdown.includes('建议持续关注'), false);
@@ -1308,9 +1551,9 @@ function testBuildSingleDingTalkMessageCompactsOversizedReportWithoutSplitting()
   const message = buildSingleDingTalkMessage(report, { maxBytes: 2200 });
   assert.equal(Array.isArray(message), false);
   assert.ok(message.bytes <= 2200);
-  assert.ok(message.markdown.includes('## 本周核心判断'));
-  assert.ok(message.markdown.includes('## 优先行动'));
-  assert.ok(message.markdown.includes('https://example.com/item-'));
+  assert.ok(message.markdown.includes('## 管理层摘要'));
+  assert.ok(message.markdown.includes('## 资讯正文'));
+  assert.ok(message.markdown.includes('https://'));
   assert.ok(message.markdown.includes('已省略'));
   assert.ok(message.omittedItemCount > 0);
 }
@@ -1529,8 +1772,8 @@ async function testNotifyReportPrefersDingTalkWhenConfigured() {
   assert.equal(ok.sent, 1);
   assert.equal(ok.total, 1);
   assert.ok(sentTitle.includes('美妆法务资讯'));
-  assert.ok(sentMarkdown.includes('本周核心判断'));
-  assert.ok(sentMarkdown.includes('优先行动'));
+  assert.ok(sentMarkdown.includes('管理层摘要'));
+  assert.ok(sentMarkdown.includes('资讯正文'));
   assert.equal(sentMarkdown.includes('产品质量/召回与安全风险'), false);
 }
 
@@ -2164,7 +2407,7 @@ async function testScheduledPipelineSendsFeishuWithoutHtmlReport() {
 
   assert.equal(store.has('report:latest'), false);
   assert.equal([...store.keys()].some(key => /^report:\d{4}-\d{2}-\d{2}$/.test(key)), false);
-  assert.ok(store.has('asset:decision-map:latest'));
+  assert.equal(store.has('asset:decision-map:latest'), false);
   assert.equal(feishuSent, true);
 }
 
@@ -2480,6 +2723,7 @@ await testBrowserSourceFetcherRejectsAccessControlPages();
 await testPublishVersionedPngUploadsBeforeHealthCheck();
 await testCollectCandidatesReturnsRecoveryEvidenceAndRealCoverage();
 await testPipelinePublishesHealthyImageBeforeDingTalkAndDedupe();
+await testPipelineFallsBackToFullMarkdownWhenEditorialImageFails();
 await testPipelineNoUpdateSkipsEmptyDashboardPublication();
 await testVersionedDecisionMapRouteUsesImmutableCache();
 await testFetchWithTimeoutAbortsSlowFetch();
@@ -2527,6 +2771,14 @@ testRenderDingTalkMarkdownShowsAllModulesWhenEmpty();
 testRenderDingTalkMarkdownLeavesInternalCompletionTimeToLeader();
 testRenderDingTalkSummaryCardIsConciseAndIncludesKeyword();
 testBuildSingleDingTalkMessageContainsWholeReportInOneCard();
+testEditorialReportPreservesLegalDepthAndStatutoryDates();
+testEditorialReportOrdersChinaFirstAndDeduplicatesWithinReport();
+testEditorialReportKeepsDifferentItemsFromTheSameSourceHomepage();
+testSingleCardUsesEditorialImageAndMatchingSourceIndex();
+testSingleCardFallbackPreservesTypeSpecificLegalDetail();
+testSingleCardDoesNotCapUsefulWatchItemsAtThree();
+testEditorialReportHtmlIsReadableDenseAndComplete();
+await testEditorialPngRendererUsesHighResolutionFullPageCapture();
 testBuildSingleDingTalkMessagePrefersExplicitCoreJudgement();
 testSingleCardUsesExecutiveBriefAndOnlyActiveModules();
 testSingleCardRendersWatchItemAsCompactObservation();

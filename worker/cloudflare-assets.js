@@ -39,6 +39,7 @@ export async function publishVersionedPng({
   apiToken,
   date,
   png,
+  assetName = 'decision-map',
   publicBaseUrl,
   fetcher = fetch,
   sleepFn = delay => new Promise(resolve => setTimeout(resolve, delay)),
@@ -46,11 +47,12 @@ export async function publishVersionedPng({
   minBytes = 1024,
 } = {}) {
   if (!accountId || !namespaceId || !apiToken) throw new Error('Cloudflare account, namespace, and API token are required');
-  if (!/^\d{4}-\d{2}-\d{2}$/.test(String(date || ''))) throw new Error('Dashboard date must use YYYY-MM-DD');
-  if (!(png instanceof Uint8Array) || png.byteLength < minBytes) throw new Error(`Dashboard PNG is too small: ${png?.byteLength || 0} bytes`);
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(String(date || ''))) throw new Error('Asset date must use YYYY-MM-DD');
+  if (!/^[a-z0-9-]+$/.test(String(assetName || ''))) throw new Error('Asset name must use lowercase letters, numbers, and hyphens');
+  if (!(png instanceof Uint8Array) || png.byteLength < minBytes) throw new Error(`PNG asset is too small: ${png?.byteLength || 0} bytes`);
 
   const apiBase = `https://api.cloudflare.com/client/v4/accounts/${encodeURIComponent(accountId)}/storage/kv/namespaces/${encodeURIComponent(namespaceId)}/values`;
-  for (const key of [`asset:decision-map:${date}.png`, 'asset:decision-map:latest.png']) {
+  for (const key of [`asset:${assetName}:${date}.png`, `asset:${assetName}:latest.png`]) {
     await putKvValue({
       endpoint: `${apiBase}/${encodeURIComponent(key)}`,
       apiToken,
@@ -63,7 +65,7 @@ export async function publishVersionedPng({
 
   const digest = new Uint8Array(await crypto.subtle.digest('SHA-256', png));
   const contentVersion = [...digest.slice(0, 8)].map(byte => byte.toString(16).padStart(2, '0')).join('');
-  const versionedUrl = `${String(publicBaseUrl || '').replace(/\/+$/, '')}/assets/decision-map/${date}.png?v=${contentVersion}`;
+  const versionedUrl = `${String(publicBaseUrl || '').replace(/\/+$/, '')}/assets/${assetName}/${date}.png?v=${contentVersion}`;
   const healthResponse = await fetcher(`${versionedUrl}&verify=${Date.now()}`, {
     method: 'GET',
     headers: { 'Cache-Control': 'no-cache' },
@@ -71,7 +73,7 @@ export async function publishVersionedPng({
   const contentType = String(healthResponse.headers.get('Content-Type') || '').toLowerCase();
   const body = new Uint8Array(await healthResponse.arrayBuffer());
   if (!healthResponse.ok || !contentType.startsWith('image/png') || body.byteLength < minBytes) {
-    throw new Error(`Published dashboard health check failed: HTTP ${healthResponse.status}, ${contentType || 'no content type'}, ${body.byteLength} bytes`);
+    throw new Error(`Published PNG health check failed: HTTP ${healthResponse.status}, ${contentType || 'no content type'}, ${body.byteLength} bytes`);
   }
   return versionedUrl;
 }
