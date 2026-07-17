@@ -1,9 +1,7 @@
 import { writeFile, mkdir } from 'node:fs/promises';
 import { chromium } from 'playwright';
 import { createBrowserSourceFetcher } from './browser-fetch.js';
-import { publishVersionedPng } from './cloudflare-assets.js';
 import { runPipeline } from './index.js';
-import { renderEditorialReportPng } from '../scripts/render-editorial-report-png.js';
 
 const store = new Map();
 const kv = {
@@ -56,26 +54,6 @@ env.ON_REPORT_READY = async ({ report, markdown }) => {
   await writeFile('out/latest-report.json', JSON.stringify(report, null, 2), 'utf8');
 };
 
-if (process.env.CLOUDFLARE_API_TOKEN) {
-  env.CREATE_EDITORIAL_REPORT_PNG = ({ report, generatedAt }) => renderEditorialReportPng({
-    report,
-    generatedAt,
-    browserType: chromium,
-    outputPath: 'out/editorial-report.png',
-  });
-  env.PUBLISH_EDITORIAL_REPORT = ({ date, png }) => publishVersionedPng({
-    accountId: process.env.CLOUDFLARE_ACCOUNT_ID || '34ddeeabd234776dc7c0f144257ecb7c',
-    namespaceId: process.env.CLOUDFLARE_KV_NAMESPACE_ID || '3b38ee9b31b74c4faee81ee5b92b3bdb',
-    apiToken: process.env.CLOUDFLARE_API_TOKEN,
-    date,
-    png,
-    assetName: 'editorial-report',
-    publicBaseUrl: publicWorkerBaseUrl,
-  });
-} else if (env.DINGTALK_WEBHOOK_URL) {
-  console.warn('CLOUDFLARE_API_TOKEN 未配置，本轮自动发送完整文字版。');
-}
-
 if (!env.AI_API_KEY) {
   throw new Error('AI_API_KEY is required');
 }
@@ -109,11 +87,7 @@ try {
   await browserSourceFetcher.close();
 }
 
-const editorialReportPng = store.get('asset:editorial-report:latest.png');
-
 await mkdir('out', { recursive: true });
-if (editorialReportPng) await writeFile('out/editorial-report.png', editorialReportPng);
-if (editorialReportPng) console.log('Generated out/editorial-report.png');
 console.log('Generated out/latest-report.md');
 console.log('Generated out/latest-report.json');
 if (result.delivery) {
