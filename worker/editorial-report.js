@@ -91,7 +91,8 @@ function displayModule(item) {
   if (type === 'IP' || module === '知识产权动态') return '知识产权保护与侵权';
   if (type === '进出口' || module === '进出口动态') return '进出口';
   if (module === '广告合规及处罚案例' && (type === '案例' || /处罚|罚款|责令|没收|违法/.test(evidence))) return '广告处罚案例';
-  if (['法规', '征求意见', '生效提醒', '废止', '平台规则'].includes(type) || module === '新规及案例动态' || module === '广告合规及处罚案例') return '新法律法规政策';
+  if (['法规', '征求意见', '生效提醒', '废止', '平台规则'].includes(type)) return '新法律法规政策';
+  if ((module === '新规及案例动态' || module === '广告合规及处罚案例') && type !== '案例' && type !== '召回') return '新法律法规政策';
   return '行业新闻简讯';
 }
 

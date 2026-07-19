@@ -1435,10 +1435,20 @@ function testAdvertisingRulesRouteToLawSectionInsteadOfPenaltySection() {
   assert.equal(editorial.sections.some(section => section.module === '广告处罚案例'), false);
 }
 
+function testOrdinaryBeautyCaseInMixedModuleRoutesToNewsBrief() {
+  const report = objectiveBriefFixture();
+  report.sections = [{ module: '新规及案例动态', items: [{ ...report.sections[1].items[0], module: '新规及案例动态', type: '案例', title: '化妆品消费者合同纠纷判决公开', fact_summary: ['法院公开一宗化妆品消费者合同纠纷判决。'], source_url: 'https://court.example.gov.cn/beauty/case-1' }] }];
+  const editorial = buildEditorialReport(curateReportQuality(report));
+  assert.equal(editorial.sections[0].module, '行业新闻简讯');
+}
+
 function testPipelineRequiresFullTextByDefaultAndUsesSplitPreview() {
   const source = readFileSync(new URL('./index.js', import.meta.url), 'utf8');
   assert.ok(source.includes("hydrateDetails: env.DETAIL_FETCH_ENABLED !== '0'"));
   assert.ok(source.includes("const requireFullText = env.DETAIL_FETCH_ENABLED !== '0'"));
+  assert.ok(source.includes(".filter(candidate => candidate.detail_status === 'hydrated')"));
+  assert.equal(source.includes("hydrateDetails: env.DETAIL_FETCH_ENABLED === '1'"), false);
+  assert.equal(source.includes('.slice(0, linkLimit)'), false);
   assert.ok(source.includes('const previewMessages = buildDingTalkWebhookMessages'));
   assert.equal(source.includes('const markdown = buildSingleDingTalkMessage(report).markdown'), false);
 }
@@ -2062,7 +2072,7 @@ function testBuildAnalysisPromptUsesConfigurableInputLimits() {
   assert.ok(prompt.includes('候选0'));
   assert.ok(prompt.includes('候选1'));
   assert.ok(prompt.includes('有效正文'));
-  assert.equal(prompt.includes('截断后内容不应进入模型'), false);
+  assert.ok(prompt.includes('截断后内容不应进入模型'));
   assert.ok(prompt.includes('候选2'));
   assert.ok(prompt.includes('线索0'));
   assert.ok(prompt.includes('线索2'));
@@ -2986,6 +2996,7 @@ await testModuleMergeDoesNotCapAcceptedItemsAtThree();
 testObjectiveBriefDoesNotRecycleCoreJudgementAsFact();
 testObjectiveBriefRejectsGenericIngredientContent();
 testAdvertisingRulesRouteToLawSectionInsteadOfPenaltySection();
+testOrdinaryBeautyCaseInMixedModuleRoutesToNewsBrief();
 testPipelineRequiresFullTextByDefaultAndUsesSplitPreview();
 testEditorialReportOrdersChinaFirstAndDeduplicatesWithinReport();
 testEditorialReportKeepsDifferentItemsFromTheSameSourceHomepage();

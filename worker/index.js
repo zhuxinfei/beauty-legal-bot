@@ -1123,9 +1123,7 @@ export async function runPipeline(env, requestUrl = 'https://beauty-legal-bot.wo
       sleepFn: env.SOURCE_RETRY_SLEEP,
       jitter: env.SOURCE_RETRY_JITTER,
       hydrateDetails: env.DETAIL_FETCH_ENABLED !== '0',
-      detailLimit: qualityMode
-        ? Math.max(Number(env.DETAIL_CANDIDATE_LIMIT || DETAIL_CANDIDATE_LIMIT), 160)
-        : Number(env.DETAIL_CANDIDATE_LIMIT || DETAIL_CANDIDATE_LIMIT),
+      detailLimit: Number.MAX_SAFE_INTEGER,
       detailTimeoutMs: Number(env.DETAIL_FETCH_TIMEOUT_MS || DETAIL_FETCH_TIMEOUT_MS),
       detailConcurrency: Number(env.DETAIL_FETCH_CONCURRENCY || DETAIL_FETCH_CONCURRENCY),
       detailBrowserRecoveryLimit: Number(env.DETAIL_BROWSER_RECOVERY_LIMIT || DETAIL_BROWSER_RECOVERY_LIMIT),
@@ -1285,7 +1283,7 @@ export function extractArticleText(html) {
   const content = (mainMatch?.[1] || raw)
     .replace(/<(?:script|style|noscript|svg|nav|header|footer|aside|form)\b[\s\S]*?<\/(?:script|style|noscript|svg|nav|header|footer|aside|form)>/gi, ' ')
     .replace(/<!--([\s\S]*?)-->/g, ' ');
-  const text = htmlToText(content).slice(0, 12000);
+  const text = htmlToText(content).slice(0, 30000);
   return {
     title,
     text,
@@ -1300,20 +1298,17 @@ function selectDetailCandidates(candidates, limit = DETAIL_CANDIDATE_LIMIT) {
     .sort((a, b) => Number(b.country === '中国') - Number(a.country === '中国'));
   const selected = [];
   const selectedUrls = new Set();
-  const sourceCounts = new Map();
   const take = candidate => {
-    if (!candidate || selected.length >= limit) return;
+    if (!candidate) return;
     const url = normalizeSourceUrl(candidate.url);
-    const source = candidate.source_name || new URL(candidate.url).hostname;
-    if (!url || selectedUrls.has(url) || (sourceCounts.get(source) || 0) >= 6) return;
+    if (!url || selectedUrls.has(url)) return;
     selected.push(candidate);
     selectedUrls.add(url);
-    sourceCounts.set(source, (sourceCounts.get(source) || 0) + 1);
   };
   for (let round = 0; round < 6; round += 1) {
     for (const module of REPORT_MODULES) {
       const available = ranked.filter(candidate => candidate.module === module && !selectedUrls.has(normalizeSourceUrl(candidate.url)));
-      take(available.find(candidate => (sourceCounts.get(candidate.source_name || new URL(candidate.url).hostname) || 0) < 6));
+      take(available[0]);
     }
   }
   for (const candidate of ranked) take(candidate);
@@ -1789,7 +1784,7 @@ JSON 结构：
 信息源统计：${JSON.stringify(getSourceStats(sources))}
 候选信息 candidates（已按7天新鲜度、国家/大洲、来源权威性和行业影响力预排序）：${JSON.stringify(sortCandidatesForAnalysis(candidates).map(candidate => ({
   ...candidate,
-  snippet: String(candidate.snippet || '').slice(0, 2800),
+  snippet: String(candidate.snippet || ''),
 })))}
 线索 leads（仅用于发现选题，不得直接输出为正式条目）：${JSON.stringify(leads)}`;
 }
@@ -1810,7 +1805,7 @@ function buildReviewEvidence(report, candidates = []) {
       source_name: item.source_name,
       source_url: item.source_url,
       evidence_title: candidate?.title || '',
-      evidence_snippet: String(candidate?.snippet || '').slice(0, 2000),
+      evidence_snippet: String(candidate?.snippet || ''),
     };
   }));
 }
@@ -1946,7 +1941,7 @@ function buildRescueAnalysisPrompt(evidence, period) {
     published_at: candidate.published_at,
     authority_type: candidate.authority_type,
     source_type: candidate.source_type,
-    snippet: String(candidate.snippet || '').slice(0, 1600),
+    snippet: String(candidate.snippet || ''),
   }));
   return `你是美妆行业客观资讯编辑。常规提取不足，请从已抓取全文证据中识别与美妆行业有实质关系的客观资讯，数量不设业务上限。
 
@@ -2587,9 +2582,8 @@ async function requestSourceHtml(source, url, fetcher, timeoutMs) {
 }
 
 function extractSourceCandidatesFromHtml(source, html, finalUrl = source.url) {
-  const linkLimit = ['美妆动态', '进出口动态'].includes(source.module) ? 14 : 8;
   const snippetLimit = ['美妆动态', '进出口动态'].includes(source.module) ? 1500 : 800;
-  const links = extractLinks(html, finalUrl).filter(link => isRelevantTitle(link.title)).slice(0, linkLimit);
+  const links = extractLinks(html, finalUrl).filter(link => isRelevantTitle(link.title));
   const imageUrl = extractImageUrl(html, finalUrl);
   const pageText = htmlToText(html).slice(0, snippetLimit);
   const linkCandidates = links.map(link => makeCandidate(source, { ...link, snippet: pageText, image_url: imageUrl }));
@@ -2742,8 +2736,8 @@ async function runCollectPhase(sources, batchId, date, env) {
     timeoutMs: Number(env.SOURCE_FETCH_TIMEOUT_MS || SOURCE_FETCH_TIMEOUT_MS),
     sleepFn: env.SOURCE_RETRY_SLEEP,
     jitter: env.SOURCE_RETRY_JITTER,
-    hydrateDetails: env.DETAIL_FETCH_ENABLED === '1',
-    detailLimit: Number(env.DETAIL_CANDIDATE_LIMIT || DETAIL_CANDIDATE_LIMIT),
+    hydrateDetails: env.DETAIL_FETCH_ENABLED !== '0',
+    detailLimit: Number.MAX_SAFE_INTEGER,
     detailTimeoutMs: Number(env.DETAIL_FETCH_TIMEOUT_MS || DETAIL_FETCH_TIMEOUT_MS),
     detailConcurrency: Number(env.DETAIL_FETCH_CONCURRENCY || DETAIL_FETCH_CONCURRENCY),
     detailBrowserRecoveryLimit: Number(env.DETAIL_BROWSER_RECOVERY_LIMIT || DETAIL_BROWSER_RECOVERY_LIMIT),
@@ -2785,8 +2779,10 @@ async function runAnalysisPhase(date, env, additionalCandidates = []) {
   const baseUrl = env.AI_API_BASE_URL || DEFAULT_AI_API_BASE_URL;
   const qualityOptions = pipelineQualityOptions(env);
   const period = getPeriod();
+  const candidates = filterCandidatesByFreshness(allCandidates, period)
+    .filter(candidate => candidate.detail_status === 'hydrated');
   const analysis = await analyzeReportWithRecovery({
-    candidates: allCandidates,
+    candidates,
     leads: allLeads,
     sources: sourceCatalog.sources,
     period,
@@ -2796,7 +2792,7 @@ async function runAnalysisPhase(date, env, additionalCandidates = []) {
       apiKey: aiKey,
       baseUrl,
       model,
-      candidates: allCandidates,
+      candidates,
       leads: allLeads,
       sources: sourceCatalog.sources,
       period,
@@ -2808,7 +2804,7 @@ async function runAnalysisPhase(date, env, additionalCandidates = []) {
       apiKey: aiKey,
       baseUrl,
       model,
-      candidates: allCandidates,
+      candidates,
       leads: allLeads,
       period,
     }),
@@ -2817,7 +2813,7 @@ async function runAnalysisPhase(date, env, additionalCandidates = []) {
 
   await kv.put(`pipeline:${date}:rawReport`, JSON.stringify(rawReport));
   await kv.put(`pipeline:${date}:candidates`, JSON.stringify({
-    candidates: allCandidates,
+    candidates,
     leads: allLeads,
     failures: allFailures,
     sourceResults: allSourceResults,
