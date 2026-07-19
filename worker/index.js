@@ -1777,6 +1777,8 @@ export function buildAnalysisPrompt({ candidates, leads = [], sources, period, t
 - 每条只生成 fact_summary 和 next_observation 两类正文信息。
 - fact_summary 输出 1-2 条客观事实，优先保留主体、事项、日期、金额、数量、规则变化和处理结果，合计通常 30-100 字。
 - next_observation 只输出一个可观察的后续事实节点，例如正式稿、生效日期、反馈截止、处罚后续、判决、复议诉讼、召回进展或执行口径。
+- 所有可见的标题、事实摘要、下一步观察和来源名使用简体中文；英文品牌名、机构缩写、法规编号和产品名可在中文后保留原文。
+- display_title_zh 和 source_name_zh 是面向用户的中文显示文本；程序会保留原文 URL 作为证据，不要翻译 URL。
 - core_judgement、why_it_matters、risk_level、business_impact、recommended_actions、owner_teams 等旧分析字段必须为空。
 - 法规原文明确的生效日、反馈截止日和法定整改节点应保留在 effective_date、feedback_deadline、next_deadline。
 - 禁止“建议关注”“持续关注”“企业应留意”等空泛动作。
@@ -1797,6 +1799,8 @@ JSON 结构：
       "module": "广告合规及处罚案例|美妆动态|知识产权动态|新规及案例动态|进出口动态|产品质量/召回与安全风险",
     "items": [{
       "candidate_index": 0,
+      "display_title_zh": "中文显示标题（英文专有名词可保留）",
+      "source_name_zh": "中文来源名",
       "type": "法规|征求意见|生效提醒|废止|案例|召回|动态|IP|进出口|平台规则",
       "module": "模块名称",
       "region": "亚洲|欧洲|北美洲|南美洲|大洋洲|全球",
@@ -1942,8 +1946,8 @@ function materializeCandidateBackedReport(report, candidates, targetModule) {
       ...item,
       candidate_index: index,
       module: targetModule,
-      title: candidate.title,
-      source_name: candidate.source_name || candidate.name,
+      title: String(item.display_title_zh || '').trim() || candidate.title,
+      source_name: String(item.source_name_zh || '').trim() || candidate.source_name || candidate.name,
       source_url: candidate.url || candidate.source_url,
       source_type: signalSourceType(candidate),
       country: candidate.country,
@@ -2045,6 +2049,7 @@ function buildRescueAnalysisPrompt(evidence, period) {
 - 只能引用 candidate_index，不得输出或编造 URL、来源名称、国家和发布日期。
 - 必须依据 snippet 正文判断相关性，不能只看标题。
 - fact_summary 只提取 1-2 条原文事实；next_observation 只写一个可观察的后续节点。
+- 所有输出的自然语言使用简体中文；专有名词可用“中文译名（Original Name）”。
 - 不得输出核心判断、风险、业务影响、行动建议、责任团队或内部完成时间。
 - 必须在 reviewed_candidates 对每个 candidate_index 恰好返回一次 include 或 exclude，不得默认遗漏。
 - decision=include 必须恰好对应一条 item；decision=exclude 不得输出 item，且 reason 必须说明正文事实不符合哪条准入规则。
@@ -2053,6 +2058,8 @@ function buildRescueAnalysisPrompt(evidence, period) {
 JSON 结构：
 {"reviewed_candidates":[{"candidate_index":0,"decision":"include|exclude","reason":"基于正文的具体理由"}],"items":[{
   "candidate_index":0,
+  "title_zh":"中文显示标题",
+  "source_name_zh":"中文来源名",
   "report_tier":"action|watch",
   "fact_summary":["客观事实1","客观事实2（可省略）"],
   "next_observation":["一个客观后续节点"],
@@ -2077,8 +2084,8 @@ function rescueItemFromSelection(selection, candidate) {
     module,
     region: candidate.region || '全球',
     country: candidate.country || '全球',
-    title: candidate.title || `${candidate.source_name || candidate.name || '公开来源'}监管动态`,
-    source_name: candidate.source_name || candidate.name || '公开来源',
+    title: String(selection.title_zh || '').trim() || candidate.title || `${candidate.source_name || candidate.name || '公开来源'}监管动态`,
+    source_name: String(selection.source_name_zh || '').trim() || candidate.source_name || candidate.name || '公开来源',
     source_url: candidate.url || candidate.source_url,
     source_type: official ? 'regulator' : sourceType,
     published_at: candidate.published_at || '未知',

@@ -2432,6 +2432,9 @@ function testBuildAnalysisPromptUsesModuleTarget() {
   assert.ok(prompt.includes('具体原文 URL'));
   assert.ok(prompt.includes('candidate_index'));
   assert.ok(prompt.includes('reviewed_candidates'));
+  assert.ok(prompt.includes('display_title_zh'));
+  assert.ok(prompt.includes('source_name_zh'));
+  assert.ok(prompt.includes('所有可见的标题'));
 }
 
 async function testModuleAnalysisRequiresARecordedDecisionForEveryCandidate() {
@@ -2443,6 +2446,8 @@ async function testModuleAnalysisRequiresARecordedDecisionForEveryCandidate() {
   const includedItem = {
     ...objectiveBriefFixture().sections[0].items[0],
     candidate_index: 0,
+    display_title_zh: '化妆品标签监管新规',
+    source_name_zh: '中国监管机构',
     title: '被 AI 改写的标题',
     source_name: '被 AI 改写的来源',
     source_url: 'https://fabricated.example.com/not-original',
@@ -2480,8 +2485,8 @@ async function testModuleAnalysisRequiresARecordedDecisionForEveryCandidate() {
 
   assert.equal(calls, 2);
   const item = result.sections[0].items[0];
-  assert.equal(item.title, candidates[0].title);
-  assert.equal(item.source_name, candidates[0].source_name);
+  assert.equal(item.title, '化妆品标签监管新规');
+  assert.equal(item.source_name, '中国监管机构');
   assert.equal(item.source_url, candidates[0].url);
   assert.equal(item.published_at, '未知');
   assert.equal(item.updated_at, '未知');
