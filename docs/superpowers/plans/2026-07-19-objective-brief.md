@@ -50,6 +50,6 @@
 - [x] Run focused red/green tests for the new structure.
 - [x] Run the complete `node worker/test-runner.js` suite.
 - [x] Inspect generated Markdown for duplicates, unsupported claims and concrete original links.
-- [ ] Push the test branch without changing the formal webhook.
-- [ ] Trigger one test webhook run and verify collection, full-text audit, acceptance counts, content structure and DingTalk delivery.
+- [x] Push the test branch without changing the formal webhook.
+- [x] Trigger one test webhook run and verify collection, full-text audit, acceptance counts, content structure and DingTalk delivery.
 - [ ] Wait for user approval before any formal webhook restoration or delivery.
