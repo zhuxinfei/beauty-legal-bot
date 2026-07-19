@@ -2727,8 +2727,8 @@ function testWeeklyWorkflowDeploysRoutesBeforeVersionedAssetPipeline() {
   const workflow = readFileSync(new URL('../.github/workflows/weekly.yml', import.meta.url), 'utf8');
   assert.ok(workflow.includes('node worker/run-local.js'));
   assert.equal(workflow.includes('node run-local.js'), false);
-  assert.ok(workflow.includes("cron: '17 0 * * 1'"));
-  assert.equal(workflow.includes("cron: '0 0 * * 1'"), false);
+  assert.ok(workflow.includes("cron: '52 23 * * 0'"));
+  assert.equal(workflow.includes("cron: '17 0 * * 1'"), false);
   assert.ok(workflow.includes('npx wrangler deploy'));
   assert.ok(workflow.indexOf('npx wrangler deploy') < workflow.indexOf('node worker/run-local.js'));
   assert.ok(workflow.includes('vars.AI_API_BASE_URL'));
