@@ -63,6 +63,7 @@ const DETAIL_FETCH_CONCURRENCY = 8;
 const DETAIL_CANDIDATE_LIMIT = 48;
 const DETAIL_FETCH_TIMEOUT_MS = 12000;
 const DETAIL_BROWSER_RECOVERY_LIMIT = 18;
+const MAX_COMPLETE_ARTICLE_CHARS = 120000;
 const WORKER_FETCH_SOURCE_BUDGET = 15;
 const AI_REQUEST_TIMEOUT_MS = 120000;
 const AI_REQUEST_MAX_ATTEMPTS = 2;
@@ -1161,6 +1162,7 @@ export async function runPipeline(env, requestUrl = 'https://beauty-legal-bot.wo
         candidateLimit,
         leadLimit,
         maxTokens,
+        requireCandidateCoverage: requireFullText,
       }),
       analyzeRescue: ({ report: existingReport } = {}) => deepseekRescueAnalyze({
         apiKey: aiKey,
@@ -1170,6 +1172,7 @@ export async function runPipeline(env, requestUrl = 'https://beauty-legal-bot.wo
         leads,
         period,
         existingReport,
+        requireCandidateCoverage: requireFullText,
       }),
     });
     const report = analysis.report;
@@ -1283,12 +1286,34 @@ export function extractArticleText(html) {
   const content = (mainMatch?.[1] || raw)
     .replace(/<(?:script|style|noscript|svg|nav|header|footer|aside|form)\b[\s\S]*?<\/(?:script|style|noscript|svg|nav|header|footer|aside|form)>/gi, ' ')
     .replace(/<!--([\s\S]*?)-->/g, ' ');
-  const text = htmlToText(content).slice(0, 30000);
+  const text = htmlToText(content);
   return {
     title,
     text,
     published_at: extractPublishedDate(title, text),
+    has_article_container: Boolean(mainMatch),
+    paragraph_count: (content.match(/<p\b/gi) || []).length,
   };
+}
+
+function supportedArticleContentType(value = '') {
+  const contentType = String(value || '').toLowerCase();
+  return !contentType
+    || contentType.includes('text/html')
+    || contentType.includes('application/xhtml+xml')
+    || contentType.includes('text/plain');
+}
+
+function articleEvidenceFailure(article = {}, contentType = '') {
+  if (!supportedArticleContentType(contentType)) return 'unsupported-content-type';
+  const shellText = `${String(article.title || '')} ${String(article.text || '').slice(0, 600)}`;
+  if (/(?:sign\s*in|log\s*in|login required|access denied|forbidden|captcha|enable javascript|javascript required|pdf\.js|document viewer|not found|404|页面不存在|登录|验证码|访问被拒绝|未找到|错误页面)/i.test(shellText)) {
+    return 'access-or-error-page';
+  }
+  if (String(article.text || '').length < 240) return 'insufficient-text';
+  if (String(article.text || '').length > MAX_COMPLETE_ARTICLE_CHARS) return 'article-too-long';
+  if (!article.has_article_container && Number(article.paragraph_count || 0) < 2) return 'page-shell';
+  return '';
 }
 
 function selectDetailCandidates(candidates, limit = DETAIL_CANDIDATE_LIMIT) {
@@ -1325,7 +1350,7 @@ export async function hydrateCandidateDetails(candidates = [], {
 } = {}) {
   const selected = selectDetailCandidates(candidates, Math.max(0, Number(detailLimit) || DETAIL_CANDIDATE_LIMIT));
   const replacements = new Map();
-  const audit = { selected: selected.length, hydrated: 0, browserRecovered: 0, failed: 0 };
+  const audit = { selected: selected.length, hydrated: 0, browserRecovered: 0, failed: 0, reasons: {} };
 
   await mapWithConcurrency(selected, concurrency, async (candidate, index) => {
     let result = null;
@@ -1334,25 +1359,33 @@ export async function hydrateCandidateDetails(candidates = [], {
         headers: SOURCE_REQUEST_HEADERS,
         redirect: 'follow',
       }, timeoutMs, fetcher);
-      if (response.ok) result = { ok: true, html: await response.text(), finalUrl: response.url || candidate.url };
+      if (response.ok) result = {
+        ok: true,
+        html: await response.text(),
+        finalUrl: response.url || candidate.url,
+        contentType: response.headers?.get?.('content-type') || '',
+      };
     } catch {}
 
     let article = result?.ok ? extractArticleText(result.html) : { text: '' };
-    if (article.text.length < 240 && typeof browserFetcher === 'function' && index < browserRecoveryLimit) {
+    let detailFailure = articleEvidenceFailure(article, result?.contentType);
+    if (detailFailure && detailFailure !== 'unsupported-content-type' && typeof browserFetcher === 'function' && index < browserRecoveryLimit) {
       try {
         const recovered = await browserFetcher(candidate.url, { timeoutMs: Math.max(timeoutMs, 20000) });
         if (recovered?.ok) {
           result = recovered;
           article = extractArticleText(recovered.html);
-          if (article.text.length >= 240) audit.browserRecovered += 1;
+          detailFailure = articleEvidenceFailure(article, recovered.contentType);
+          if (!detailFailure) audit.browserRecovered += 1;
         }
       } catch {}
     }
 
     const key = normalizeSourceUrl(candidate.url);
-    if (article.text.length < 240) {
+    if (detailFailure) {
       audit.failed += 1;
-      replacements.set(key, { ...candidate, detail_status: 'failed' });
+      audit.reasons[detailFailure] = (audit.reasons[detailFailure] || 0) + 1;
+      replacements.set(key, { ...candidate, detail_status: 'failed', detail_reason: detailFailure });
       return;
     }
     audit.hydrated += 1;
@@ -1364,6 +1397,7 @@ export async function hydrateCandidateDetails(candidates = [], {
       published_at: article.published_at || candidate.published_at,
       image_url: extractImageUrl(result?.html || '', result?.finalUrl || candidate.url) || candidate.image_url || '',
       detail_status: 'hydrated',
+      detail_reason: 'complete-article-body',
     });
   });
 
@@ -1747,15 +1781,22 @@ export function buildAnalysisPrompt({ candidates, leads = [], sources, period, t
 - 法规原文明确的生效日、反馈截止日和法定整改节点应保留在 effective_date、feedback_deadline、next_deadline。
 - 禁止“建议关注”“持续关注”“企业应留意”等空泛动作。
 ${moduleInstruction}
+候选覆盖规则：
+- candidates 中每条都有 candidate_index。必须在 reviewed_candidates 中对每个 candidate_index 恰好返回一次 include 或 exclude 决定，不得遗漏。
+- decision=include 的候选必须在 items 中恰好输出一条，并保留同一 candidate_index；decision=exclude 的候选不得输出 item。
+- exclude reason 必须基于正文，例如“正文未涉及美妆”“日期超期且无例外”“仅为导航或重复事件”，不能只写“不重要”。
+- 程序会根据 candidate_index 锁定原标题、来源、国家、日期和原文 URL，不得编造或替换。
 
 JSON 结构：
 {
   "period": { "start": "${period.start}", "end": "${period.end}" },
   "summary": [],
   "risk_alerts": [],
+  "reviewed_candidates": [{ "candidate_index": 0, "decision": "include|exclude", "reason": "基于正文的具体理由" }],
   "sections": [{
       "module": "广告合规及处罚案例|美妆动态|知识产权动态|新规及案例动态|进出口动态|产品质量/召回与安全风险",
     "items": [{
+      "candidate_index": 0,
       "type": "法规|征求意见|生效提醒|废止|案例|召回|动态|IP|进出口|平台规则",
       "module": "模块名称",
       "region": "亚洲|欧洲|北美洲|南美洲|大洋洲|全球",
@@ -1783,7 +1824,7 @@ JSON 结构：
 }
 
 信息源统计：${JSON.stringify(getSourceStats(sources))}
-候选信息 candidates（已按7天新鲜度、国家/大洲、来源权威性和行业影响力预排序）：${JSON.stringify(sortCandidatesForAnalysis(candidates).map(candidate => ({
+候选信息 candidates（已按7天新鲜度、国家/大洲、来源权威性和行业影响力预排序）：${JSON.stringify(sortCandidatesForAnalysis(candidates.map((candidate, candidateIndex) => ({ ...candidate, candidate_index: candidateIndex }))).map(candidate => ({
   ...candidate,
   snippet: String(candidate.snippet || ''),
 })))}
@@ -1869,7 +1910,55 @@ export async function reviewAnalysisReport({ apiKey, baseUrl, model, report, can
   }
 }
 
-export async function deepseekAnalyze({ apiKey, baseUrl, model, candidates, leads = [], sources = sourceCatalog.sources, period = getPeriod(), targetModule = '', candidateLimit = DEFAULT_ANALYSIS_CANDIDATE_LIMIT, leadLimit = DEFAULT_ANALYSIS_LEAD_LIMIT, maxTokens = DEFAULT_AI_MAX_TOKENS, fetcher = fetch, logger = console, review = true }) {
+function materializeCandidateBackedReport(report, candidates, targetModule) {
+  const reviewed = Array.isArray(report.reviewed_candidates) ? report.reviewed_candidates : [];
+  const decisions = new Map();
+  for (const entry of reviewed) {
+    const index = Number(entry?.candidate_index);
+    if (!Number.isInteger(index) || index < 0 || index >= candidates.length || decisions.has(index)) {
+      throw new Error(`invalid or duplicate reviewed candidate_index: ${entry?.candidate_index}`);
+    }
+    if (!['include', 'exclude'].includes(entry.decision) || !String(entry.reason || '').trim()) {
+      throw new Error(`invalid candidate decision: ${index}`);
+    }
+    decisions.set(index, entry.decision);
+  }
+  if (decisions.size !== candidates.length) {
+    const missing = candidates.map((_, index) => index).filter(index => !decisions.has(index));
+    throw new Error(`candidate review incomplete; missing indexes: ${missing.join(',')}`);
+  }
+
+  const rawItems = (report.sections || []).flatMap(section => section.items || []);
+  const itemIndexes = new Set();
+  const items = rawItems.map(item => {
+    const index = Number(item.candidate_index);
+    if (!Number.isInteger(index) || index < 0 || index >= candidates.length || itemIndexes.has(index)) {
+      throw new Error(`invalid or duplicate included candidate_index: ${item.candidate_index}`);
+    }
+    if (decisions.get(index) !== 'include') throw new Error(`excluded candidate emitted as item: ${index}`);
+    itemIndexes.add(index);
+    const candidate = candidates[index];
+    return {
+      ...item,
+      candidate_index: index,
+      module: targetModule,
+      title: candidate.title,
+      source_name: candidate.source_name || candidate.name,
+      source_url: candidate.url || candidate.source_url,
+      source_type: signalSourceType(candidate),
+      country: candidate.country,
+      region: candidate.region,
+      published_at: candidate.published_at || '未知',
+      updated_at: candidate.updated_at || '未知',
+    };
+  });
+  for (const [index, decision] of decisions) {
+    if (decision === 'include' && !itemIndexes.has(index)) throw new Error(`included candidate missing item: ${index}`);
+  }
+  return { ...report, sections: [{ module: targetModule, items }] };
+}
+
+export async function deepseekAnalyze({ apiKey, baseUrl, model, candidates, leads = [], sources = sourceCatalog.sources, period = getPeriod(), targetModule = '', candidateLimit = DEFAULT_ANALYSIS_CANDIDATE_LIMIT, leadLimit = DEFAULT_ANALYSIS_LEAD_LIMIT, maxTokens = DEFAULT_AI_MAX_TOKENS, fetcher = fetch, logger = console, review = true, requireCandidateCoverage = false }) {
   const messages = [
     { role: 'system', content: '你只输出合法 JSON。不要输出解释、Markdown 或代码块。' },
     { role: 'user', content: buildAnalysisPrompt({ candidates, leads, sources, period, targetModule, candidateLimit, leadLimit }) },
@@ -1879,7 +1968,11 @@ export async function deepseekAnalyze({ apiKey, baseUrl, model, candidates, lead
   for (let attempt = 0; attempt < 2; attempt++) {
     const content = await requestAiChat({ apiKey, baseUrl, model, messages, temperature: 0.2, maxTokens, fetcher });
     try {
-      const report = filterReportQuality(parseAnalysisJson(content));
+      const parsed = parseAnalysisJson(content);
+      const candidateBacked = targetModule && requireCandidateCoverage
+        ? materializeCandidateBackedReport(parsed, candidates, targetModule)
+        : parsed;
+      const report = filterReportQuality(candidateBacked);
       validateReport(report);
       draft = report;
       break;
@@ -1899,7 +1992,7 @@ export function selectRescueEvidenceCandidates(candidates = [], leads = [], exis
     .flatMap(section => section.items || [])
     .map(item => normalizeSourceUrl(item.source_url))
     .filter(Boolean));
-  const combined = [...candidates, ...leads]
+  const combined = [...candidates]
     .filter(candidate => /^https?:\/\//i.test(String(candidate.url || candidate.source_url || '')))
     .filter(candidate => !usedUrls.has(normalizeSourceUrl(candidate.url || candidate.source_url)));
   const ranked = sortCandidatesForAnalysis(combined)
@@ -1953,10 +2046,12 @@ function buildRescueAnalysisPrompt(evidence, period) {
 - 必须依据 snippet 正文判断相关性，不能只看标题。
 - fact_summary 只提取 1-2 条原文事实；next_observation 只写一个可观察的后续节点。
 - 不得输出核心判断、风险、业务影响、行动建议、责任团队或内部完成时间。
-- 只输出合法 JSON；确实没有重要事项时输出 {"items":[]}。
+- 必须在 reviewed_candidates 对每个 candidate_index 恰好返回一次 include 或 exclude，不得默认遗漏。
+- decision=include 必须恰好对应一条 item；decision=exclude 不得输出 item，且 reason 必须说明正文事实不符合哪条准入规则。
+- 只输出合法 JSON；确实没有重要事项时仍需输出全部 exclude 决定。
 
 JSON 结构：
-{"items":[{
+{"reviewed_candidates":[{"candidate_index":0,"decision":"include|exclude","reason":"基于正文的具体理由"}],"items":[{
   "candidate_index":0,
   "report_tier":"action|watch",
   "fact_summary":["客观事实1","客观事实2（可省略）"],
@@ -1996,6 +2091,38 @@ function rescueItemFromSelection(selection, candidate) {
   };
 }
 
+function validateRescueCandidateCoverage(parsed, evidence) {
+  const reviewed = Array.isArray(parsed.reviewed_candidates) ? parsed.reviewed_candidates : [];
+  const decisions = new Map();
+  for (const entry of reviewed) {
+    const index = Number(entry?.candidate_index);
+    if (!Number.isInteger(index) || index < 0 || index >= evidence.length || decisions.has(index)) {
+      throw new Error(`rescue review invalid candidate_index: ${entry?.candidate_index}`);
+    }
+    if (!['include', 'exclude'].includes(entry.decision) || !String(entry.reason || '').trim()) {
+      throw new Error(`rescue review invalid decision: ${index}`);
+    }
+    decisions.set(index, entry.decision);
+  }
+  if (decisions.size !== evidence.length) {
+    const missing = evidence.map((_, index) => index).filter(index => !decisions.has(index));
+    throw new Error(`rescue review incomplete; missing indexes: ${missing.join(',')}`);
+  }
+  const itemIndexes = new Set();
+  for (const selection of Array.isArray(parsed.items) ? parsed.items : []) {
+    const index = Number(selection?.candidate_index);
+    if (!Number.isInteger(index) || index < 0 || index >= evidence.length || itemIndexes.has(index)) {
+      throw new Error(`rescue item invalid candidate_index: ${selection?.candidate_index}`);
+    }
+    if (decisions.get(index) !== 'include') throw new Error(`rescue excluded candidate emitted as item: ${index}`);
+    itemIndexes.add(index);
+  }
+  for (const [index, decision] of decisions) {
+    if (decision === 'include' && !itemIndexes.has(index)) throw new Error(`rescue included candidate missing item: ${index}`);
+  }
+  return parsed;
+}
+
 export async function deepseekRescueAnalyze({
   apiKey,
   baseUrl,
@@ -2005,24 +2132,37 @@ export async function deepseekRescueAnalyze({
   period = getPeriod(),
   existingReport = null,
   fetcher = fetch,
+  requireCandidateCoverage = true,
 }) {
   const evidence = selectRescueEvidenceCandidates(candidates, leads, existingReport);
   if (!evidence.length) {
     return { period, summary: [], risk_alerts: [], sections: REPORT_MODULES.map(module => ({ module, items: [] })) };
   }
-  const content = await requestAiChat({
-    apiKey,
-    baseUrl,
-    model,
-    messages: [
-      { role: 'system', content: '你只输出合法 JSON，不输出 Markdown、代码块或解释。' },
-      { role: 'user', content: buildRescueAnalysisPrompt(evidence, period) },
-    ],
-    temperature: 0.1,
-    maxTokens: 3500,
-    fetcher,
-  });
-  const parsed = parseAnalysisJson(content);
+  const messages = [
+    { role: 'system', content: '你只输出合法 JSON，不输出 Markdown、代码块或解释。' },
+    { role: 'user', content: buildRescueAnalysisPrompt(evidence, period) },
+  ];
+  let parsed = null;
+  for (let attempt = 0; attempt < 2; attempt += 1) {
+    const content = await requestAiChat({
+      apiKey,
+      baseUrl,
+      model,
+      messages,
+      temperature: 0.1,
+      maxTokens: 3500,
+      fetcher,
+    });
+    try {
+      parsed = parseAnalysisJson(content);
+      if (requireCandidateCoverage) validateRescueCandidateCoverage(parsed, evidence);
+      break;
+    } catch (error) {
+      if (attempt === 1) throw error;
+      messages.push({ role: 'assistant', content });
+      messages.push({ role: 'user', content: `上一次未逐条完成候选决策：${error.message}。请保留事实并补齐每个 candidate_index 的 include/exclude 决定。` });
+    }
+  }
   const used = new Set();
   const items = (Array.isArray(parsed.items) ? parsed.items : []).flatMap(selection => {
     const index = Number(selection.candidate_index);
@@ -2377,7 +2517,7 @@ export async function analyzeReportByModule({
   return mergeModuleReports(reports, period, modules);
 }
 
-async function deepseekAnalyzeByModule({ apiKey, baseUrl, model, candidates, leads = [], sources = sourceCatalog.sources, period = getPeriod(), candidateLimit = DEFAULT_ANALYSIS_CANDIDATE_LIMIT, leadLimit = DEFAULT_ANALYSIS_LEAD_LIMIT, maxTokens = DEFAULT_AI_MAX_TOKENS }) {
+async function deepseekAnalyzeByModule({ apiKey, baseUrl, model, candidates, leads = [], sources = sourceCatalog.sources, period = getPeriod(), candidateLimit = DEFAULT_ANALYSIS_CANDIDATE_LIMIT, leadLimit = DEFAULT_ANALYSIS_LEAD_LIMIT, maxTokens = DEFAULT_AI_MAX_TOKENS, requireCandidateCoverage = true }) {
   if (!candidates.length && !leads.length) {
     return { period, summary: [], risk_alerts: [], sections: REPORT_MODULES.map(m => ({ module: m, items: [] })) };
   }
@@ -2390,20 +2530,29 @@ async function deepseekAnalyzeByModule({ apiKey, baseUrl, model, candidates, lea
       if (!moduleCandidates.length) return { period, summary: [], risk_alerts: [], sections: [{ module, items: [] }] };
       const reports = [];
       for (const batch of chunkArray(moduleCandidates, 4)) {
-        reports.push(await deepseekAnalyze({
-          apiKey,
-          baseUrl,
-          model,
-          candidates: batch,
-          leads: [],
-          sources: moduleSources,
-          period,
-          candidateLimit,
-          leadLimit,
-          maxTokens,
-          targetModule: module,
-          review: false,
-        }));
+        try {
+          const batchReport = await deepseekAnalyze({
+            apiKey,
+            baseUrl,
+            model,
+            candidates: batch,
+            leads: [],
+            sources: moduleSources,
+            period,
+            candidateLimit,
+            leadLimit,
+            maxTokens,
+            targetModule: module,
+            review: false,
+            requireCandidateCoverage,
+          });
+          const reviewed = Array.isArray(batchReport.reviewed_candidates) ? batchReport.reviewed_candidates : [];
+          const included = (batchReport.sections || []).flatMap(section => section.items || []).length;
+          console.log(`[stage 2/5] 候选批次审计：${module}，输入 ${batch.length}，逐条审阅 ${reviewed.length || (requireCandidateCoverage ? batch.length : 0)}，收录 ${included}`);
+          reports.push(batchReport);
+        } catch (error) {
+          console.warn(`[stage 2/5] 候选批次跳过：${module}，输入 ${batch.length}，原因 ${error.message}`);
+        }
       }
       return mergeModuleReports(reports, period, [module]);
     },
@@ -2668,7 +2817,7 @@ export async function collectCandidates(sources = sourceCatalog.sources, onProgr
     }
   }
   let hydratedCandidates = unique;
-  let detailAudit = { selected: 0, hydrated: 0, browserRecovered: 0, failed: 0 };
+  let detailAudit = { selected: 0, hydrated: 0, browserRecovered: 0, failed: 0, reasons: {} };
   if (options.hydrateDetails) {
     const hydrated = await hydrateCandidateDetails(unique, {
       fetcher: options.fetcher || fetch,
@@ -2680,7 +2829,8 @@ export async function collectCandidates(sources = sourceCatalog.sources, onProgr
     });
     hydratedCandidates = hydrated.candidates;
     detailAudit = hydrated.audit;
-    console.log(`[stage 1/5] 详情页审计：选择 ${detailAudit.selected}，全文成功 ${detailAudit.hydrated}，浏览器恢复 ${detailAudit.browserRecovered}，失败保留 ${detailAudit.failed}`);
+    const detailReasons = Object.entries(detailAudit.reasons || {}).map(([reason, count]) => `${reason}=${count}`).join(', ') || 'none';
+    console.log(`[stage 1/5] 详情页审计：选择 ${detailAudit.selected}，全文成功 ${detailAudit.hydrated}，浏览器恢复 ${detailAudit.browserRecovered}，失败保留 ${detailAudit.failed}，原因 ${detailReasons}`);
   }
   return { candidates: hydratedCandidates, leads, failures, sourceResults, coverage, detailAudit };
 }
@@ -2809,6 +2959,7 @@ async function runAnalysisPhase(date, env, additionalCandidates = []) {
       candidateLimit: qualityOptions.candidateLimit,
       leadLimit: qualityOptions.leadLimit,
       maxTokens: qualityOptions.maxTokens,
+      requireCandidateCoverage: true,
     }),
     analyzeRescue: () => deepseekRescueAnalyze({
       apiKey: aiKey,
@@ -2817,6 +2968,7 @@ async function runAnalysisPhase(date, env, additionalCandidates = []) {
       candidates,
       leads: allLeads,
       period,
+      requireCandidateCoverage: true,
     }),
   });
   const rawReport = analysis.report;

@@ -607,6 +607,16 @@ function testExtractArticleTextRemovesPageChromeAndKeepsMetadata() {
   assert.ok(article.title.includes('化妆品功效宣称监管新规'));
 }
 
+function testExtractArticleTextDoesNotSilentlyTruncateTheOriginalBody() {
+  const tailMarker = '原文尾部关键执行口径';
+  const html = `<article><h1>化妆品监管公告</h1><p>${'化妆品注册备案要求。'.repeat(4000)}${tailMarker}</p></article>`;
+
+  const article = extractArticleText(html);
+
+  assert.ok(article.text.length > 30000);
+  assert.ok(article.text.endsWith(tailMarker));
+}
+
 async function testHydrateCandidateDetailsFetchesArticleBodiesWithoutDroppingFailures() {
   const candidates = [
     {
@@ -672,6 +682,49 @@ async function testHydrateCandidateDetailsContainsBrowserRecoveryFailures() {
   assert.equal(result.candidates[0].snippet, '保留的原始摘要');
   assert.equal(result.candidates[0].detail_status, 'failed');
   assert.equal(result.audit.failed, 1);
+}
+
+async function testHydrateCandidateDetailsRejectsUnsupportedDocumentsAndPageShells() {
+  const baseCandidate = {
+    title: '化妆品监管详情',
+    snippet: '列表页摘要',
+    source_name: '监管机构',
+    module: '新规及案例动态',
+    country: '中国',
+    region: '亚洲',
+    priority: 'high',
+  };
+  const pdf = await hydrateCandidateDetails([{ ...baseCandidate, url: 'https://example.cn/rule.pdf' }], {
+    fetcher: async () => new Response(`%PDF-1.7 ${'化妆品监管文字'.repeat(100)}`, {
+      status: 200,
+      headers: { 'Content-Type': 'application/pdf' },
+    }),
+    timeoutMs: 1000,
+  });
+  assert.equal(pdf.candidates[0].detail_status, 'failed');
+  assert.equal(pdf.candidates[0].detail_reason, 'unsupported-content-type');
+  assert.equal(pdf.audit.reasons['unsupported-content-type'], 1);
+
+  const shell = await hydrateCandidateDetails([{ ...baseCandidate, url: 'https://example.cn/app-shell' }], {
+    fetcher: async () => new Response(`<html><body><div>${'首页 政务 服务 站点导航 站点信息 '.repeat(80)}</div></body></html>`, {
+      status: 200,
+      headers: { 'Content-Type': 'text/html' },
+    }),
+    timeoutMs: 1000,
+  });
+  assert.equal(shell.candidates[0].detail_status, 'failed');
+  assert.equal(shell.candidates[0].detail_reason, 'page-shell');
+  assert.equal(shell.audit.reasons['page-shell'], 1);
+
+  const loginShell = await hydrateCandidateDetails([{ ...baseCandidate, url: 'https://example.cn/login' }], {
+    fetcher: async () => new Response(`<html><body><main><h1>Sign in</h1><p>${'Login required. Please sign in to continue. '.repeat(20)}</p><p>Forgot password?</p></main></body></html>`, {
+      status: 200,
+      headers: { 'Content-Type': 'text/html' },
+    }),
+    timeoutMs: 1000,
+  });
+  assert.equal(loginShell.candidates[0].detail_status, 'failed');
+  assert.equal(loginShell.candidates[0].detail_reason, 'access-or-error-page');
 }
 
 function testGetSourceStats() {
@@ -1013,6 +1066,7 @@ async function testDeepseekRescueAnalyzeUsesObservedCandidateIdentity() {
     snippet: '监管通报要求化妆品功效宣称与备案证据保持一致。',
   };
   const response = {
+    reviewed_candidates: [{ candidate_index: 0, decision: 'include', reason: '正文直接涉及化妆品功效宣称' }],
     items: [{
       candidate_index: 0,
       report_tier: 'action',
@@ -1042,6 +1096,32 @@ async function testDeepseekRescueAnalyzeUsesObservedCandidateIdentity() {
   assert.equal(item.confidence, 'high');
   const processed = processAnalyzedReport(report, { candidates: [candidate], sources: [] });
   assert.equal(processed.audit.acceptedItems, 1);
+}
+
+async function testDeepseekRescueAnalyzeRejectsIncompleteCandidateDecisions() {
+  const candidates = [0, 1].map(index => ({
+    title: `化妆品监管公告 ${index + 1}`,
+    url: `https://official.example.cn/notices/${index + 1}`,
+    source_name: '监管机构',
+    source_type: 'official_site',
+    authority_type: 'regulator',
+    module: '美妆动态',
+    country: '中国',
+    region: '亚洲',
+    published_at: '2026-07-18',
+    snippet: '化妆品监管公告全文。'.repeat(40),
+  }));
+  await assert.rejects(() => deepseekRescueAnalyze({
+    apiKey: 'test-key',
+    baseUrl: 'https://example.com/v1',
+    model: 'gpt-5.5',
+    candidates,
+    period: { start: '2026-07-13', end: '2026-07-19' },
+    fetcher: async () => new Response(JSON.stringify({ choices: [{ message: { content: JSON.stringify({
+      reviewed_candidates: [{ candidate_index: 0, decision: 'exclude', reason: '正文无新事项' }],
+      items: [],
+    }) } }] }), { status: 200 }),
+  }), /review incomplete/i);
 }
 
 function testRescueEvidenceCandidatesPreserveModuleDiversity() {
@@ -1078,6 +1158,10 @@ function testRescueEvidenceCandidatesPreserveModuleDiversity() {
   assert.equal(modules.size, REPORT_MODULES.length);
   assert.ok(selected.length >= REPORT_MODULES.length);
   assert.ok(selected.filter(candidate => candidate.source_name === '中国市场监管机构').length <= 3);
+
+  const lead = { title: '公众号线索', url: 'https://wechat.example.com/account', source_name: '公众号', module: '美妆动态' };
+  const withoutLeads = selectRescueEvidenceCandidates(otherModules, [lead]);
+  assert.equal(withoutLeads.some(candidate => candidate.url === lead.url), false);
 }
 
 function testExecutiveSummaryCapsJudgementsAndActionsAtThree() {
@@ -2346,6 +2430,61 @@ function testBuildAnalysisPromptUsesModuleTarget() {
   assert.ok(prompt.includes('当前只分析模块：进出口动态'));
   assert.ok(prompt.includes('返回所有符合准入规则的条目'));
   assert.ok(prompt.includes('具体原文 URL'));
+  assert.ok(prompt.includes('candidate_index'));
+  assert.ok(prompt.includes('reviewed_candidates'));
+}
+
+async function testModuleAnalysisRequiresARecordedDecisionForEveryCandidate() {
+  const period = { start: '2026-07-13', end: '2026-07-19' };
+  const candidates = [
+    { candidate_index: 0, title: '化妆品标签新规', url: 'https://official.example.cn/rules/label', source_name: '监管机构', source_type: 'official_site', authority_type: 'regulator', module: '新规及案例动态', region: '亚洲', country: '中国', snippet: '化妆品标签新规全文。'.repeat(80) },
+    { candidate_index: 1, title: '普通食品安全新闻', url: 'https://official.example.cn/news/food', source_name: '监管机构', source_type: 'official_site', authority_type: 'regulator', module: '新规及案例动态', region: '亚洲', country: '中国', published_at: '2026-07-18', snippet: '食品安全新闻全文。'.repeat(80) },
+  ];
+  const includedItem = {
+    ...objectiveBriefFixture().sections[0].items[0],
+    candidate_index: 0,
+    title: '被 AI 改写的标题',
+    source_name: '被 AI 改写的来源',
+    source_url: 'https://fabricated.example.com/not-original',
+    published_at: '2026-07-18',
+  };
+  const responseFor = reviewedCandidates => ({
+    period,
+    summary: [],
+    risk_alerts: [],
+    reviewed_candidates: reviewedCandidates,
+    sections: [{ module: '新规及案例动态', items: [includedItem] }],
+  });
+  let calls = 0;
+  const result = await deepseekAnalyze({
+    apiKey: 'test-key',
+    baseUrl: 'https://example.com/v1',
+    model: 'gpt-5.5',
+    candidates,
+    sources: [],
+    period,
+    targetModule: '新规及案例动态',
+    review: false,
+    requireCandidateCoverage: true,
+    fetcher: async () => {
+      calls += 1;
+      const reviewed = calls === 1
+        ? [{ candidate_index: 0, decision: 'include', reason: '与化妆品直接相关' }]
+        : [
+          { candidate_index: 0, decision: 'include', reason: '与化妆品直接相关' },
+          { candidate_index: 1, decision: 'exclude', reason: '正文仅涉及食品' },
+        ];
+      return new Response(JSON.stringify({ choices: [{ message: { content: JSON.stringify(responseFor(reviewed)) } }] }), { status: 200 });
+    },
+  });
+
+  assert.equal(calls, 2);
+  const item = result.sections[0].items[0];
+  assert.equal(item.title, candidates[0].title);
+  assert.equal(item.source_name, candidates[0].source_name);
+  assert.equal(item.source_url, candidates[0].url);
+  assert.equal(item.published_at, '未知');
+  assert.equal(item.updated_at, '未知');
 }
 
 function testNormalizeModuleReportForcesTargetWorkbookModule() {
@@ -2955,8 +3094,10 @@ testHtmlToText();
 testExtractLinks();
 testExtractImageUrl();
 testExtractArticleTextRemovesPageChromeAndKeepsMetadata();
+testExtractArticleTextDoesNotSilentlyTruncateTheOriginalBody();
 await testHydrateCandidateDetailsFetchesArticleBodiesWithoutDroppingFailures();
 await testHydrateCandidateDetailsContainsBrowserRecoveryFailures();
+await testHydrateCandidateDetailsRejectsUnsupportedDocumentsAndPageShells();
 testGetSourceStats();
 testIsRelevantTitle();
 testMakeCandidate();
@@ -2975,6 +3116,7 @@ await testAnalyzeReportWithRecoverySupplementsSparseWatchOnlyReport();
 await testAnalyzeReportWithRecoveryContinuesBelowEightQualityItems();
 await testAnalyzeReportWithRecoveryRejectsTechnicalCollapse();
 await testDeepseekRescueAnalyzeUsesObservedCandidateIdentity();
+await testDeepseekRescueAnalyzeRejectsIncompleteCandidateDecisions();
 testRescueEvidenceCandidatesPreserveModuleDiversity();
 testExecutiveSummaryCapsJudgementsAndActionsAtThree();
 testExecutiveSummaryAvoidsRepeatedJudgementsAndActions();
@@ -3023,6 +3165,7 @@ await testDingTalkDocumentPublishCreatesAndWritesMarkdown();
 await testUploadDingTalkImageReturnsMediaId();
 testBuildAnalysisPromptIncludesLeads();
 testBuildAnalysisPromptUsesModuleTarget();
+await testModuleAnalysisRequiresARecordedDecisionForEveryCandidate();
 testNormalizeModuleReportForcesTargetWorkbookModule();
 testFilterReportToObservedSourcesDropsFabricatedUrls();
 testFilterReportToObservedSourcesKeepsCanonicalUrlVariants();

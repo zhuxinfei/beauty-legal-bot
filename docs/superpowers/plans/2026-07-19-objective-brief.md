@@ -24,6 +24,10 @@
 - [x] Require 1-2 concise fact bullets and one observable follow-up signal.
 - [x] Reject unsupported implications and homepage-only source URLs.
 - [x] Allow relevant industry news into the brief tier without forcing action analysis.
+- [x] Require a readable, structurally valid detail body before formal analysis; reject unsupported documents, page shells and access/error pages.
+- [x] Preserve the complete extracted article body without a silent 30,000-character truncation.
+- [x] Require an explicit include/exclude decision for every primary and rescue evidence candidate.
+- [x] Lock title, source, URL, market and dates to the fetched candidate evidence.
 
 ### Classification and deduplication
 
@@ -47,5 +51,5 @@
 - [x] Run the complete `node worker/test-runner.js` suite.
 - [x] Inspect generated Markdown for duplicates, unsupported claims and concrete original links.
 - [ ] Push the test branch without changing the formal webhook.
-- [ ] Trigger one test webhook run and verify collection, acceptance counts, content structure and DingTalk delivery.
+- [ ] Trigger one test webhook run and verify collection, full-text audit, acceptance counts, content structure and DingTalk delivery.
 - [ ] Wait for user approval before any formal webhook restoration or delivery.
