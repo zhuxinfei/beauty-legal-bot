@@ -1738,6 +1738,7 @@ export function buildAnalysisPrompt({ candidates, leads = [], sources, period, t
 输出要求：
 - 输出合法 JSON，不要 Markdown，不要解释。
 - 六个模块分别监测，但只输出通过质量标准的条目；任何模块都允许为空，总量不设最低要求。
+- 对每个候选逐条判断；凡正文与美妆实质相关、事实明确、日期合格且有具体原文 URL 的信息都应输出，不得只挑“最重要”的少数几条。
 - 美妆动态和进出口动态可以使用公众号/行业媒体作为关注线索，但必须标注 source_type 为 wechat_lead 或 industry_media，confidence 为 medium 或 low，并说明关注价值和下一观察点。
 - 每条只生成 fact_summary 和 next_observation 两类正文信息。
 - fact_summary 输出 1-2 条客观事实，优先保留主体、事项、日期、金额、数量、规则变化和处理结果，合计通常 30-100 字。
@@ -1868,7 +1869,7 @@ export async function reviewAnalysisReport({ apiKey, baseUrl, model, report, can
   }
 }
 
-export async function deepseekAnalyze({ apiKey, baseUrl, model, candidates, leads = [], sources = sourceCatalog.sources, period = getPeriod(), targetModule = '', candidateLimit = DEFAULT_ANALYSIS_CANDIDATE_LIMIT, leadLimit = DEFAULT_ANALYSIS_LEAD_LIMIT, maxTokens = DEFAULT_AI_MAX_TOKENS, fetcher = fetch, logger = console }) {
+export async function deepseekAnalyze({ apiKey, baseUrl, model, candidates, leads = [], sources = sourceCatalog.sources, period = getPeriod(), targetModule = '', candidateLimit = DEFAULT_ANALYSIS_CANDIDATE_LIMIT, leadLimit = DEFAULT_ANALYSIS_LEAD_LIMIT, maxTokens = DEFAULT_AI_MAX_TOKENS, fetcher = fetch, logger = console, review = true }) {
   const messages = [
     { role: 'system', content: '你只输出合法 JSON。不要输出解释、Markdown 或代码块。' },
     { role: 'user', content: buildAnalysisPrompt({ candidates, leads, sources, period, targetModule, candidateLimit, leadLimit }) },
@@ -1889,6 +1890,7 @@ export async function deepseekAnalyze({ apiKey, baseUrl, model, candidates, lead
     }
   }
   if (!draft) throw new Error('AI analysis failed');
+  if (!review) return draft;
   return reviewAnalysisReport({ apiKey, baseUrl, model, report: draft, candidates, maxTokens, fetcher, logger });
 }
 
@@ -2384,19 +2386,27 @@ async function deepseekAnalyzeByModule({ apiKey, baseUrl, model, candidates, lea
     leads,
     sources,
     period,
-    analyze: ({ module, candidates: moduleCandidates, leads: moduleLeads, sources: moduleSources }) => deepseekAnalyze({
-      apiKey,
-      baseUrl,
-      model,
-      candidates: moduleCandidates,
-      leads: moduleLeads,
-      sources: moduleSources,
-      period,
-      candidateLimit,
-      leadLimit,
-      maxTokens,
-      targetModule: module,
-    }),
+    analyze: async ({ module, candidates: moduleCandidates, sources: moduleSources }) => {
+      if (!moduleCandidates.length) return { period, summary: [], risk_alerts: [], sections: [{ module, items: [] }] };
+      const reports = [];
+      for (const batch of chunkArray(moduleCandidates, 8)) {
+        reports.push(await deepseekAnalyze({
+          apiKey,
+          baseUrl,
+          model,
+          candidates: batch,
+          leads: [],
+          sources: moduleSources,
+          period,
+          candidateLimit,
+          leadLimit,
+          maxTokens,
+          targetModule: module,
+          review: false,
+        }));
+      }
+      return mergeModuleReports(reports, period, [module]);
+    },
   });
 }
 
