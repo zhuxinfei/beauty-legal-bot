@@ -2109,7 +2109,7 @@ function testAnalysisPromptSupportsWatchItemsWithoutForcedModuleFilling() {
   assert.ok(prompt.includes('"report_tier": "action|watch"'));
   assert.ok(prompt.includes('"fact_summary"'));
   assert.ok(prompt.includes('"next_observation"'));
-  assert.ok(prompt.includes('宁可返回空数组'));
+  assert.ok(prompt.includes('返回所有符合准入规则的条目'));
   assert.equal(prompt.includes('至少输出 2 条'), false);
 }
 
@@ -2344,7 +2344,7 @@ function testBuildAnalysisPromptUsesModuleTarget() {
     targetModule: '进出口动态',
   });
   assert.ok(prompt.includes('当前只分析模块：进出口动态'));
-  assert.ok(prompt.includes('宁可返回空数组'));
+  assert.ok(prompt.includes('返回所有符合准入规则的条目'));
   assert.ok(prompt.includes('具体原文 URL'));
 }
 

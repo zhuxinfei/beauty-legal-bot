@@ -1699,8 +1699,8 @@ export function buildAnalysisPrompt({ candidates, leads = [], sources, period, t
   const moduleInstruction = targetModule ? `
 当前只分析模块：${targetModule}
 - 只返回这个模块的 section。
-- 只输出有可核验证据和实际价值的条目；宁可返回空数组，也不要为填满模块输出泛化内容。
-- 对无法直接打开原文的公众号/行业源，只能作为 watch 关注事项，并必须说明关注价值和下一观察点。
+- 对输入 candidates 逐条判断并返回所有符合准入规则的条目，不要只挑重大事项。
+- candidates 均为已成功抓取的详情页全文；不得因为同批存在更重要信息而省略其他合格信息。
 - 美妆动态重点看行业监管趋势、平台治理、产品安全、功效宣称、渠道变化、头部品牌合规动作。
 - 进出口动态重点看进口准入、清关、口岸抽检、跨境电商、认证、海关监管、召回和贸易合规。
 - 产品质量/召回与安全风险重点看产品安全、抽检不合格、召回、禁限用成分、质量投诉、过敏/微生物/重金属风险和平台下架。
@@ -1739,7 +1739,7 @@ export function buildAnalysisPrompt({ candidates, leads = [], sources, period, t
 - 输出合法 JSON，不要 Markdown，不要解释。
 - 六个模块分别监测，但只输出通过质量标准的条目；任何模块都允许为空，总量不设最低要求。
 - 对每个候选逐条判断；凡正文与美妆实质相关、事实明确、日期合格且有具体原文 URL 的信息都应输出，不得只挑“最重要”的少数几条。
-- 美妆动态和进出口动态可以使用公众号/行业媒体作为关注线索，但必须标注 source_type 为 wechat_lead 或 industry_media，confidence 为 medium 或 low，并说明关注价值和下一观察点。
+- 行业媒体只有在提供具体文章原文、事实明确且与美妆实质相关时才可作为行业新闻简讯；公众号主页不能形成条目。
 - 每条只生成 fact_summary 和 next_observation 两类正文信息。
 - fact_summary 输出 1-2 条客观事实，优先保留主体、事项、日期、金额、数量、规则变化和处理结果，合计通常 30-100 字。
 - next_observation 只输出一个可观察的后续事实节点，例如正式稿、生效日期、反馈截止、处罚后续、判决、复议诉讼、召回进展或执行口径。
@@ -2389,7 +2389,7 @@ async function deepseekAnalyzeByModule({ apiKey, baseUrl, model, candidates, lea
     analyze: async ({ module, candidates: moduleCandidates, sources: moduleSources }) => {
       if (!moduleCandidates.length) return { period, summary: [], risk_alerts: [], sections: [{ module, items: [] }] };
       const reports = [];
-      for (const batch of chunkArray(moduleCandidates, 8)) {
+      for (const batch of chunkArray(moduleCandidates, 4)) {
         reports.push(await deepseekAnalyze({
           apiKey,
           baseUrl,
