@@ -78,8 +78,33 @@ import {
   extractArticleText,
   hydrateCandidateDetails,
   sortCandidatesForAnalysis,
+  classifyFreshness,
+  filterCandidatesByFreshness,
   runPipeline,
 } from './index.js';
+
+function testFreshnessGateAcceptsCurrentWeekAndSevenDayBoundary() {
+  const period = { start: '2026-07-13', end: '2026-07-19' };
+  assert.equal(classifyFreshness({ published_at: '2026-07-19' }, period).status, 'current-week');
+  assert.equal(classifyFreshness({ published_at: '2026-07-12' }, period).accepted, true);
+  assert.equal(classifyFreshness({ published_at: '2026-07-11' }, period).accepted, false);
+}
+
+function testFreshnessGateAllowsOnlyStructuredHistoricalExceptions() {
+  const period = { start: '2026-07-13', end: '2026-07-19' };
+  const stale = { published_at: '2026-05-01', type: '法规' };
+  assert.equal(classifyFreshness(stale, period).accepted, false);
+  assert.equal(classifyFreshness({ ...stale, effective_date: '2026-08-01', freshness_exception: 'upcoming_deadline' }, period).accepted, true);
+  assert.equal(classifyFreshness({ ...stale, type: '召回', freshness_exception: 'ongoing_enforcement', change_evidence: '本周仍在执行召回' }, period).accepted, true);
+}
+
+function testFreshnessGateDowngradesUnknownDateToWatch() {
+  const result = classifyFreshness({ title: '无法确认日期的行业线索' }, { start: '2026-07-13', end: '2026-07-19' });
+  assert.equal(result.accepted, true);
+  assert.equal(result.status, 'date-unknown');
+  assert.equal(result.allowedTier, 'watch');
+  assert.equal(filterCandidatesByFreshness([{ title: '未知日期' }], { start: '2026-07-13', end: '2026-07-19' })[0].freshness_status, 'date-unknown');
+}
 
 function testClassifySourceFetchFailures() {
   assert.deepEqual(classifyFetchFailure({ status: 429 }), { retryable: true, terminal: false, reason: 'http-429' });
@@ -338,6 +363,8 @@ async function testPipelineSendsNativeMarkdownWithoutImageHooks() {
       AI_MODEL: 'test-model',
       DINGTALK_WEBHOOK_URL: 'https://oapi.dingtalk.com/robot/send?access_token=test',
       DINGTALK_MESSAGE_DELAY_MS: 0,
+      REPORT_PERIOD_START: sampleReport.period.start,
+      REPORT_PERIOD_END: sampleReport.period.end,
       SEEN_NEWS: kv,
       CREATE_EDITORIAL_REPORT_PNG: async () => {
         throw new Error('native Markdown pipeline must not render an image');
@@ -390,6 +417,8 @@ async function testPipelineIgnoresLegacyEditorialImageHooks() {
       AI_API_KEY: 'test-key',
       AI_MODEL: 'test-model',
       DINGTALK_WEBHOOK_URL: 'https://oapi.dingtalk.com/robot/send?access_token=test',
+      REPORT_PERIOD_START: sampleReport.period.start,
+      REPORT_PERIOD_END: sampleReport.period.end,
       SEEN_NEWS: kv,
       CREATE_EDITORIAL_REPORT_PNG: async () => {
         throw new Error('legacy image renderer must not be called');
@@ -973,14 +1002,14 @@ async function testAnalyzeReportWithRecoveryRejectsTechnicalCollapse() {
 async function testDeepseekRescueAnalyzeUsesObservedCandidateIdentity() {
   const candidate = {
     title: '中国化妆品功效宣称监管通报',
-    url: 'https://samr.example.gov.cn/notices/2026-07-16',
+    url: 'https://samr.example.gov.cn/notices/2026-05-22',
     source_name: '中国市场监管机构',
     source_type: 'official_site',
     authority_type: 'regulator',
     module: '广告合规及处罚案例',
     country: '中国',
     region: '亚洲',
-    published_at: '2026-07-16',
+    published_at: '2026-05-22',
     priority: 'high',
     snippet: '监管通报要求化妆品功效宣称与备案证据保持一致。',
   };
@@ -1803,6 +1832,8 @@ async function testNotifyReportPrefersDingTalkWhenConfigured() {
     env: {
       DINGTALK_WEBHOOK_URL: 'https://oapi.dingtalk.com/robot/send?access_token=abc',
       DINGTALK_MESSAGE_DELAY_MS: 0,
+      REPORT_PERIOD_START: sampleReport.period.start,
+      REPORT_PERIOD_END: sampleReport.period.end,
       DINGTALK_DOC_URL: 'https://example.com/doc/latest',
       FEISHU_WEBHOOK_URL: 'https://open.feishu.cn/test',
     },
@@ -2448,6 +2479,8 @@ async function testScheduledPipelineSendsFeishuWithoutHtmlReport() {
       AI_API_KEY: 'test-key',
       FEISHU_WEBHOOK_URL: 'https://example.com/webhook',
       AI_MODEL: 'gpt-5.6-sol',
+      REPORT_PERIOD_START: sampleReport.period.start,
+      REPORT_PERIOD_END: sampleReport.period.end,
       SEEN_NEWS: kv,
     }, {});
   } finally {
@@ -2500,6 +2533,8 @@ async function testScheduledPipelineSendsDingTalkWithoutDocumentCredentials() {
       AI_API_KEY: 'test-key',
       DINGTALK_WEBHOOK_URL: 'https://oapi.dingtalk.com/robot/send?access_token=test',
       DINGTALK_MESSAGE_DELAY_MS: 0,
+      REPORT_PERIOD_START: sampleReport.period.start,
+      REPORT_PERIOD_END: sampleReport.period.end,
       DINGTALK_CLIENT_ID: 'legacy-client',
       DINGTALK_CLIENT_SECRET: 'legacy-secret',
       DINGTALK_OPERATOR_ID: 'legacy-operator',
@@ -2551,6 +2586,8 @@ async function testScheduledPipelineRejectsDingTalkFailureWithoutMarkingSeen() {
         DINGTALK_WEBHOOK_URL: 'https://oapi.dingtalk.com/robot/send?access_token=test',
         DINGTALK_MESSAGE_DELAY_MS: 0,
         AI_MODEL: 'test-model',
+        REPORT_PERIOD_START: sampleReport.period.start,
+        REPORT_PERIOD_END: sampleReport.period.end,
         SEEN_NEWS: kv,
       }, {}),
       /DingTalk delivery failed/
@@ -2727,8 +2764,8 @@ function testWeeklyWorkflowDeploysRoutesBeforeVersionedAssetPipeline() {
   const workflow = readFileSync(new URL('../.github/workflows/weekly.yml', import.meta.url), 'utf8');
   assert.ok(workflow.includes('node worker/run-local.js'));
   assert.equal(workflow.includes('node run-local.js'), false);
-  assert.ok(workflow.includes("cron: '52 23 * * 0'"));
-  assert.equal(workflow.includes("cron: '17 0 * * 1'"), false);
+  assert.ok(workflow.includes("cron: '17 0 * * 1'"));
+  assert.equal(workflow.includes("cron: '52 23 * * 0'"), false);
   assert.ok(workflow.includes('npx wrangler deploy'));
   assert.ok(workflow.indexOf('npx wrangler deploy') < workflow.indexOf('node worker/run-local.js'));
   assert.ok(workflow.includes('vars.AI_API_BASE_URL'));
@@ -2873,6 +2910,9 @@ testManualForceDeliveryBypassesDuplicateSkip();
 testAttachReportImagesUsesObservedCandidateImages();
 testEnterprisePromptRequiresGlobalLegalIntelligence();
 testCandidateFreshnessAndInfluenceRanking();
+testFreshnessGateAcceptsCurrentWeekAndSevenDayBoundary();
+testFreshnessGateAllowsOnlyStructuredHistoricalExceptions();
+testFreshnessGateDowngradesUnknownDateToWatch();
 testDedupeReportRemovesRepeatedItems();
 testExtractReportFingerprintsUsesItems();
 testSplitSourcesSeparatesWechatLeads();

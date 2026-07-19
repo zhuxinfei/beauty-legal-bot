@@ -15,6 +15,7 @@
 import sourceCatalog from './sources.json' with { type: 'json' };
 import { buildSingleDingTalkMessage } from './dingtalk-single-card.js';
 import { buildActionDashboardSvg } from './action-dashboard.js';
+import { classifyFreshness, filterCandidatesByFreshness } from './freshness.js';
 import { curateReportQuality, curateReportQualityWithAudit } from './report-quality.js';
 import {
   assertSourceCoverage,
@@ -1115,7 +1116,7 @@ export async function runPipeline(env, requestUrl = 'https://beauty-legal-bot.wo
       : selectSourcesForWorkerBudget(sourceCatalog.sources, Number(env.WORKER_FETCH_SOURCE_BUDGET || WORKER_FETCH_SOURCE_BUDGET));
     const { fetchableSources } = splitSources(sources);
     console.log(`[stage 1/5] Worker 抓取预算：${fetchableSources.length} 个可抓取源，${sources.length - fetchableSources.length} 个线索源`);
-    const { candidates, leads, failures, sourceResults, coverage } = await collectCandidates(sources, async () => {}, {
+    const { candidates: fetchedCandidates, leads, failures, sourceResults, coverage } = await collectCandidates(sources, async () => {}, {
       fetcher: env.SOURCE_FETCH || fetch,
       browserFetcher: env.BROWSER_FETCH_HTML,
       timeoutMs: Number(env.SOURCE_FETCH_TIMEOUT_MS || SOURCE_FETCH_TIMEOUT_MS),
@@ -1131,10 +1132,13 @@ export async function runPipeline(env, requestUrl = 'https://beauty-legal-bot.wo
       minOverall: Number(env.MIN_SOURCE_COVERAGE || 0.9),
       minChinaCritical: Number(env.MIN_CHINA_CRITICAL_COVERAGE || 0.9),
     });
-    console.log(`[stage 1/5] 完成，候选 ${candidates.length} 条，线索 ${leads.length} 条，恢复源 ${sourceResults.filter(result => result.status === 'recovered').length} 个，失败源 ${failures.length} 个，覆盖率 ${(coverage.overall * 100).toFixed(1)}%`);
+    const period = env.REPORT_PERIOD_END
+      ? { start: env.REPORT_PERIOD_START || env.REPORT_PERIOD_END, end: env.REPORT_PERIOD_END }
+      : getPeriod();
+    const candidates = filterCandidatesByFreshness(fetchedCandidates, period);
+    console.log(`[stage 1/5] 完成，候选 ${fetchedCandidates.length} 条，时效准入 ${candidates.length} 条，线索 ${leads.length} 条，恢复源 ${sourceResults.filter(result => result.status === 'recovered').length} 个，失败源 ${failures.length} 个，覆盖率 ${(coverage.overall * 100).toFixed(1)}%`);
 
     console.log("[stage 2/5] AI 结构化分析...");
-    const period = getPeriod();
     const analysis = await analyzeReportWithRecovery({
       candidates,
       leads,
@@ -1559,6 +1563,8 @@ export function sortCandidatesForAnalysis(candidates, now = new Date()) {
   });
 }
 
+export { classifyFreshness, filterCandidatesByFreshness } from './freshness.js';
+
 export function parseAnalysisJson(text) {
   const cleaned = String(text || '')
     .replace(/^```json\s*/i, '')
@@ -1730,8 +1736,10 @@ export function buildAnalysisPrompt({ candidates, leads = [], sources, period, t
 
 时间和影响力规则：
 - 周报优先过去 7 天发布或更新的信息。
-- 7 天之外的信息只有在行业影响力高时保留，例如国家级监管规则、成分禁限用、标签/功效宣称规则、重点处罚、召回、跨境准入、代表性 IP 案例、平台治理口径。
-- 未来 90 天生效、反馈截止、过渡期、认证节点可以入选。
+- 超过 7 天的信息默认禁止进入报告；不能仅凭“影响力高”豁免。
+- 历史信息只有在 freshness_exception 为 upcoming_deadline、ongoing_enforcement、current_week_change 或 open_action，且提供对应日期/持续执行证据/未关闭行动证据时保留。
+- 未来 90 天生效、反馈截止、过渡期、认证节点可以入选，但必须填写 freshness_exception=upcoming_deadline。
+- 无法确认日期的内容只能 report_tier=watch，并标注 freshness_status=日期待核验；不得进入 action。
 - 同等条件下优先直接相关、高影响力、官方源、覆盖核心市场的信息。
 
 模块必须使用以下 6 个，前 5 个来自用户 Excel 的“分类”列，第 6 个用于承接产品质量、召回和安全风险：
@@ -1775,6 +1783,10 @@ JSON 结构：
       "source_url": "公开原文URL或来源主页",
       "source_type": "official|court|regulator|industry_media|wechat_lead|database",
       "published_at": "YYYY-MM-DD或未知",
+      "updated_at": "YYYY-MM-DD或未知",
+      "freshness_status": "本周发布|本周更新|历史规则·本期节点|历史规则·持续执行|历史规则·未关闭行动|发布时间待核验",
+      "freshness_exception": "upcoming_deadline|ongoing_enforcement|current_week_change|open_action或空",
+      "change_evidence": "本周新增解释、执行口径或持续执法证据；无则为空",
       "relevance": "direct|indirect",
       "industry_impact": "high|medium|low",
       "business_impact": ["注册备案|标签|功效宣称|广告投放|直播电商|平台运营|跨境清关|供应链|品牌/IP|客服售后|数据合规"],

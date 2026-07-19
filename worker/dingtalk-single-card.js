@@ -113,12 +113,23 @@ function renderConclusion(value) {
   return ['', '## 本期结论', ...points.map(point => `- ${point}`)];
 }
 
+function freshnessLabel(item) {
+  return item.freshness_reason || ({
+    'current-week': '本周发布',
+    'current-week-update': '本周更新',
+    'historical-node': '历史规则·本期节点',
+    'historical-ongoing': '历史规则·持续执行',
+    'historical-action': '历史规则·未关闭行动',
+    'date-unknown': '发布时间待核验',
+  }[item.freshness_status] || '发布时间待核验');
+}
+
 function renderEditorialItem(item, tier = 'full') {
   const compact = tier === 'compact';
   if (tier === 'minimal') {
     const lines = [`#### ${item.number}. ${markdownText(item.title, 60)}`];
     pushListField(lines, '核心判断', item.summary, 100, 1, true);
-    lines.push('- **来源**', `  - ${sourceLink(item)}｜${markdownText(item.published_at, 16)}`);
+    lines.push('- **来源**', `  - ${sourceLink(item)}｜${markdownText(item.published_at, 16)}｜${freshnessLabel(item)}`);
     return lines.join('\n');
   }
   const lines = [
@@ -144,7 +155,7 @@ function renderEditorialItem(item, tier = 'full') {
       lines.push('- **责任岗位**', ...owners.map(owner => `  - ${markdownText(owner, 20)}`), '  - 完成时间：由责任领导确定');
     }
   }
-  lines.push('- **来源**', `  - ${sourceLink(item)}｜${markdownText(item.published_at, 16)}`);
+  lines.push('- **来源**', `  - ${sourceLink(item)}｜${markdownText(item.published_at, 16)}｜${freshnessLabel(item)}`);
   return lines.join('\n');
 }
 

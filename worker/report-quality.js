@@ -1,3 +1,5 @@
+import { classifyFreshness } from './freshness.js';
+
 export const REPORT_MODULES = [
   '广告合规及处罚案例',
   '美妆动态',
@@ -6,6 +8,7 @@ export const REPORT_MODULES = [
   '进出口动态',
   '产品质量/召回与安全风险',
 ];
+
 
 const OFFICIAL_SOURCE_TYPES = new Set(['official', 'official_site', 'regulator', 'court', 'database']);
 const EMPTY_ACTIONS = ['建议关注', '持续关注', '提高重视', '加强管理', '企业应留意', '可能产生影响'];
@@ -66,6 +69,11 @@ function valueScore(item, tier) {
 }
 
 export function classifyReportItem(item, period = {}) {
+  const freshness = classifyFreshness(item, period);
+  if (!freshness.accepted) {
+    return { tier: 'reject', score: 0, dimensions: { evidence: 0, novelty: 0, relevance: 0, depth: 0, value: 0 }, freshness };
+  }
+  if (freshness.allowedTier === 'watch' && item.report_tier !== 'watch') item = { ...item, report_tier: 'watch' };
   const candidateTier = preferredTier(item);
   const dimensions = {
     evidence: evidenceScore(item),
@@ -78,7 +86,7 @@ export function classifyReportItem(item, period = {}) {
   const accepted = candidateTier === 'action'
     ? dimensions.evidence === 2 && score >= 8
     : candidateTier === 'watch' && dimensions.evidence >= 1 && score >= 7;
-  return { tier: accepted ? candidateTier : 'reject', score, dimensions };
+  return { tier: accepted ? candidateTier : 'reject', score, dimensions, freshness };
 }
 
 function rejectedDimensions(classification) {
@@ -117,6 +125,10 @@ export function curateReportQualityWithAudit(report) {
           for (const reason of rejectedDimensions(classification)) {
             audit.reasons[reason] = (audit.reasons[reason] || 0) + 1;
           }
+          if (classification.freshness?.status) {
+            const reason = `freshness:${classification.freshness.status}`;
+            audit.reasons[reason] = (audit.reasons[reason] || 0) + 1;
+          }
         } else {
           audit.acceptedItems += 1;
         }
@@ -124,6 +136,8 @@ export function curateReportQualityWithAudit(report) {
           ...item,
           report_tier: classification.tier,
           quality_score: classification.score,
+          freshness_status: classification.freshness?.status || item.freshness_status || 'date-unknown',
+          freshness_reason: classification.freshness?.reason || item.freshness_reason || '发布时间待核验',
         };
       })
       .filter(item => item.report_tier !== 'reject')
