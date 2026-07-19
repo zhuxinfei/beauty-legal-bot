@@ -33,6 +33,7 @@ import {
   getSourceStats,
   makeCandidate,
   isRelevantTitle,
+  isNavigationTitle,
   parseAnalysisJson,
   validateReport,
   renderFeishuSummary,
@@ -78,6 +79,7 @@ import {
   extractArticleText,
   hydrateCandidateDetails,
   sortCandidatesForAnalysis,
+  prioritizeCandidatesForAnalysis,
   classifyFreshness,
   filterCandidatesByFreshness,
   runPipeline,
@@ -744,6 +746,9 @@ function testIsRelevantTitle() {
   assert.equal(isRelevantTitle('公司融资发布会'), false);
   assert.equal(isRelevantTitle('加强“三品一械”广告监管 新规公开征求意见'), false);
   assert.equal(isRelevantTitle('北京汇爱科技有限公司主动召回部分型号ipoosi牌婴儿床'), false);
+  assert.equal(isNavigationTitle('欢迎访问中华商标网'), true);
+  assert.equal(isNavigationTitle('网站首页'), true);
+  assert.equal(isNavigationTitle('化妆品商标侵权处罚决定书'), false);
 }
 
 function testMakeCandidate() {
@@ -2435,6 +2440,9 @@ function testBuildAnalysisPromptUsesModuleTarget() {
   assert.ok(prompt.includes('display_title_zh'));
   assert.ok(prompt.includes('source_name_zh'));
   assert.ok(prompt.includes('所有可见的标题'));
+  assert.ok(prompt.includes('中国候选优先'));
+  assert.ok(prompt.includes('不够重大'));
+  assert.ok(prompt.includes('report_tier=watch'));
 }
 
 async function testModuleAnalysisRequiresARecordedDecisionForEveryCandidate() {
@@ -2651,6 +2659,14 @@ function testCandidateFreshnessAndInfluenceRanking() {
 
   assert.equal(ranked[0].title, '近期监管信息');
   assert.equal(ranked[1].title, '旧高影响规则');
+}
+
+function testPrioritizeCandidatesForAnalysisPutsChinaEvidenceFirst() {
+  const ranked = prioritizeCandidatesForAnalysis([
+    { title: '海外高影响事项', country: '美国', priority: 'high', published_at: '2026-07-18' },
+    { title: '中国直接相关事项', country: '中国', priority: 'medium', published_at: '2026-07-17' },
+  ]);
+  assert.equal(ranked[0].country, '中国');
 }
 
 async function testFetchWithTimeoutAbortsSlowFetch() {
@@ -3180,6 +3196,7 @@ testManualForceDeliveryBypassesDuplicateSkip();
 testAttachReportImagesUsesObservedCandidateImages();
 testEnterprisePromptRequiresGlobalLegalIntelligence();
 testCandidateFreshnessAndInfluenceRanking();
+testPrioritizeCandidatesForAnalysisPutsChinaEvidenceFirst();
 testFreshnessGateAcceptsCurrentWeekAndSevenDayBoundary();
 testFreshnessGateAllowsOnlyStructuredHistoricalExceptions();
 testFreshnessGateDowngradesUnknownDateToWatch();

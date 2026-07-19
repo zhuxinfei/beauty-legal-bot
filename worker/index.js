@@ -41,6 +41,12 @@ const BEAUTY_KEYWORDS = [
 ];
 const INDIRECT_BEAUTY_ECOMMERCE_KEYWORDS = ['直播带货', '直播', '电商', '平台', '消费者保护', '跨境', '进口', '商标', '外观设计'];
 const HIGH_IMPACT_LEGAL_KEYWORDS = ['国家标准', '强制性标准', '征求意见', '管理办法', '监督管理条例', '行政处罚', '召回'];
+const NAVIGATION_TITLE_PATTERNS = [
+  /^(?:欢迎访问|欢迎来到|welcome\s+to)/i,
+  /^(?:网站|站点|平台)?(?:首页|主页|导航|登录|注册|联系我们|网站地图|搜索结果)$/i,
+  /^(?:home|login|sign\s*in|site\s*map|contact\s*us|search)$/i,
+  /^(?:404|403|500|not\s+found|access\s+denied)$/i,
+];
 
 const NOISE_KEYWORDS = ['融资', '发布会', '新品上市', '代言', '财报', '招聘'];
 const REPORT_INDEX_KEY = 'report:index';
@@ -1320,6 +1326,7 @@ function selectDetailCandidates(candidates, limit = DETAIL_CANDIDATE_LIMIT) {
   const ranked = sortCandidatesForAnalysis(candidates)
     .filter(candidate => /^https?:\/\//i.test(String(candidate.url || '')))
     .filter(candidate => !/信息源入口|行业线索/.test(String(candidate.title || '')))
+    .filter(candidate => !isNavigationTitle(candidate.title))
     .sort((a, b) => Number(b.country === '中国') - Number(a.country === '中国'));
   const selected = [];
   const selectedUrls = new Set();
@@ -1454,9 +1461,14 @@ export function getSourceStats(sources = sourceCatalog.sources) {
   return { total: sources.length, byModule, byCountry };
 }
 
+export function isNavigationTitle(title) {
+  const text = String(title || '').trim();
+  return Boolean(text) && NAVIGATION_TITLE_PATTERNS.some(pattern => pattern.test(text));
+}
+
 export function isRelevantTitle(title) {
   const text = String(title || '').toLowerCase();
-  if (!text) return false;
+  if (!text || isNavigationTitle(title)) return false;
   if (NOISE_KEYWORDS.some(keyword => text.includes(keyword.toLowerCase()))) return false;
   const hasBeauty = BEAUTY_KEYWORDS.some(keyword => text.includes(keyword.toLowerCase()));
   if (hasBeauty) return true;
@@ -1596,6 +1608,13 @@ export function sortCandidatesForAnalysis(candidates, now = new Date()) {
     const scoreDiff = scoreCandidate(b, now) - scoreCandidate(a, now);
     if (scoreDiff) return scoreDiff;
     return String(a.title || '').localeCompare(String(b.title || ''), 'zh-Hans-CN');
+  });
+}
+
+export function prioritizeCandidatesForAnalysis(candidates, now = new Date()) {
+  return sortCandidatesForAnalysis(candidates, now).sort((a, b) => {
+    const chinaDiff = Number(b.country === '中国') - Number(a.country === '中国');
+    return chinaDiff || 0;
   });
 }
 
@@ -1773,6 +1792,9 @@ export function buildAnalysisPrompt({ candidates, leads = [], sources, period, t
 - 输出合法 JSON，不要 Markdown，不要解释。
 - 六个模块分别监测，但只输出通过质量标准的条目；任何模块都允许为空，总量不设最低要求。
 - 对每个候选逐条判断；凡正文与美妆实质相关、事实明确、日期合格且有具体原文 URL 的信息都应输出，不得只挑“最重要”的少数几条。
+- 中国候选优先：在相同强相关门槛下先处理并优先收录中国原文；不得因为外国事项影响力更高就省略合格的中国信息。中国中强相关、事实明确的简讯可以以 watch 类型收录。
+- “不够重大”不是排除理由。只要正文明确包含美妆相关的主体、产品、规则、处罚结果、抽检/召回、进出口要求或品牌保护事实，即使影响为 medium/low 也应作为 report_tier=watch 的新闻简讯收录。
+- 仍然必须排除：正文无美妆对象、只有欢迎语/导航/来源首页、事实无法核验、超期且无时效例外、或与已收录事件重复的候选。
 - 行业媒体只有在提供具体文章原文、事实明确且与美妆实质相关时才可作为行业新闻简讯；公众号主页不能形成条目。
 - 每条只生成 fact_summary 和 next_observation 两类正文信息。
 - fact_summary 输出 1-2 条客观事实，优先保留主体、事项、日期、金额、数量、规则变化和处理结果，合计通常 30-100 字。
@@ -2536,7 +2558,7 @@ async function deepseekAnalyzeByModule({ apiKey, baseUrl, model, candidates, lea
     analyze: async ({ module, candidates: moduleCandidates, sources: moduleSources }) => {
       if (!moduleCandidates.length) return { period, summary: [], risk_alerts: [], sections: [{ module, items: [] }] };
       const reports = [];
-      for (const batch of chunkArray(moduleCandidates, 4)) {
+      for (const batch of chunkArray(prioritizeCandidatesForAnalysis(moduleCandidates), 4)) {
         try {
           const batchReport = await deepseekAnalyze({
             apiKey,
@@ -2555,7 +2577,10 @@ async function deepseekAnalyzeByModule({ apiKey, baseUrl, model, candidates, lea
           });
           const reviewed = Array.isArray(batchReport.reviewed_candidates) ? batchReport.reviewed_candidates : [];
           const included = (batchReport.sections || []).flatMap(section => section.items || []).length;
-          console.log(`[stage 2/5] 候选批次审计：${module}，输入 ${batch.length}，逐条审阅 ${reviewed.length || (requireCandidateCoverage ? batch.length : 0)}，收录 ${included}`);
+          const chinaInput = batch.filter(candidate => candidate.country === '中国').length;
+          const includedItems = (batchReport.sections || []).flatMap(section => section.items || []);
+          const chinaIncluded = includedItems.filter(item => item.country === '中国').length;
+          console.log(`[stage 2/5] 候选批次审计：${module}，输入 ${batch.length}（中国 ${chinaInput}），逐条审阅 ${reviewed.length || (requireCandidateCoverage ? batch.length : 0)}，收录 ${included}（中国 ${chinaIncluded}），排除 ${Math.max(0, batch.length - included)}`);
           reports.push(batchReport);
         } catch (error) {
           console.warn(`[stage 2/5] 候选批次跳过：${module}，输入 ${batch.length}，原因 ${error.message}`);
