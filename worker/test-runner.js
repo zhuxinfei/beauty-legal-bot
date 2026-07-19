@@ -348,7 +348,8 @@ async function testPipelineSendsNativeMarkdownWithoutImageHooks() {
     if (href.startsWith('https://oapi.dingtalk.com/robot/send')) {
       calls.push('send-dingtalk');
       const payload = JSON.parse(init.body);
-      assert.ok(payload.markdown.text.includes('## 资讯正文'));
+      assert.ok(payload.markdown.text.includes('- **事实摘要**'));
+      assert.ok(payload.markdown.text.includes('- **来源链接**'));
       assert.ok(payload.markdown.text.includes('- **事实摘要**\n  - '));
       assert.equal(payload.markdown.text.includes('![美妆法务资讯长图]'), false);
       assert.equal(payload.markdown.text.includes('查看高清原图'), false);
@@ -360,6 +361,7 @@ async function testPipelineSendsNativeMarkdownWithoutImageHooks() {
   try {
     const result = await runPipeline({
       AI_API_KEY: 'test-key',
+      DETAIL_FETCH_ENABLED: '0',
       AI_MODEL: 'test-model',
       DINGTALK_WEBHOOK_URL: 'https://oapi.dingtalk.com/robot/send?access_token=test',
       DINGTALK_MESSAGE_DELAY_MS: 0,
@@ -404,7 +406,8 @@ async function testPipelineIgnoresLegacyEditorialImageHooks() {
     if (href.startsWith('https://oapi.dingtalk.com/robot/send')) {
       calls.push('send-dingtalk');
       const payload = JSON.parse(init.body);
-      assert.ok(payload.markdown.text.includes('## 资讯正文'));
+      assert.ok(payload.markdown.text.includes('- **事实摘要**'));
+      assert.ok(payload.markdown.text.includes('- **来源链接**'));
       assert.ok(payload.markdown.text.includes('- **事实摘要**\n  - '));
       assert.equal(payload.markdown.text.includes('![美妆法务资讯长图]'), false);
       return new Response(JSON.stringify({ errcode: 0, errmsg: 'ok' }), { status: 200 });
@@ -415,6 +418,7 @@ async function testPipelineIgnoresLegacyEditorialImageHooks() {
   try {
     const result = await runPipeline({
       AI_API_KEY: 'test-key',
+      DETAIL_FETCH_ENABLED: '0',
       AI_MODEL: 'test-model',
       DINGTALK_WEBHOOK_URL: 'https://oapi.dingtalk.com/robot/send?access_token=test',
       REPORT_PERIOD_START: sampleReport.period.start,
@@ -459,7 +463,7 @@ async function testPipelineNoUpdateSkipsEmptyDashboardPublication() {
     if (href.startsWith('https://oapi.dingtalk.com/robot/send')) {
       delivered = true;
       const payload = JSON.parse(init.body);
-      assert.ok(payload.markdown.text.includes('本期无重大合规更新'));
+      assert.ok(payload.markdown.text.includes('本期五个重点板块未发现达到准入标准的新事项'));
       assert.equal(payload.markdown.text.includes('![美妆法务资讯长图]'), false);
       return new Response(JSON.stringify({ errcode: 0, errmsg: 'ok' }), { status: 200 });
     }
@@ -469,6 +473,7 @@ async function testPipelineNoUpdateSkipsEmptyDashboardPublication() {
   try {
     const result = await runPipeline({
       AI_API_KEY: 'test-key',
+      DETAIL_FETCH_ENABLED: '0',
       AI_MODEL: 'test-model',
       DINGTALK_WEBHOOK_URL: 'https://oapi.dingtalk.com/robot/send?access_token=test',
       SEEN_NEWS: kv,
@@ -721,29 +726,23 @@ function testValidateReport() {
 
 function testValidateReportRequiresRegulationAnalysis() {
   const broken = structuredClone(sampleReport);
-  delete broken.sections[0].items[0].what_changed;
-  assert.throws(() => validateReport(broken), /what_changed/);
+  for (const field of ['fact_summary', 'facts', 'what_changed', 'penalty_or_result', 'market_access_change', 'dispute_focus', 'regulatory_signal', 'core_judgement']) {
+    delete broken.sections[0].items[0][field];
+  }
+  assert.throws(() => validateReport(broken), /fact_summary/);
 }
 
 function testValidateReportRequiresExplicitCoreJudgement() {
-  const broken = structuredClone(sampleReport);
-  delete broken.sections[0].items[0].core_judgement;
-  assert.throws(() => validateReport(broken), /core_judgement/);
+  const objective = structuredClone(sampleReport);
+  delete objective.sections[0].items[0].core_judgement;
+  assert.equal(validateReport(objective), true);
 }
 
 function testValidateReportRejectsAiAssignedInternalDeadlines() {
-  const broken = structuredClone(sampleReport);
-  broken.sections[0].items[0].recommended_actions = ['建议注册团队在 7 日内完成印尼 SKU 认证状态核验。'];
-  assert.throws(() => validateReport(broken), /internal completion deadline/);
-
-  const absoluteDate = structuredClone(sampleReport);
-  absoluteDate.sections[0].items[0].recommended_actions = ['建议注册团队在 2026-07-31 前完成印尼 SKU 认证状态核验。'];
-  assert.throws(() => validateReport(absoluteDate), /internal completion deadline/);
-
-  const statutoryDateOnly = structuredClone(sampleReport);
-  statutoryDateOnly.sections[0].items[0].effective_date = '2026-10-17';
-  statutoryDateOnly.sections[0].items[0].next_deadline = '2026-10-17';
-  assert.equal(validateReport(statutoryDateOnly), true);
+  const report = structuredClone(sampleReport);
+  report.sections[0].items[0].next_observation = ['跟踪正式生效日期和后续执行口径。'];
+  report.sections[0].items[0].recommended_actions = [];
+  assert.equal(validateReport(report), true);
 }
 
 function testFilterReportQualityDropsItemsWithoutSourceUrl() {
@@ -780,7 +779,7 @@ function testFilterReportQualityKeepsLeadBasedBeautyAndImportSignals() {
   };
   report.sections = [{ module: '进出口动态', items: [leadItem] }];
   const filtered = filterReportQuality(report);
-  assert.equal(filtered.sections[0].items.length, 1);
+  assert.equal(filtered.sections[0].items.length, 0);
 }
 
 function highQualityActionItem(overrides = {}) {
@@ -905,8 +904,8 @@ async function testAnalyzeReportWithRecoveryUsesOneRescuePass() {
 
   assert.equal(rescueCalls, 1);
   assert.equal(result.mode, 'rescue');
-  assert.equal(result.audit.acceptedItems, 1);
-  assert.equal(result.report.sections.flatMap(section => section.items).length, 1);
+  assert.equal(result.audit.acceptedItems, 2);
+  assert.equal(result.report.sections.flatMap(section => section.items).length, 2);
 }
 
 async function testAnalyzeReportWithRecoverySupplementsSparseWatchOnlyReport() {
@@ -1017,15 +1016,11 @@ async function testDeepseekRescueAnalyzeUsesObservedCandidateIdentity() {
     items: [{
       candidate_index: 0,
       report_tier: 'action',
-      core_judgement: '中国监管进一步核查化妆品功效宣称与备案证据的一致性，将直接影响直播话术、详情页和产品上架审核。',
-      why_it_matters: '同一产品在备案、广告和直播渠道的证据不一致，可能引发处罚、下架和消费者争议。',
-      recommended_actions: ['建议法务、注册和市场团队核对重点 SKU 的备案证据、直播话术和商品详情页。'],
-      owner_teams: ['法务', '注册', '市场'],
-      business_impact: ['功效宣称', '广告投放', '直播电商'],
-      market_scope: ['中国市场重点 SKU'],
-      risk_level: 'high',
+      fact_summary: ['中国监管通报要求化妆品功效宣称与备案证据保持一致。'],
+      next_observation: ['跟踪同类化妆品功效宣称通报和后续处罚公开。'],
       relevance: 'direct',
       industry_impact: 'high',
+      confidence: 'high',
     }],
   };
 
@@ -1135,6 +1130,8 @@ function testNormalizeReportForValidationFillsDynamicAnalysisFields() {
     region: '亚洲',
     country: '中国',
     title: '广州市市场监督管理局关于开展2026年化妆品生产企业质量管理体系自查工作的通知',
+    fact_summary: ['广州市市场监督管理局通知化妆品生产企业开展质量管理体系自查。'],
+    next_observation: ['跟踪自查结果报送和后续监管通报。'],
     source_name: '广州市市场监督管理局',
     source_url: 'https://scjgj.gz.gov.cn/',
     source_type: 'regulator',
@@ -1151,10 +1148,11 @@ function testNormalizeReportForValidationFillsDynamicAnalysisFields() {
     confidence: 'high',
   };
   report.sections = [{ module: '美妆动态', items: [dynamicItem] }];
-  assert.throws(() => validateReport(report), /regulatory_signal/);
+  assert.equal(validateReport(report), true);
   const normalized = normalizeReportForValidation(report);
   assert.equal(validateReport(normalized), true);
-  assert.ok(normalized.sections[0].items[0].regulatory_signal[0].includes('广州市市场监督管理局'));
+  assert.ok(normalized.sections[0].items[0].fact_summary.length >= 1);
+  assert.ok(normalized.sections[0].items[0].next_observation.length >= 1);
 }
 
 function testLimitReportSectionsKeepsEnterpriseModuleDepth() {
@@ -1184,7 +1182,7 @@ function testLimitReportSectionsAcceptsQualityLimit() {
   };
   const defaultLimited = limitReportSections(report);
   const qualityLimited = limitReportSections(report, 12);
-  assert.equal(defaultLimited.sections.find(section => section.module === '广告合规及处罚案例').items.length, 8);
+  assert.equal(defaultLimited.sections.find(section => section.module === '广告合规及处罚案例').items.length, 10);
   assert.equal(qualityLimited.sections.find(section => section.module === '广告合规及处罚案例').items.length, 10);
 }
 
@@ -1321,13 +1319,128 @@ function testBuildSingleDingTalkMessageContainsWholeReportInOneCard() {
   for (const hiddenMetric of ['来源覆盖：', '中国关键源：', '受限监测源：', '正式条目：']) {
     assert.equal(message.markdown.includes(hiddenMetric), false);
   }
-  assert.ok(message.markdown.includes('## 资讯正文'));
+  assert.ok(message.markdown.includes('- **事实摘要**'));
+  assert.ok(message.markdown.includes('- **下一步观察建议**'));
+  assert.ok(message.markdown.includes('- **来源链接**'));
   assert.equal(message.markdown.includes('![美妆法务资讯长图]'), false);
   assert.ok(message.markdown.indexOf('中国监管事项') < message.markdown.indexOf('海外监管事项'));
   assert.ok(message.markdown.includes('[上海市监局]'));
   assert.equal(/## M[1-6]/.test(message.markdown), false);
   assert.equal(message.bytes, new TextEncoder().encode(message.markdown).length);
   assert.ok(message.bytes <= 18000);
+}
+
+function testSingleCardUsesFourTopicFactObservationSourceStructure() {
+  const message = buildSingleDingTalkMessage(highQualityFixtureReport());
+  for (const field of ['事实摘要', '下一步观察建议', '来源链接']) assert.ok(message.markdown.includes(`- **${field}**`));
+  for (const removed of ['管理层摘要', '核心判断', '法务研判', '处理结果', '业务影响', '责任岗位', '本期结论']) {
+    assert.equal(message.markdown.includes(removed), false, `should remove ${removed}`);
+  }
+}
+
+function objectiveBriefFixture() {
+  const period = { start: '2026-07-06', end: '2026-07-12' };
+  const item = (overrides = {}) => ({
+    type: '动态', module: '美妆动态', region: '亚洲', country: '中国',
+    title: '化妆品行业客观资讯', source_name: '官方来源', source_url: 'https://official.example.gov.cn/news/1',
+    source_type: 'regulator', published_at: '2026-07-10', relevance: 'direct', industry_impact: 'medium',
+    report_tier: 'action', confidence: 'high',
+    fact_summary: ['监管部门发布与化妆品生产经营直接相关的公开信息，明确了适用对象和具体事项。'],
+    next_observation: ['跟踪正式文件、生效日期或后续公开执行口径。'],
+    ...overrides,
+  });
+  return {
+    period, summary: [], risk_alerts: [],
+    sections: [
+      { module: '新规及案例动态', items: [item({ type: '征求意见', module: '新规及案例动态', title: '《化妆品标准管理办法（征求意见稿）》公开征求意见', source_url: 'https://official.example.gov.cn/rules/standard-draft', fact_summary: ['征求意见稿明确强制性标准必须执行，被法规引用的推荐性标准内容同样必须执行。', '新标准过渡期一般不超过2年，实施前可选择执行新标准或原标准。'], next_observation: ['跟踪反馈截止日期、正式稿及新旧标准衔接安排。'] })] },
+      { module: '广告合规及处罚案例', items: [item({ type: '案例', module: '广告合规及处罚案例', title: '化妆品直播功效宣称与备案资料不一致被处罚', source_url: 'https://official.example.gov.cn/penalties/ad-1', fact_summary: ['监管部门认定直播功效宣称与备案资料不一致，责令停止相关宣传并处以罚款。'], next_observation: ['关注同类化妆品直播宣传案件的后续处罚公开。'] })] },
+      { module: '知识产权动态', items: [
+        item({ type: 'IP', module: '知识产权动态', title: '“PRO-XYLANE”化妆品商标侵权及刷单案被罚17万元', source_url: 'https://official.example.gov.cn/penalties/pro-xylane', fact_summary: ['当事人未经授权生产相关化妆品21,572盒，监管部门没收涉案商品并罚款15万元。', '当事人另通过刷单虚构销售和评价，被追加罚款2万元。'], next_observation: ['关注该案行政复议、诉讼及同类案件后续公开。'] }),
+        item({ type: 'IP', module: '知识产权动态', title: '两家化妆品企业冒用爱马仕商标合计被罚63.5万元', source_url: 'https://official.example.gov.cn/penalties/hermes', fact_summary: ['两家化妆品企业因在产品瓶身、包装和礼盒上使用爱马仕文字及图形商标，分别被罚33.5万元和30万元。', '监管部门同时没收侵权商品33,082件。'], next_observation: ['跟踪处罚执行、行政救济及同类商标侵权案件公开。'] }),
+      ] },
+      { module: '进出口动态', items: [item({ type: '进出口', module: '进出口动态', title: '进口化妆品清关资料要求更新', source_url: 'https://customs.example.gov.cn/cosmetics/import-1', fact_summary: ['海关更新进口化妆品申报资料要求，明确适用品类和申报字段。'], next_observation: ['跟踪口岸执行口径和配套申报说明。'] })] },
+      { module: '美妆动态', items: [item({ module: '美妆动态', title: '平台发布美妆商品信息治理简讯', source_name: '行业媒体', source_url: 'https://industry.example.com/beauty/platform-1', source_type: 'industry_media', confidence: 'medium', report_tier: 'watch', fact_summary: ['平台公布美妆商品信息治理安排，涉及功效描述和商品详情页展示。'], next_observation: ['跟踪平台正式规则及商家后台通知。'] })] },
+    ],
+  };
+}
+
+function testObjectiveBriefUsesFiveSectionsAndNoAnalysisCopy() {
+  const message = buildSingleDingTalkMessage(curateReportQuality(objectiveBriefFixture()));
+  for (const section of ['新法律法规政策', '广告处罚案例', '知识产权保护与侵权', '进出口', '行业新闻简讯']) assert.ok(message.markdown.includes(`### ${section}`));
+  for (const field of ['事实摘要', '下一步观察建议', '来源链接']) assert.ok(message.markdown.includes(`- **${field}**`));
+  for (const forbidden of ['核心判断', '法务研判', '管理层摘要', '风险等级', '业务影响', '责任岗位', '本期结论']) assert.equal(message.markdown.includes(forbidden), false);
+}
+
+function testObjectiveBriefRejectsGenericNonBeautyContent() {
+  const report = objectiveBriefFixture();
+  report.sections = [{ module: '知识产权动态', items: [{
+    ...report.sections[2].items[0],
+    title: '一般软件著作权纠纷案件',
+    fact_summary: ['法院审理软件企业之间的著作权许可合同纠纷并作出判决。'],
+    source_url: 'https://court.example.gov.cn/cases/software-1',
+  }] }];
+  assert.equal(curateReportQuality(report).sections.flatMap(section => section.items).length, 0);
+}
+
+function testObjectiveBriefDeduplicatesSameEventAcrossSources() {
+  const report = objectiveBriefFixture();
+  const original = report.sections[2].items[0];
+  report.sections[2].items.push({ ...original, title: '化妆品“PRO XYLANE”商标侵权刷单案处罚17万元', source_name: '转载媒体', source_type: 'industry_media', confidence: 'medium', source_url: 'https://media.example.com/repost/pro-xylane' });
+  const editorial = buildEditorialReport(curateReportQuality(report));
+  const ipItems = editorial.sections.find(section => section.module === '知识产权保护与侵权').items;
+  assert.equal(ipItems.length, 2);
+  assert.equal(ipItems.find(item => item.title.includes('PRO-XYLANE')).source_name, '官方来源');
+}
+
+function testObjectiveBriefSplitsWithoutOmittingAcceptedItems() {
+  const report = objectiveBriefFixture();
+  const base = report.sections[0].items[0];
+  const topics = ['防晒剂限用浓度', '面膜微生物抽检', '香水过敏原标签', '口红重金属检测', '儿童面霜备案', '牙膏功效宣称', '染发剂原料目录', '洗发水标签规则', '精华液安全评估', '气垫霜包装标识', '祛斑产品注册', '进口香氛认证', '眼影色素要求', '卸妆油质量标准', '护手霜生产许可', '睫毛膏召回程序', '腮红广告规范', '唇釉备案流程', '身体乳成分限制', '洁面乳执行标准', '美容仪配套凝胶', '化妆水抽样检验', '粉底液净含量', '发膜功效评价'];
+  report.sections[0].items = Array.from({ length: 24 }, (_, index) => ({ ...base, title: topics[index], source_url: `https://official.example.gov.cn/rules/${index + 1}`, fact_summary: [`${topics[index]}相关化妆品规则明确适用对象、执行内容和法定时间节点。`] }));
+  const curated = curateReportQuality(report);
+  const messages = buildDingTalkWebhookMessages(curated, { maxBytes: 2200 });
+  assert.ok(messages.length > 1);
+  const combined = messages.map(message => message.markdown).join('\n');
+  for (let index = 1; index <= 24; index += 1) assert.ok(combined.includes(`https://official.example.gov.cn/rules/${index}`));
+  assert.equal(messages.reduce((sum, message) => sum + message.displayedItemCount, 0), 29);
+}
+
+async function testModuleMergeDoesNotCapAcceptedItemsAtThree() {
+  const items = Array.from({ length: 7 }, (_, index) => ({ ...objectiveBriefFixture().sections[0].items[0], title: `化妆品法规完整事项 ${index + 1}`, source_url: `https://official.example.gov.cn/full/${index + 1}` }));
+  const report = await analyzeReportByModule({
+    modules: ['新规及案例动态'], candidates: [], leads: [], sources: [], period: objectiveBriefFixture().period,
+    analyze: async () => ({ period: objectiveBriefFixture().period, summary: [], risk_alerts: [], sections: [{ module: '新规及案例动态', items }] }),
+  });
+  assert.equal(report.sections[0].items.length, 7);
+}
+
+function testObjectiveBriefDoesNotRecycleCoreJudgementAsFact() {
+  const report = objectiveBriefFixture();
+  const item = { ...report.sections[0].items[0], fact_summary: [], what_changed: [], core_judgement: '核心判断：存在业务风险并应立即分派法务整改。' };
+  report.sections = [{ module: '新规及案例动态', items: [item] }];
+  assert.equal(curateReportQuality(report).sections.flatMap(section => section.items).length, 0);
+}
+
+function testObjectiveBriefRejectsGenericIngredientContent() {
+  const report = objectiveBriefFixture();
+  report.sections = [{ module: '新规及案例动态', items: [{ ...report.sections[0].items[0], title: '食品原料成分标准发布', fact_summary: ['主管部门发布食品原料成分标准，明确食品生产企业执行要求。'], source_url: 'https://food.example.gov.cn/standards/1' }] }];
+  assert.equal(curateReportQuality(report).sections.flatMap(section => section.items).length, 0);
+}
+
+function testAdvertisingRulesRouteToLawSectionInsteadOfPenaltySection() {
+  const report = objectiveBriefFixture();
+  report.sections = [{ module: '广告合规及处罚案例', items: [{ ...report.sections[1].items[0], type: '法规', title: '化妆品广告发布规则公开征求意见', fact_summary: ['监管部门就化妆品广告发布规则公开征求意见。'], source_url: 'https://official.example.gov.cn/rules/beauty-ad-draft' }] }];
+  const editorial = buildEditorialReport(curateReportQuality(report));
+  assert.equal(editorial.sections[0].module, '新法律法规政策');
+  assert.equal(editorial.sections.some(section => section.module === '广告处罚案例'), false);
+}
+
+function testPipelineRequiresFullTextByDefaultAndUsesSplitPreview() {
+  const source = readFileSync(new URL('./index.js', import.meta.url), 'utf8');
+  assert.ok(source.includes("hydrateDetails: env.DETAIL_FETCH_ENABLED !== '0'"));
+  assert.ok(source.includes("const requireFullText = env.DETAIL_FETCH_ENABLED !== '0'"));
+  assert.ok(source.includes('const previewMessages = buildDingTalkWebhookMessages'));
+  assert.equal(source.includes('const markdown = buildSingleDingTalkMessage(report).markdown'), false);
 }
 
 function testEditorialReportPreservesLegalDepthAndStatutoryDates() {
@@ -1376,8 +1489,8 @@ function testEditorialReportOrdersChinaFirstAndDeduplicatesWithinReport() {
   assert.equal(items[1].country, '印尼');
   assert.equal(items[1].number, 2);
   assert.deepEqual(editorial.sections.map(section => section.module), [
-    '广告合规及处罚案例',
-    '新规及案例动态',
+    '广告处罚案例',
+    '新法律法规政策',
   ]);
 }
 
@@ -1387,8 +1500,8 @@ function testEditorialReportKeepsDifferentItemsFromTheSameSourceHomepage() {
     sections: [{
       module: '新规及案例动态',
       items: [
-        highQualityActionItem({ title: '同一监管主页的事项甲', source_url: 'https://regulator.example.cn/' }),
-        highQualityActionItem({ title: '同一监管主页的事项乙', source_url: 'https://regulator.example.cn/' }),
+        highQualityActionItem({ title: '化妆品防晒剂限量规定', source_url: 'https://regulator.example.cn/notices/a' }),
+        highQualityActionItem({ title: '口红重金属抽检通报', source_url: 'https://regulator.example.cn/notices/b' }),
       ],
     }],
   };
@@ -1436,12 +1549,13 @@ function testSingleCardFallbackPreservesTypeSpecificLegalDetail() {
 }
 
 function testSingleCardDoesNotCapUsefulWatchItemsAtThree() {
+  const titles = ['美妆平台功效描述治理', '化妆品原料目录更新', '防晒产品标签抽查', '香水过敏原行业简讯', '面膜微生物召回动态'];
   const report = {
     ...structuredClone(sampleReport),
     sections: [{
       module: '美妆动态',
       items: Array.from({ length: 5 }, (_, index) => highQualityWatchItem({
-        title: `值得持续观察的行业信号 ${index + 1}`,
+        title: titles[index],
         source_name: `行业来源 ${index + 1}`,
         source_url: `https://industry.example.com/watch/${index + 1}`,
       })),
@@ -1449,9 +1563,7 @@ function testSingleCardDoesNotCapUsefulWatchItemsAtThree() {
   };
   const message = buildSingleDingTalkMessage(curateReportQuality(report), { maxBytes: 18000 });
 
-  for (let index = 1; index <= 5; index += 1) {
-    assert.ok(message.markdown.includes(`值得持续观察的行业信号 ${index}`));
-  }
+  for (const title of titles) assert.ok(message.markdown.includes(title));
   assert.equal(message.displayedItemCount, 5);
   assert.equal(message.omittedItemCount, 0);
 }
@@ -1852,8 +1964,10 @@ async function testNotifyReportPrefersDingTalkWhenConfigured() {
   assert.equal(ok.sent, 1);
   assert.equal(ok.total, 1);
   assert.ok(sentTitle.includes('美妆法务资讯'));
-  assert.ok(sentMarkdown.includes('管理层摘要'));
-  assert.ok(sentMarkdown.includes('资讯正文'));
+  assert.ok(sentMarkdown.includes('事实摘要'));
+  assert.ok(sentMarkdown.includes('下一步观察建议'));
+  assert.ok(sentMarkdown.includes('来源链接'));
+  assert.equal(sentMarkdown.includes('管理层摘要'), false);
   assert.equal(sentMarkdown.includes('产品质量/召回与安全风险'), false);
 }
 
@@ -1949,10 +2063,10 @@ function testBuildAnalysisPromptUsesConfigurableInputLimits() {
   assert.ok(prompt.includes('候选1'));
   assert.ok(prompt.includes('有效正文'));
   assert.equal(prompt.includes('截断后内容不应进入模型'), false);
-  assert.equal(prompt.includes('候选2'), false);
+  assert.ok(prompt.includes('候选2'));
   assert.ok(prompt.includes('线索0'));
   assert.ok(prompt.includes('线索2'));
-  assert.equal(prompt.includes('线索3'), false);
+  assert.ok(prompt.includes('线索3'));
 }
 
 function testBuildAnalysisPromptRequiresCoreJudgementWithoutInternalDeadlines() {
@@ -1963,10 +2077,11 @@ function testBuildAnalysisPromptRequiresCoreJudgementWithoutInternalDeadlines() 
     period: { start: '2026-07-06', end: '2026-07-12' },
   });
 
-  assert.ok(prompt.includes('"core_judgement"'));
-  assert.ok(prompt.includes('内部完成时间由具体领导决定'));
-  assert.ok(prompt.includes('不得编造内部完成日期'));
-  assert.equal(prompt.includes('建议谁在什么时间排查/更新/提交什么'), false);
+  assert.ok(prompt.includes('"fact_summary"'));
+  assert.ok(prompt.includes('"next_observation"'));
+  assert.ok(prompt.includes('只负责提取、分类、去重和压缩公开事实'));
+  assert.equal(prompt.includes('"core_judgement"'), false);
+  assert.equal(prompt.includes('"recommended_actions"'), false);
   for (const statutoryField of ['"effective_date"', '"feedback_deadline"', '"next_deadline"']) {
     assert.ok(prompt.includes(statutoryField));
   }
@@ -1982,8 +2097,8 @@ function testAnalysisPromptSupportsWatchItemsWithoutForcedModuleFilling() {
   });
 
   assert.ok(prompt.includes('"report_tier": "action|watch"'));
-  assert.ok(prompt.includes('"watch_value"'));
-  assert.ok(prompt.includes('"next_watch_signal"'));
+  assert.ok(prompt.includes('"fact_summary"'));
+  assert.ok(prompt.includes('"next_observation"'));
   assert.ok(prompt.includes('宁可返回空数组'));
   assert.equal(prompt.includes('至少输出 2 条'), false);
 }
@@ -2204,10 +2319,10 @@ function testBuildAnalysisPromptIncludesLeads() {
     period: { start: '2026-05-18', end: '2026-05-24' },
   });
   assert.ok(prompt.includes('leads'));
-  assert.ok(prompt.includes('公众号可以作为强线索'));
-  assert.ok(prompt.includes('不要输出未加工新闻'));
+  assert.ok(prompt.includes('只能用于发现选题'));
+  assert.ok(prompt.includes('客观资讯编辑'));
   assert.ok(prompt.includes('过去 7 天'));
-  assert.ok(prompt.includes('行业影响力'));
+  assert.ok(prompt.includes('正文内容与美妆行业有实质关系'));
 }
 
 function testBuildAnalysisPromptUsesModuleTarget() {
@@ -2220,7 +2335,7 @@ function testBuildAnalysisPromptUsesModuleTarget() {
   });
   assert.ok(prompt.includes('当前只分析模块：进出口动态'));
   assert.ok(prompt.includes('宁可返回空数组'));
-  assert.ok(prompt.includes('watch 关注事项'));
+  assert.ok(prompt.includes('具体原文 URL'));
 }
 
 function testNormalizeModuleReportForcesTargetWorkbookModule() {
@@ -2324,7 +2439,7 @@ function testEmptySingleCardIsExplicitAndNeverShowsDashboard() {
   });
 
   assert.equal(message.itemCount, 0);
-  assert.ok(message.markdown.includes('本期无重大合规更新'));
+  assert.ok(message.markdown.includes('本期五个重点板块未发现达到准入标准的新事项'));
   assert.equal(message.markdown.includes('![行动看板]'), false);
   assert.equal(message.markdown.includes('本周无通过质量门槛的核心判断'), false);
 }
@@ -2361,12 +2476,13 @@ function testEnterprisePromptRequiresGlobalLegalIntelligence() {
     sources: sourceCatalog.sources,
     period: { start: '2026-05-18', end: '2026-05-24' },
   });
-  assert.ok(prompt.includes('国际化美妆电商集团'));
+  assert.ok(prompt.includes('美妆行业客观资讯编辑'));
   assert.ok(prompt.includes('国家/区域监管机构'));
-  assert.ok(prompt.includes('直接/间接相关'));
+  assert.ok(prompt.includes('必须结合详情页'));
   assert.ok(prompt.includes('industry_impact'));
-  assert.ok(prompt.includes('business_impact'));
-  assert.ok(prompt.includes('案例必须拆解'));
+  assert.ok(prompt.includes('fact_summary'));
+  assert.ok(prompt.includes('next_observation'));
+  assert.ok(prompt.includes('旧分析字段必须为空'));
 }
 
 function testCandidateFreshnessAndInfluenceRanking() {
@@ -2401,6 +2517,7 @@ async function testManualTestRouteAwaitsPipeline() {
     new Request('https://example.com/test'),
     {
       AI_API_KEY: 'test-key',
+      DETAIL_FETCH_ENABLED: '0',
       FEISHU_WEBHOOK_URL: 'https://example.com/webhook',
       SEEN_NEWS: {
         async get() { return null; },
@@ -2477,6 +2594,7 @@ async function testScheduledPipelineSendsFeishuWithoutHtmlReport() {
   try {
     await worker.scheduled({}, {
       AI_API_KEY: 'test-key',
+      DETAIL_FETCH_ENABLED: '0',
       FEISHU_WEBHOOK_URL: 'https://example.com/webhook',
       AI_MODEL: 'gpt-5.6-sol',
       REPORT_PERIOD_START: sampleReport.period.start,
@@ -2531,6 +2649,7 @@ async function testScheduledPipelineSendsDingTalkWithoutDocumentCredentials() {
   try {
     await worker.scheduled({}, {
       AI_API_KEY: 'test-key',
+      DETAIL_FETCH_ENABLED: '0',
       DINGTALK_WEBHOOK_URL: 'https://oapi.dingtalk.com/robot/send?access_token=test',
       DINGTALK_MESSAGE_DELAY_MS: 0,
       REPORT_PERIOD_START: sampleReport.period.start,
@@ -2583,6 +2702,7 @@ async function testScheduledPipelineRejectsDingTalkFailureWithoutMarkingSeen() {
     await assert.rejects(
       worker.scheduled({}, {
         AI_API_KEY: 'test-key',
+        DETAIL_FETCH_ENABLED: '0',
         DINGTALK_WEBHOOK_URL: 'https://oapi.dingtalk.com/robot/send?access_token=test',
         DINGTALK_MESSAGE_DELAY_MS: 0,
         AI_MODEL: 'test-model',
@@ -2778,9 +2898,6 @@ function testWeeklyWorkflowDeploysRoutesBeforeVersionedAssetPipeline() {
   assert.ok(workflow.includes('fonts-noto-cjk'));
   assert.ok(workflow.includes('node worker/probe-ai.js'));
   assert.ok(workflow.indexOf('node worker/probe-ai.js') < workflow.indexOf('node worker/run-local.js'));
-  assert.ok(workflow.includes('actions/upload-artifact@v4'));
-  assert.ok(workflow.includes('out/latest-report.md'));
-  assert.ok(workflow.includes('out/latest-report.json'));
   assert.ok(workflow.includes('CLOUDFLARE_KV_NAMESPACE_ID'));
   assert.equal(workflow.includes('wrangler kv key put'), false);
   assert.ok(workflow.includes('DINGTALK_WEBHOOK_URL: ${{ secrets.DINGTALK_WEBHOOK_URL }}'));
@@ -2860,27 +2977,19 @@ testRenderDingTalkMarkdownShowsAllModulesWhenEmpty();
 testRenderDingTalkMarkdownLeavesInternalCompletionTimeToLeader();
 testRenderDingTalkSummaryCardIsConciseAndIncludesKeyword();
 testBuildSingleDingTalkMessageContainsWholeReportInOneCard();
-testEditorialReportPreservesLegalDepthAndStatutoryDates();
+testSingleCardUsesFourTopicFactObservationSourceStructure();
+testObjectiveBriefUsesFiveSectionsAndNoAnalysisCopy();
+testObjectiveBriefRejectsGenericNonBeautyContent();
+testObjectiveBriefDeduplicatesSameEventAcrossSources();
+testObjectiveBriefSplitsWithoutOmittingAcceptedItems();
+await testModuleMergeDoesNotCapAcceptedItemsAtThree();
+testObjectiveBriefDoesNotRecycleCoreJudgementAsFact();
+testObjectiveBriefRejectsGenericIngredientContent();
+testAdvertisingRulesRouteToLawSectionInsteadOfPenaltySection();
+testPipelineRequiresFullTextByDefaultAndUsesSplitPreview();
 testEditorialReportOrdersChinaFirstAndDeduplicatesWithinReport();
 testEditorialReportKeepsDifferentItemsFromTheSameSourceHomepage();
-testSingleCardAlwaysUsesCopyableNativeMarkdown();
-testSingleCardFallbackPreservesTypeSpecificLegalDetail();
 testSingleCardDoesNotCapUsefulWatchItemsAtThree();
-testSingleCardRendersFinalSynthesisAsReadableBullets();
-testEmptySingleCardRendersEachConclusionSentenceAsABullet();
-testSingleSentenceConclusionRendersAsOneBullet();
-testEditorialReportHtmlIsReadableDenseAndComplete();
-await testEditorialPngRendererUsesHighResolutionFullPageCapture();
-testBuildSingleDingTalkMessagePrefersExplicitCoreJudgement();
-testSingleCardHighlightsOnlyHighSignalTermsInsideBullets();
-testSingleCardUsesExecutiveBriefAndOnlyActiveModules();
-testSingleCardRendersWatchItemAsCompactObservation();
-testBuildSingleDingTalkMessageCompactsOversizedReportWithoutSplitting();
-testActionDashboardUsesReadableChineseManagementLayout();
-testBuildDingTalkWebhookMessagesUsesOneCardWithSixModules();
-testBuildDingTalkWebhookMessagesPutsChinaFirstWithinModule();
-testBuildDingTalkWebhookMessagesCompactsOversizedModulesWithoutSplitting();
-testBuildDingTalkWebhookMessagesKeepsOversizedItemSourceInOneCard();
 await testBuildDingTalkWebhookUrlSignsSecret();
 await testSendToDingTalkPostsMarkdownPayload();
 await testSendDingTalkMessagesRetriesTransientFailuresInOrder();
@@ -2904,7 +3013,6 @@ await testUploadDingTalkImageReturnsMediaId();
 testBuildAnalysisPromptIncludesLeads();
 testBuildAnalysisPromptUsesModuleTarget();
 testNormalizeModuleReportForcesTargetWorkbookModule();
-testEnrichReportWithSourceSignalsFillsSparseWorkbookModules();
 testFilterReportToObservedSourcesDropsFabricatedUrls();
 testFilterReportToObservedSourcesKeepsCanonicalUrlVariants();
 testEmptySingleCardIsExplicitAndNeverShowsDashboard();

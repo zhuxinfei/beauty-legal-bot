@@ -1,7 +1,6 @@
 import { buildEditorialReport } from './editorial-report.js';
-import { REPORT_MODULES } from './report-quality.js';
 
-export const DINGTALK_REPORT_MODULES = REPORT_MODULES;
+export const DINGTALK_REPORT_MODULES = ['新法律法规政策', '广告处罚案例', '知识产权保护与侵权', '进出口', '行业新闻简讯'];
 
 const encoder = new TextEncoder();
 const EMPHASIS_PATTERN = [
@@ -69,25 +68,10 @@ function pushListField(lines, label, value, limit, count = 2, emphasize = false)
   lines.push(`- **${markdownText(label, 20)}**`, ...items.map(item => `  - ${renderItem(item, limit)}`));
 }
 
-function riskLabel(value) {
-  if (value === 'high') return '**高风险**';
-  if (value === 'medium') return '中风险';
-  return '一般关注';
-}
-
 function sourceLink(item) {
   const title = markdownText(item.source_name || item.title || '查看原文', 60);
   const url = String(item.source_url || '').trim();
   return /^https?:\/\//i.test(url) ? `[${title}](${url})` : title;
-}
-
-function renderManagementSummary(editorial) {
-  if (!editorial.management_conclusions.length) return [];
-  return [
-    '',
-    '## 管理层摘要',
-    ...editorial.management_conclusions.map((item, index) => `${index + 1}. ${markdownText(item, 220)}`),
-  ];
 }
 
 export function splitConclusionPoints(value, maxPoints = 5) {
@@ -108,59 +92,18 @@ export function splitConclusionPoints(value, maxPoints = 5) {
   return [...points.slice(0, maxPoints - 1), points.slice(maxPoints - 1).join('')];
 }
 
-function renderConclusion(value) {
-  const points = splitConclusionPoints(value);
-  return ['', '## 本期结论', ...points.map(point => `- ${point}`)];
-}
-
-function freshnessLabel(item) {
-  return item.freshness_reason || ({
-    'current-week': '本周发布',
-    'current-week-update': '本周更新',
-    'historical-node': '历史规则·本期节点',
-    'historical-ongoing': '历史规则·持续执行',
-    'historical-action': '历史规则·未关闭行动',
-    'date-unknown': '发布时间待核验',
-  }[item.freshness_status] || '发布时间待核验');
-}
-
 function renderEditorialItem(item, tier = 'full') {
   const compact = tier === 'compact';
-  if (tier === 'minimal') {
-    const lines = [`#### ${item.number}. ${markdownText(item.title, 60)}`];
-    pushListField(lines, '核心判断', item.summary, 100, 1, true);
-    lines.push('- **来源**', `  - ${sourceLink(item)}｜${markdownText(item.published_at, 16)}｜${freshnessLabel(item)}`);
-    return lines.join('\n');
-  }
-  const lines = [
-    `#### ${item.number}. ${markdownText(item.title, compact ? 70 : 110)}`,
-    `> ${markdownText(item.country, 20)}｜${riskLabel(item.risk_level)}｜${item.report_tier === 'watch' ? '持续观察' : '行动事项'}`,
-  ];
-  pushListField(lines, '核心判断', item.summary, compact ? 150 : 260, 1, true);
-  pushListField(lines, '事实摘要', item.facts, compact ? 100 : 180, compact ? 1 : 2, true);
-  pushListField(lines, '法务研判', item.legal_analysis, compact ? 100 : 180, compact ? 1 : 2, true);
-  pushListField(lines, '处理结果', item.results, compact ? 90 : 160, compact ? 1 : 2, true);
-  pushListField(lines, item.practical_label || '执行提示', item.practical_insights, compact ? 90 : 150, compact ? 1 : 2, true);
-  pushListField(lines, '业务影响', item.business_impact, 45, compact ? 2 : 4);
-  if (item.statutory_date && item.statutory_date !== '未知') {
-    pushListField(lines, '法定节点', item.statutory_date, 40, 1, true);
-  }
-  if (item.report_tier === 'watch') {
-    pushListField(lines, '关注价值', item.watch_value || item.why_it_matters, compact ? 110 : 190, 1, true);
-    pushListField(lines, '下一观察点', item.next_watch_signal, compact ? 100 : 170, 1, true);
-  } else {
-    pushListField(lines, '建议动作', item.recommended_actions, compact ? 100 : 170, compact ? 1 : 2, true);
-    const owners = listItems(item.owner_teams, 20, 4);
-    if (owners.length) {
-      lines.push('- **责任岗位**', ...owners.map(owner => `  - ${markdownText(owner, 20)}`), '  - 完成时间：由责任领导确定');
-    }
-  }
-  lines.push('- **来源**', `  - ${sourceLink(item)}｜${markdownText(item.published_at, 16)}｜${freshnessLabel(item)}`);
+  const minimal = tier === 'minimal';
+  const lines = [`#### ${item.number}. ${markdownText(item.title, minimal ? 60 : compact ? 80 : 110)}`];
+  pushListField(lines, '事实摘要', item.facts, minimal ? 90 : compact ? 120 : 200, minimal || compact ? 1 : 2, true);
+  pushListField(lines, '下一步观察建议', item.observation, minimal ? 80 : compact ? 110 : 180, minimal || compact ? 1 : 2, true);
+  lines.push('- **来源链接**', `  - ${sourceLink(item)}`);
   return lines.join('\n');
 }
 
 function renderFallbackBody(editorial, tiers, removed) {
-  const lines = ['', '## 资讯正文'];
+  const lines = [];
   for (const section of editorial.sections) {
     const items = section.items.filter(item => !removed.has(item.number));
     if (!items.length) continue;
@@ -173,19 +116,12 @@ function renderFallbackBody(editorial, tiers, removed) {
 function renderMessage(editorial, { tiers, removed }) {
   const lines = [`# 美妆法务资讯｜${editorial.period?.end || '本期'}`];
   if (!editorial.item_count) {
-    lines.push(
-      ...renderConclusion('本期无重大合规更新。六大板块已完成监测，暂未发现达到行动或持续观察准入标准的新事项。'),
-      '',
-      '> 公开来源可核验；仅供内部合规研判，不替代正式法律意见。',
-    );
+    lines.push('', '本期五个重点板块未发现达到准入标准的新事项。');
     return lines.join('\n').replace(/\n{3,}/g, '\n\n').trim();
   }
 
-  lines.push(...renderManagementSummary(editorial));
   lines.push(...renderFallbackBody(editorial, tiers, removed));
-  lines.push(...renderConclusion(editorial.final_synthesis));
   if (removed.size) lines.push('', `> 受消息长度限制，已省略 ${removed.size} 条低优先级事项；来源原文仍保留在采集存档中。`);
-  lines.push('', '> 公开来源可核验；仅供内部合规研判，不替代正式法律意见。');
   return lines.join('\n').replace(/\n{3,}/g, '\n\n').trim();
 }
 
@@ -212,21 +148,9 @@ export function buildSingleDingTalkMessage(report, {
     markdown = build();
   }
 
-  let remaining = items.length;
-  for (const item of lowPriorityFirst) {
-    if (utf8Bytes(markdown) <= byteLimit) break;
-    if (remaining <= 1) break;
-    removed.add(item.number);
-    remaining -= 1;
-    markdown = build();
-  }
-
   if (utf8Bytes(markdown) > byteLimit) {
-    const retained = items.find(item => !removed.has(item.number));
-    if (retained) {
-      tiers.set(retained.number, 'minimal');
-      markdown = build();
-    }
+    for (const item of items) tiers.set(item.number, 'minimal');
+    markdown = build();
   }
 
   const bytes = utf8Bytes(markdown);
@@ -240,4 +164,73 @@ export function buildSingleDingTalkMessage(report, {
     displayedItemCount: editorial.item_count - removed.size,
     omittedItemCount: removed.size,
   };
+}
+
+function messageFromEditorial(editorial, byteLimit, index, total) {
+  const items = editorial.sections.flatMap(section => section.items);
+  const tiers = new Map(items.map(item => [item.number, 'full']));
+  const removed = new Set();
+  let markdown = renderMessage(editorial, { tiers, removed });
+  if (utf8Bytes(markdown) > byteLimit) {
+    for (const item of items) tiers.set(item.number, 'compact');
+    markdown = renderMessage(editorial, { tiers, removed });
+  }
+  if (utf8Bytes(markdown) > byteLimit) {
+    for (const item of items) tiers.set(item.number, 'minimal');
+    markdown = renderMessage(editorial, { tiers, removed });
+  }
+  if (utf8Bytes(markdown) > byteLimit) throw new Error(`DingTalk report segment exceeds byte budget: ${utf8Bytes(markdown)}/${byteLimit}`);
+  return {
+    id: total > 1 ? `weekly-report-${index + 1}` : 'weekly-report',
+    title: `美妆法务资讯｜${editorial.period?.end || '本期'}${total > 1 ? `（${index + 1}/${total}）` : ''}`,
+    markdown,
+    bytes: utf8Bytes(markdown),
+    itemCount: items.length,
+    displayedItemCount: items.length,
+  };
+}
+
+export function buildDingTalkMessages(report, { maxBytes = 18000 } = {}) {
+  const byteLimit = Math.max(1200, Number(maxBytes || 18000));
+  try {
+    return [buildSingleDingTalkMessage(report, { maxBytes: byteLimit })];
+  } catch {}
+
+  const editorial = buildEditorialReport(report);
+  const chunks = [];
+  let current = [];
+  const renderSize = sections => utf8Bytes(renderMessage({ ...editorial, sections, item_count: sections.reduce((sum, section) => sum + section.items.length, 0) }, {
+    tiers: new Map(sections.flatMap(section => section.items).map(item => [item.number, 'minimal'])),
+    removed: new Set(),
+  }));
+
+  for (const section of editorial.sections) {
+    const candidate = [...current, section];
+    if (current.length && renderSize(candidate) > byteLimit) {
+      chunks.push(current);
+      current = [];
+    }
+    if (renderSize([section]) <= byteLimit) {
+      current.push(section);
+      continue;
+    }
+    let itemChunk = [];
+    for (const item of section.items) {
+      const next = [...itemChunk, item];
+      const partial = [{ ...section, items: next }];
+      if (itemChunk.length && renderSize(partial) > byteLimit) {
+        chunks.push([{ ...section, items: itemChunk }]);
+        itemChunk = [item];
+      } else {
+        itemChunk = next;
+      }
+    }
+    if (itemChunk.length) chunks.push([{ ...section, items: itemChunk }]);
+  }
+  if (current.length) chunks.push(current);
+  return chunks.map((sections, index) => messageFromEditorial({
+    ...editorial,
+    sections,
+    item_count: sections.reduce((sum, section) => sum + section.items.length, 0),
+  }, byteLimit, index, chunks.length));
 }

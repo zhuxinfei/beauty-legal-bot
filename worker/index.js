@@ -13,10 +13,10 @@
  */
 
 import sourceCatalog from './sources.json' with { type: 'json' };
-import { buildSingleDingTalkMessage } from './dingtalk-single-card.js';
+import { buildDingTalkMessages } from './dingtalk-single-card.js';
 import { buildActionDashboardSvg } from './action-dashboard.js';
 import { classifyFreshness, filterCandidatesByFreshness } from './freshness.js';
-import { curateReportQuality, curateReportQualityWithAudit } from './report-quality.js';
+import { curateReportQuality, curateReportQualityWithAudit, objectiveFacts, objectiveObservation } from './report-quality.js';
 import {
   assertSourceCoverage,
   calculateSourceCoverage,
@@ -82,7 +82,7 @@ const TYPE_REQUIRED_FIELDS = {
   '进出口': ['market_access_change', 'affected_import_flow', 'documents_needed', 'recommended_actions', 'owner_teams', 'risk_level', 'why_it_matters', 'confidence'],
   '动态': ['regulatory_signal', 'compliance_meaning', 'possible_follow_up', 'recommended_actions', 'owner_teams', 'risk_level', 'why_it_matters', 'confidence'],
 };
-const ENTERPRISE_REQUIRED_FIELDS = ['source_type', 'relevance', 'industry_impact', 'business_impact', 'market_scope', 'core_judgement'];
+const OBJECTIVE_REQUIRED_FIELDS = ['source_type', 'relevance', 'industry_impact', 'fact_summary', 'next_observation', 'confidence'];
 
 // ---------------------------------------------------------------------------
 // AI：一站式搜索 + 分析 + 格式化（OpenAI-compatible API）
@@ -663,9 +663,9 @@ function renderDingTalkModuleDelivery(report, module, maxBytes) {
  * 字节预算由单卡渲染器统一负责，发送层不能再把超长报告静默拆成多张卡。
  */
 export function buildDingTalkWebhookMessages(report, options = {}) {
-  return [buildSingleDingTalkMessage(report, {
+  return buildDingTalkMessages(report, {
     maxBytes: options.maxBytes,
-  })];
+  });
 }
 
 export function renderDingTalkMarkdown(report, options = {}) {
@@ -1064,7 +1064,7 @@ export async function notifyReport({ report, reportUrl: latestUrl, env, sendDing
       messages,
       webhookUrl: env.DINGTALK_WEBHOOK_URL,
       secret: env.DINGTALK_SECRET || '',
-      interMessageDelayMs: 0,
+      interMessageDelayMs: env.DINGTALK_MESSAGE_DELAY_MS ?? 1200,
       sendMessage: sendDingTalk === sendToDingTalk ? undefined : message => sendDingTalk({
         webhookUrl: env.DINGTALK_WEBHOOK_URL,
         secret: env.DINGTALK_SECRET || '',
@@ -1122,8 +1122,10 @@ export async function runPipeline(env, requestUrl = 'https://beauty-legal-bot.wo
       timeoutMs: Number(env.SOURCE_FETCH_TIMEOUT_MS || SOURCE_FETCH_TIMEOUT_MS),
       sleepFn: env.SOURCE_RETRY_SLEEP,
       jitter: env.SOURCE_RETRY_JITTER,
-      hydrateDetails: env.DETAIL_FETCH_ENABLED === '1',
-      detailLimit: Number(env.DETAIL_CANDIDATE_LIMIT || DETAIL_CANDIDATE_LIMIT),
+      hydrateDetails: env.DETAIL_FETCH_ENABLED !== '0',
+      detailLimit: qualityMode
+        ? Math.max(Number(env.DETAIL_CANDIDATE_LIMIT || DETAIL_CANDIDATE_LIMIT), 160)
+        : Number(env.DETAIL_CANDIDATE_LIMIT || DETAIL_CANDIDATE_LIMIT),
       detailTimeoutMs: Number(env.DETAIL_FETCH_TIMEOUT_MS || DETAIL_FETCH_TIMEOUT_MS),
       detailConcurrency: Number(env.DETAIL_FETCH_CONCURRENCY || DETAIL_FETCH_CONCURRENCY),
       detailBrowserRecoveryLimit: Number(env.DETAIL_BROWSER_RECOVERY_LIMIT || DETAIL_BROWSER_RECOVERY_LIMIT),
@@ -1135,8 +1137,12 @@ export async function runPipeline(env, requestUrl = 'https://beauty-legal-bot.wo
     const period = env.REPORT_PERIOD_END
       ? { start: env.REPORT_PERIOD_START || env.REPORT_PERIOD_END, end: env.REPORT_PERIOD_END }
       : getPeriod();
-    const candidates = filterCandidatesByFreshness(fetchedCandidates, period);
-    console.log(`[stage 1/5] 完成，候选 ${fetchedCandidates.length} 条，时效准入 ${candidates.length} 条，线索 ${leads.length} 条，恢复源 ${sourceResults.filter(result => result.status === 'recovered').length} 个，失败源 ${failures.length} 个，覆盖率 ${(coverage.overall * 100).toFixed(1)}%`);
+    const freshCandidates = filterCandidatesByFreshness(fetchedCandidates, period);
+    const requireFullText = env.DETAIL_FETCH_ENABLED !== '0';
+    const candidates = requireFullText
+      ? freshCandidates.filter(candidate => candidate.detail_status === 'hydrated')
+      : freshCandidates;
+    console.log(`[stage 1/5] 完成，候选 ${fetchedCandidates.length} 条，时效准入 ${freshCandidates.length} 条，全文准入 ${candidates.length} 条，线索 ${leads.length} 条，恢复源 ${sourceResults.filter(result => result.status === 'recovered').length} 个，失败源 ${failures.length} 个，覆盖率 ${(coverage.overall * 100).toFixed(1)}%`);
 
     console.log("[stage 2/5] AI 结构化分析...");
     const analysis = await analyzeReportWithRecovery({
@@ -1177,7 +1183,8 @@ export async function runPipeline(env, requestUrl = 'https://beauty-legal-bot.wo
       ? "[stage 3/5] 生成单条原生 Markdown 报告..."
       : "[stage 3/5] 无准入事项，生成文字简报...");
     const generatedAt = new Date().toISOString();
-    const markdown = buildSingleDingTalkMessage(report).markdown;
+    const previewMessages = buildDingTalkWebhookMessages(report, { maxBytes: env.DINGTALK_MAX_BYTES });
+    const markdown = previewMessages.map(message => message.markdown).join('\n\n---\n\n');
     if (typeof env.ON_REPORT_READY === 'function') {
       await env.ON_REPORT_READY({ report, markdown, generatedAt, failures, sourceResults, coverage });
     }
@@ -1580,13 +1587,7 @@ function hasValue(value) {
 }
 
 export function getRequiredFields(item) {
-  const required = [
-    ...(TYPE_REQUIRED_FIELDS[item.type] || ['recommended_actions', 'owner_teams', 'risk_level', 'why_it_matters', 'confidence']),
-    ...ENTERPRISE_REQUIRED_FIELDS,
-  ];
-  return item.report_tier === 'watch'
-    ? required.filter(field => field !== 'recommended_actions')
-    : required;
+  return OBJECTIVE_REQUIRED_FIELDS;
 }
 
 export function hasSpecificActions(item) {
@@ -1612,33 +1613,22 @@ export function validateReport(report) {
   for (const section of report.sections) {
     if (!section.module) throw new Error('section.module missing');
     if (!Array.isArray(section.items)) throw new Error('section.items must be array');
-    for (const item of section.items) {
+    for (const rawItem of section.items) {
+      const item = {
+        ...rawItem,
+        fact_summary: objectiveFacts(rawItem),
+        next_observation: objectiveObservation(rawItem),
+      };
       for (const field of ['title', 'type', 'source_name', 'source_url', 'region', 'country']) {
         if (!hasValue(item[field])) throw new Error(`${field} missing: ${item.title || 'unknown'}`);
       }
       for (const field of getRequiredFields(item)) {
         if (!hasValue(item[field])) throw new Error(`${field} missing: ${item.title || 'unknown'}`);
       }
-      if (item.report_tier === 'watch') {
-        if (!hasValue(item.watch_value)) throw new Error(`watch_value missing: ${item.title || 'unknown'}`);
-        if (!hasValue(item.next_watch_signal)) throw new Error(`next_watch_signal missing: ${item.title || 'unknown'}`);
-      } else {
-        if (!hasSpecificActions(item)) throw new Error(`recommended_actions not specific: ${item.title || 'unknown'}`);
-        if (hasInternalCompletionDeadline(item)) throw new Error(`recommended_actions contains internal completion deadline: ${item.title || 'unknown'}`);
-      }
+      if (!/^https?:\/\//i.test(String(item.source_url))) throw new Error(`source_url must be original http URL: ${item.title || 'unknown'}`);
     }
   }
   return true;
-}
-
-function defaultDynamicAnalysis(item) {
-  const source = item.source_name || '该来源';
-  const title = item.title || '该动态';
-  return {
-    regulatory_signal: [`${source}发布或更新了与${item.module || item.type || '美妆法务'}相关的信息：${title}。`],
-    compliance_meaning: [item.why_it_matters || '该动态可能影响集团相关市场的法务、注册、供应链、市场或电商运营判断，需结合业务覆盖范围核验。'],
-    possible_follow_up: item.recommended_actions || [`建议法务团队核验${source}原文，并判断是否需要更新内部合规清单。`],
-  };
 }
 
 export function normalizeReportForValidation(report) {
@@ -1646,10 +1636,11 @@ export function normalizeReportForValidation(report) {
     ...report,
     sections: (report.sections || []).map(section => ({
       ...section,
-      items: (section.items || []).map(item => {
-        if (item.type !== '动态') return item;
-        return { ...defaultDynamicAnalysis(item), ...item };
-      }),
+      items: (section.items || []).map(item => ({
+        ...item,
+        fact_summary: objectiveFacts(item),
+        next_observation: objectiveObservation(item),
+      })),
     })),
   };
 }
@@ -1698,8 +1689,7 @@ export function limitReportSections(report, itemLimit = DEFAULT_REPORT_ITEMS_PER
     ...report,
     sections: REPORT_MODULES.map(module => {
       const section = (report.sections || []).find(item => item.module === module) || { module, items: [] };
-      const limit = Number(itemLimit || DEFAULT_REPORT_ITEMS_PER_MODULE);
-      return { ...section, items: (section.items || []).slice(0, limit) };
+      return { ...section, items: [...(section.items || [])] };
     }),
   };
 }
@@ -1720,19 +1710,19 @@ export function buildAnalysisPrompt({ candidates, leads = [], sources, period, t
 - 进出口动态重点看进口准入、清关、口岸抽检、跨境电商、认证、海关监管、召回和贸易合规。
 - 产品质量/召回与安全风险重点看产品安全、抽检不合格、召回、禁限用成分、质量投诉、过敏/微生物/重金属风险和平台下架。
 ` : '';
-  return `你是国际化美妆电商集团的高级法务情报分析员。用户是集团法务、合规、注册备案、跨境供应链、品牌/IP、市场投放、电商平台运营团队。不要输出未加工新闻，必须输出可用于业务判断的法务情报。
+  return `你是美妆行业客观资讯编辑。你只负责提取、分类、去重和压缩公开事实，不生成核心判断、法律分析、风险评价、业务影响推断、管理层总结或行动分派。
 
 集团业务背景：
 - 国际化美妆电商集团，关注中国、欧盟、美国、日本、韩国、泰国、越南、印尼、墨西哥、意大利等市场。
 - 业务覆盖护肤、彩妆、防晒、香水、洗护、跨境进口、直播电商、平台销售、自有品牌和第三方品牌。
-- 需要直接相关法规，也需要间接影响业务的广告、消费者保护、平台规则、知识产权、进出口、数据合规、召回案例。
+- 只收录正文内容与美妆行业有实质关系的法规、广告处罚、知识产权、进出口、产品安全和行业新闻；不能只看标题关键词，必须结合详情页适用范围、商品、企业和监管对象判断。
 - 产品质量/召回与安全风险单独成模块，重点覆盖产品安全、抽检不合格、召回、禁限用成分、质量投诉、过敏/微生物/重金属风险和平台下架。
 
 来源和质量规则：
 - candidates 来自可抓取网页；leads 来自公众号或不可抓来源。公众号可以作为强线索，但最终必须标注 source_type 和 confidence。
 - 优先国家/区域监管机构、法院、知识产权机构、海关、产品安全召回平台、行业权威媒体。
-- 可以基于 leads 做选题归纳，但不能把传闻当事实；无法找到公开原文时，source_url 可填来源主页，confidence 必须为 medium 或 low，并说明待核验。
-- 每条必须解释美妆电商集团的业务影响；解释不了就丢弃。
+- leads 只能用于发现选题，不能直接形成正式条目；没有 candidates 中的具体原文 URL 就丢弃，不得用来源主页或微信公众号占位。
+- 泛电商、泛广告、泛知识产权或泛进出口信息，如果正文没有美妆对象或具体适用关系，必须丢弃。
 
 时间和影响力规则：
 - 周报优先过去 7 天发布或更新的信息。
@@ -1754,14 +1744,10 @@ export function buildAnalysisPrompt({ candidates, leads = [], sources, period, t
 - 输出合法 JSON，不要 Markdown，不要解释。
 - 六个模块分别监测，但只输出通过质量标准的条目；任何模块都允许为空，总量不设最低要求。
 - 美妆动态和进出口动态可以使用公众号/行业媒体作为关注线索，但必须标注 source_type 为 wechat_lead 或 industry_media，confidence 为 medium 或 low，并说明关注价值和下一观察点。
-- 字段要完整但表达精炼，避免超长 JSON。
-- 每条信息要有国家/大洲、直接/间接相关、行业影响力和业务影响面。
-- 行动事项 report_tier=action，必须提供具体 recommended_actions。
-- 暂不形成行动但值得关注的监管或行业新闻 report_tier=watch，必须提供 watch_value 和 next_watch_signal。
-- core_judgement 必须用 1-2 句话给出“监管或案件结论 + 对集团美妆业务的实质影响 + 必要的不确定性边界”，不能只复述标题或事实。
-- 案例必须拆解事实、认定逻辑、处罚/结果、业务启发。
-- 建议动作必须说明建议由哪个团队做什么，使用“建议...”口吻，不能是命令。
-- 内部完成时间由具体领导决定，不得编造内部完成日期、天数或“本周内”等期限。
+- 每条只生成 fact_summary 和 next_observation 两类正文信息。
+- fact_summary 输出 1-2 条客观事实，优先保留主体、事项、日期、金额、数量、规则变化和处理结果，合计通常 30-100 字。
+- next_observation 只输出一个可观察的后续事实节点，例如正式稿、生效日期、反馈截止、处罚后续、判决、复议诉讼、召回进展或执行口径。
+- core_judgement、why_it_matters、risk_level、business_impact、recommended_actions、owner_teams 等旧分析字段必须为空。
 - 法规原文明确的生效日、反馈截止日和法定整改节点应保留在 effective_date、feedback_deadline、next_deadline。
 - 禁止“建议关注”“持续关注”“企业应留意”等空泛动作。
 ${moduleInstruction}
@@ -1769,8 +1755,8 @@ ${moduleInstruction}
 JSON 结构：
 {
   "period": { "start": "${period.start}", "end": "${period.end}" },
-  "summary": ["3-5条集团级执行摘要，必须包含市场/国家、风险、业务影响和建议"],
-  "risk_alerts": [{ "level": "high|medium|low", "text": "风险提醒" }],
+  "summary": [],
+  "risk_alerts": [],
   "sections": [{
       "module": "广告合规及处罚案例|美妆动态|知识产权动态|新规及案例动态|进出口动态|产品质量/召回与安全风险",
     "items": [{
@@ -1780,51 +1766,32 @@ JSON 结构：
       "country": "国家或市场，例如中国|欧盟|美国|日本|韩国|泰国|越南|印尼|墨西哥|意大利",
       "title": "标题",
       "source_name": "来源名称",
-      "source_url": "公开原文URL或来源主页",
+      "source_url": "candidates 中的具体原文URL，禁止来源主页",
       "source_type": "official|court|regulator|industry_media|wechat_lead|database",
       "published_at": "YYYY-MM-DD或未知",
       "updated_at": "YYYY-MM-DD或未知",
       "freshness_status": "本周发布|本周更新|历史规则·本期节点|历史规则·持续执行|历史规则·未关闭行动|发布时间待核验",
       "freshness_exception": "upcoming_deadline|ongoing_enforcement|current_week_change|open_action或空",
       "change_evidence": "本周新增解释、执行口径或持续执法证据；无则为空",
-      "relevance": "direct|indirect",
+      "relevance": "direct",
       "industry_impact": "high|medium|low",
-      "business_impact": ["注册备案|标签|功效宣称|广告投放|直播电商|平台运营|跨境清关|供应链|品牌/IP|客服售后|数据合规"],
-      "market_scope": ["受影响国家/区域/渠道/SKU范围"],
-      "risk_level": "high|medium|low",
-      "core_judgement": "监管或案件结论 + 对集团美妆业务的实质影响 + 必要的不确定性边界",
-      "why_it_matters": "为什么值得国际化美妆电商集团法务关注",
+      "fact_summary": ["客观事实1", "客观事实2（可省略）"],
+      "next_observation": ["一个客观后续观察节点"],
       "report_tier": "action|watch",
-      "watch_value": "关注事项的实质参考价值；行动事项可为空",
-      "next_watch_signal": "下一观察点；行动事项可为空",
-      "recommended_actions": ["建议由哪个团队排查/更新/提交什么；不填写内部完成时间"],
-      "owner_teams": ["法务|注册|供应链|电商|市场|品牌|客服|数据合规"],
       "confidence": "high|medium|low",
-      "status": "法规状态，仅法规/征求意见/生效提醒/废止必填",
-      "effective_date": "生效日或未知，仅法规",
-      "feedback_deadline": "反馈截止日或未知，仅法规",
-      "regulatory_area": "备案|注册|标签|功效宣称|配方|原料|广告|进出口|认证|平台治理|数据合规，仅法规",
-      "what_changed": ["变化点，仅法规"],
-      "legal_obligation": ["企业义务，仅法规"],
-      "affected_business": ["影响市场/渠道/品类/SKU/团队，仅法规"],
-      "next_deadline": "下一关键日期或未知，仅法规",
-      "case_type": "行政处罚|民事判决|刑事案件|召回|监管通报|平台处罚，仅案例/召回",
-      "parties": "涉事主体或未知，仅案例",
-      "facts": ["案情事实，仅案例/召回"],
-      "violation_logic": ["监管/法院/平台认定逻辑，仅案例"],
-      "penalty_or_result": ["处罚/判决/召回/处理结果，仅案例"],
-      "risk_pattern": "功效宣称|虚假广告|标签瑕疵|未备案|IP侵权|进口不合规|平台规则|召回质量，仅案例",
-      "business_lessons": ["对国际化美妆电商集团的启发，仅案例"]
+      "effective_date": "生效日或未知",
+      "feedback_deadline": "反馈截止日或未知",
+      "next_deadline": "下一关键日期或未知"
     }]
   }]
 }
 
 信息源统计：${JSON.stringify(getSourceStats(sources))}
-候选信息 candidates（已按7天新鲜度、国家/大洲、来源权威性和行业影响力预排序）：${JSON.stringify(sortCandidatesForAnalysis(candidates).slice(0, candidateLimit).map(candidate => ({
+候选信息 candidates（已按7天新鲜度、国家/大洲、来源权威性和行业影响力预排序）：${JSON.stringify(sortCandidatesForAnalysis(candidates).map(candidate => ({
   ...candidate,
   snippet: String(candidate.snippet || '').slice(0, 2800),
 })))}
-线索 leads（公众号和不可抓来源，可作为强线索但需标注可信度）：${JSON.stringify(leads.slice(0, leadLimit))}`;
+线索 leads（仅用于发现选题，不得直接输出为正式条目）：${JSON.stringify(leads)}`;
 }
 
 function buildReviewEvidence(report, candidates = []) {
@@ -1849,16 +1816,14 @@ function buildReviewEvidence(report, candidates = []) {
 }
 
 export function buildEvidenceReviewPrompt({ report, candidates = [] }) {
-  return `你是美妆法务情报的事实与逻辑复核员。请基于 evidence 审查 draft_report，并只输出修正后的合法 JSON。
+  return `你是美妆行业资讯的客观事实复核员。请基于 evidence 审查 draft_report，并只输出修正后的合法 JSON。
 
 复核规则：
-- 逐条检查 core_judgement、事实、法规变化、违法逻辑、业务影响和建议动作是否有 evidence 支持。
-- 没有证据支持的确定性表述必须降级为待核验，无法修正的条目应删除。
+- 逐条检查 fact_summary 和 next_observation 是否有 evidence 支持，且正文内容与美妆行业有实质关系。
+- 删除任何核心判断、法律分析、风险评价、业务影响推断、责任团队或行动分派文字。
+- 没有证据支持的事实、只有来源主页、与美妆无实质关系或无法修正的条目必须删除。
 - 不得新增条目、不得更换 source_url、不得改变 period 或六大模块名称。
-- core_judgement 必须包含监管或案件结论、对集团美妆业务的实质影响，以及必要的不确定性边界。
-- report_tier=watch 的条目必须核验 watch_value，并给出可观察的 next_watch_signal；不得把行业新闻写成确定法律义务。
-- report_tier=action 的条目必须有来源支持的业务影响和可分派建议动作。
-- 建议动作只说明建议由哪个团队做什么；内部完成时间由具体领导决定，不得编造内部完成日期、天数或“本周内”等期限。
+- fact_summary 保留 1-2 条短小、具体、可核验的事实；next_observation 只保留一个客观后续节点。
 - effective_date、feedback_deadline、next_deadline 只保留 evidence 明确支持的法定节点。
 - 保持原 JSON 结构，不要输出解释、Markdown 或代码块。
 
@@ -1983,31 +1948,25 @@ function buildRescueAnalysisPrompt(evidence, period) {
     source_type: candidate.source_type,
     snippet: String(candidate.snippet || '').slice(0, 1600),
   }));
-  return `你是国际化美妆电商集团的高级法务情报分析员。常规分析没有形成可用条目，请从下列已抓取证据中重新识别最多 5 条真正值得法务部门处理或持续观察的事项。
+  return `你是美妆行业客观资讯编辑。常规提取不足，请从已抓取全文证据中识别与美妆行业有实质关系的客观资讯，数量不设业务上限。
 
 规则：
 - 中国信息优先，但不得为凑数选择无实质内容的候选。
 - 只能引用 candidate_index，不得输出或编造 URL、来源名称、国家和发布日期。
-- action 必须有明确业务影响和可分派动作；watch 必须有具体关注价值和下一观察信号。
-- 核心判断必须包含事实结论、对集团美妆业务的影响和不确定性边界。
-- 不得编造内部完成日期，完成时间由责任领导确定。
+- 必须依据 snippet 正文判断相关性，不能只看标题。
+- fact_summary 只提取 1-2 条原文事实；next_observation 只写一个可观察的后续节点。
+- 不得输出核心判断、风险、业务影响、行动建议、责任团队或内部完成时间。
 - 只输出合法 JSON；确实没有重要事项时输出 {"items":[]}。
 
 JSON 结构：
 {"items":[{
   "candidate_index":0,
   "report_tier":"action|watch",
-  "core_judgement":"事实结论 + 业务影响 + 边界",
-  "why_it_matters":"法务关注价值",
-  "recommended_actions":["建议具体团队核对或更新具体事项"],
-  "owner_teams":["法务"],
-  "business_impact":["功效宣称|广告投放|注册备案|跨境清关|供应链|品牌/IP|平台运营"],
-  "market_scope":["受影响市场/渠道/SKU"],
-  "risk_level":"high|medium|low",
-  "relevance":"direct|indirect",
+  "fact_summary":["客观事实1","客观事实2（可省略）"],
+  "next_observation":["一个客观后续节点"],
+  "relevance":"direct",
   "industry_impact":"high|medium|low",
-  "watch_value":"watch 必填，action 可空",
-  "next_watch_signal":"watch 必填，action 可空"
+  "confidence":"high|medium|low"
 }]}
 
 报告周期：${period.start} 至 ${period.end}
@@ -2016,9 +1975,8 @@ JSON 结构：
 
 function rescueItemFromSelection(selection, candidate) {
   const module = REPORT_MODULES.includes(candidate.module) ? candidate.module : '美妆动态';
-  const actions = Array.isArray(selection.recommended_actions) ? selection.recommended_actions.filter(Boolean) : [];
-  const judgement = String(selection.core_judgement || '').trim();
-  const why = String(selection.why_it_matters || '').trim();
+  const facts = Array.isArray(selection.fact_summary) ? selection.fact_summary.filter(Boolean).slice(0, 2) : [];
+  const observation = Array.isArray(selection.next_observation) ? selection.next_observation.filter(Boolean).slice(0, 1) : [];
   const sourceType = signalSourceType(candidate);
   const official = ['official', 'official_site', 'regulator', 'court', 'database'].includes(sourceType)
     || ['official', 'regulator', 'court'].includes(candidate.authority_type);
@@ -2034,26 +1992,10 @@ function rescueItemFromSelection(selection, candidate) {
     published_at: candidate.published_at || '未知',
     relevance: selection.relevance === 'indirect' ? 'indirect' : 'direct',
     industry_impact: ['high', 'medium', 'low'].includes(selection.industry_impact) ? selection.industry_impact : 'medium',
-    business_impact: Array.isArray(selection.business_impact) && selection.business_impact.length
-      ? selection.business_impact.filter(Boolean)
-      : signalBusinessImpact(module),
-    market_scope: Array.isArray(selection.market_scope) && selection.market_scope.length
-      ? selection.market_scope.filter(Boolean)
-      : [`${candidate.country || '相关市场'} ${module}`],
-    risk_level: ['high', 'medium', 'low'].includes(selection.risk_level) ? selection.risk_level : 'medium',
-    core_judgement: judgement,
-    why_it_matters: why,
+    fact_summary: facts,
+    next_observation: observation,
     report_tier: selection.report_tier === 'watch' ? 'watch' : 'action',
-    watch_value: String(selection.watch_value || '').trim(),
-    next_watch_signal: String(selection.next_watch_signal || '').trim(),
-    recommended_actions: selection.report_tier === 'watch' ? [] : actions,
-    owner_teams: Array.isArray(selection.owner_teams) && selection.owner_teams.length
-      ? selection.owner_teams.filter(Boolean)
-      : ['法务'],
-    confidence: official ? 'high' : 'medium',
-    regulatory_signal: [judgement],
-    compliance_meaning: [why],
-    possible_follow_up: actions.length ? actions : [String(selection.next_watch_signal || '').trim()].filter(Boolean),
+    confidence: ['high', 'medium', 'low'].includes(selection.confidence) ? selection.confidence : (official ? 'high' : 'medium'),
   };
 }
 
@@ -2109,8 +2051,7 @@ function mergeModuleReports(reports, period, modules = REPORT_MODULES) {
     const items = reports
       .flatMap(report => report.sections || [])
       .filter(section => section.module === module)
-      .flatMap(section => section.items || [])
-      .slice(0, 3);
+      .flatMap(section => section.items || []);
     return { module, items };
   });
   return { period, summary, risk_alerts: riskAlerts, sections };
@@ -2276,11 +2217,7 @@ function normalizeSourceUrl(url) {
 }
 
 export function filterReportToObservedSources(report, { candidates = [], sources = [] } = {}) {
-  const observedUrls = [
-    ...candidates.map(candidate => candidate.url || candidate.source_url),
-    ...sources.map(source => source.url),
-    '微信公众号',
-  ].filter(Boolean);
+  const observedUrls = candidates.map(candidate => candidate.url || candidate.source_url).filter(Boolean);
   const allowed = new Map(observedUrls.map(url => [normalizeSourceUrl(url), String(url).trim()]));
 
   return {
@@ -2460,9 +2397,9 @@ async function deepseekAnalyzeByModule({ apiKey, baseUrl, model, candidates, lea
       leads: moduleLeads,
       sources: moduleSources,
       period,
-      candidateLimit: Math.min(candidateLimit, 16),
-      leadLimit: Math.min(leadLimit, 8),
-      maxTokens: Math.min(maxTokens, 2500),
+      candidateLimit,
+      leadLimit,
+      maxTokens,
       targetModule: module,
     }),
   });

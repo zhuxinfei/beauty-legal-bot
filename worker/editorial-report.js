@@ -1,9 +1,17 @@
 import {
-  REPORT_MODULES,
   curateReportQuality,
+  objectiveFacts,
+  objectiveObservation,
   rankReportQualityItem,
-  summarizeExecutiveReport,
 } from './report-quality.js';
+
+const DISPLAY_MODULES = [
+  '新法律法规政策',
+  '广告处罚案例',
+  '知识产权保护与侵权',
+  '进出口',
+  '行业新闻简讯',
+];
 
 function text(value) {
   return String(value || '').replace(/\s+/g, ' ').trim();
@@ -43,6 +51,48 @@ function identity(item) {
   const title = text(item.title).toLowerCase().replace(/[\s，。；：、,.!?！？:;()（）《》]/g, '');
   if (/^https?:\/\//i.test(url)) return `url:${url}|title:${title}`;
   return `title:${title}|${text(item.country || item.region).toLowerCase()}`;
+}
+
+function titleBigrams(value) {
+  const normalized = text(value)
+    .toLowerCase()
+    .replace(/20\d{2}[年./-]\d{1,2}(?:[月./-]\d{1,2}日?)?/g, '')
+    .replace(/(?:关于|发布|公告|通知|最新|本周|化妆品|美妆|监管)/g, '')
+    .replace(/[^\p{L}\p{N}]/gu, '');
+  if (normalized.length < 2) return new Set(normalized ? [normalized] : []);
+  return new Set(Array.from({ length: normalized.length - 1 }, (_, index) => normalized.slice(index, index + 2)));
+}
+
+function similarity(a, b) {
+  const left = titleBigrams(a);
+  const right = titleBigrams(b);
+  if (!left.size || !right.size) return false;
+  let intersection = 0;
+  for (const token of left) if (right.has(token)) intersection += 1;
+  return intersection / Math.min(left.size, right.size) >= 0.72;
+}
+
+function sameEvent(a, b) {
+  if (a._identity === b._identity) return true;
+  if (similarity(a.title, b.title)) return true;
+  const aFacts = (a.facts || []).join(' ');
+  const bFacts = (b.facts || []).join(' ');
+  const aTitleTokens = titleBigrams(a.title);
+  const bTitleTokens = titleBigrams(b.title);
+  let sharedTitleTokens = 0;
+  for (const token of aTitleTokens) if (bTitleTokens.has(token)) sharedTitleTokens += 1;
+  return sharedTitleTokens >= 2 && aFacts.length >= 18 && bFacts.length >= 18 && similarity(aFacts, bFacts);
+}
+
+function displayModule(item) {
+  const type = text(item.type);
+  const module = text(item.module);
+  const evidence = [item.title, objectiveFacts(item)].flat().join(' ');
+  if (type === 'IP' || module === '知识产权动态') return '知识产权保护与侵权';
+  if (type === '进出口' || module === '进出口动态') return '进出口';
+  if (module === '广告合规及处罚案例' && (type === '案例' || /处罚|罚款|责令|没收|违法/.test(evidence))) return '广告处罚案例';
+  if (['法规', '征求意见', '生效提醒', '废止', '平台规则'].includes(type) || module === '新规及案例动态' || module === '广告合规及处罚案例') return '新法律法规政策';
+  return '行业新闻简讯';
 }
 
 function typeSpecificContent(item) {
@@ -92,34 +142,20 @@ function typeSpecificContent(item) {
 }
 
 function editorialItem(item) {
-  const specific = typeSpecificContent(item);
+  const facts = objectiveFacts(item);
+  const observation = objectiveObservation(item);
   return {
     type: text(item.type || '动态'),
     module: text(item.module),
     title: text(item.title || '未命名事项'),
     country: text(item.country || item.region || '全球'),
     region: text(item.region || '全球'),
-    risk_level: text(item.risk_level || 'low'),
-    report_tier: item.report_tier === 'watch' ? 'watch' : 'action',
     quality_score: Number(item.quality_score || 0),
-    summary: text(item.core_judgement || item.why_it_matters || item.title),
-    facts: specific.facts,
-    legal_analysis: specific.legal_analysis,
-    results: specific.results,
-    practical_insights: specific.practical_insights,
-    practical_label: specific.practical_label,
-    why_it_matters: text(item.why_it_matters),
-    business_impact: values(item.business_impact, item.affected_business),
-    market_scope: values(item.market_scope),
-    recommended_actions: values(item.recommended_actions),
-    owner_teams: values(item.owner_teams),
-    watch_value: text(item.watch_value),
-    next_watch_signal: text(item.next_watch_signal),
-    statutory_date: text(item.next_deadline || item.effective_date || item.feedback_deadline),
-    published_at: text(item.published_at || '未知'),
+    facts,
+    observation,
     source_name: text(item.source_name || item.title || '来源'),
     source_url: text(item.source_url),
-    confidence: text(item.confidence || 'medium'),
+    _displayModule: displayModule(item),
     _rank: rankReportQualityItem(item),
     _identity: identity(item),
   };
@@ -128,20 +164,22 @@ function editorialItem(item) {
 export function buildEditorialReport(inputReport = {}) {
   const report = preparedReport(inputReport);
   const seen = new Set();
+  const acceptedItems = [];
   const items = (report.sections || [])
     .flatMap(section => (section.items || []).map(item => editorialItem({ ...item, module: item.module || section.module })))
     .sort((a, b) => (b.country === '中国') - (a.country === '中国') || b._rank - a._rank)
     .filter(item => {
-      if (seen.has(item._identity)) return false;
+      if (seen.has(item._identity) || acceptedItems.some(accepted => sameEvent(accepted, item))) return false;
       seen.add(item._identity);
+      acceptedItems.push(item);
       return true;
     });
 
-  const sections = REPORT_MODULES
+  const sections = DISPLAY_MODULES
     .map((module, moduleIndex) => ({
       module,
       moduleIndex,
-      items: items.filter(item => item.module === module),
+      items: items.filter(item => item._displayModule === module),
     }))
     .filter(section => section.items.length)
     .sort((a, b) => {
@@ -155,38 +193,15 @@ export function buildEditorialReport(inputReport = {}) {
     section.items.sort((a, b) => (b.country === '中国') - (a.country === '中国') || b._rank - a._rank);
     section.items = section.items.map(item => {
       number += 1;
-      const { _rank, _identity, ...publicItem } = item;
+      const { _rank, _identity, _displayModule, ...publicItem } = item;
       return { ...publicItem, number };
     });
     delete section.moduleIndex;
   }
 
-  const executive = summarizeExecutiveReport(report);
-  const managementConclusions = executive.judgements.map(item => text(item.text)).filter(Boolean).slice(0, 3);
-  if (!managementConclusions.length) {
-    for (const summary of report.summary || []) {
-      if (managementConclusions.length >= 3) break;
-      const candidate = text(summary);
-      if (candidate && !managementConclusions.includes(candidate)) managementConclusions.push(candidate);
-    }
-  }
-
-  const publicItems = sections.flatMap(section => section.items);
-  const actionTitles = publicItems.filter(item => item.report_tier === 'action').slice(0, 2).map(item => `《${item.title}》`);
-  const watchTitles = publicItems.filter(item => item.report_tier === 'watch').slice(0, 2).map(item => `《${item.title}》`);
-  const activeModules = sections.slice(0, 3).map(section => section.module).join('、');
-  let finalSynthesis = '本期未发现达到准入标准的重大合规更新。';
-  if (actionTitles.length) {
-    finalSynthesis = `本期法务工作应优先围绕${activeModules}展开，先核验${actionTitles.join('、')}并更新相应审核与证据留存流程；${watchTitles.length ? `同时持续跟踪${watchTitles.join('、')}的正式落地信号；` : ''}具体完成时间由责任领导确定。`;
-  } else if (watchTitles.length) {
-    finalSynthesis = `本期暂未形成需要立即分派的行动事项，建议围绕${activeModules}持续跟踪${watchTitles.join('、')}的正式规则、监管问答或代表性案例。`;
-  }
-
   return {
     period: report.period || {},
-    management_conclusions: managementConclusions,
     sections,
     item_count: number,
-    final_synthesis: finalSynthesis,
   };
 }
