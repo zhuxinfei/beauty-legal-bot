@@ -12,7 +12,15 @@ export const REPORT_MODULES = [
 
 const OFFICIAL_SOURCE_TYPES = new Set(['official', 'official_site', 'regulator', 'court', 'database']);
 const EMPTY_OBSERVATIONS = ['建议关注', '持续关注', '提高重视', '加强管理', '企业应留意', '可能产生影响'];
-const BEAUTY_EVIDENCE = /化妆品|美妆|护肤|彩妆|香水|防晒|洗护|面霜|精华液?|面膜|口红|唇釉|气垫霜?|粉底|睫毛膏|腮红|牙膏|功效宣称|cosmetic|beauty|skincare|sunscreen/i;
+const BEAUTY_EVIDENCE = /化妆品|美妆|护肤|彩妆|香水|防晒|洗护|面霜|眼霜|精华液?|面膜|爽肤水|化妆水|卸妆|洁面|洗面奶|口红|唇釉|气垫霜?|粉底液?|粉饼|散粉|睫毛膏|眼影|眼线|眉笔|腮红|染发剂?|烫发|洗发|护发|沐浴|牙膏|功效宣称|cosmetic|beauty|skincare|skin care|sunscreen|eye cream|foundation|lipstick|mascara|hair dye/i;
+
+export function findBeautyEvidenceIndex(value) {
+  return String(value || '').search(BEAUTY_EVIDENCE);
+}
+
+export function hasBeautyEvidence(value) {
+  return findBeautyEvidenceIndex(value) >= 0;
+}
 
 function text(value) {
   return Array.isArray(value) ? value.filter(Boolean).join('；') : String(value || '').trim();
@@ -68,8 +76,10 @@ function noveltyScore(item, period) {
 }
 
 function relevanceScore(item) {
-  const evidence = [item.title, objectiveFacts(item)].flat().filter(Boolean).join(' ');
-  if (!BEAUTY_EVIDENCE.test(evidence)) return 0;
+  const facts = objectiveFacts(item).join(' ');
+  const evidenceExcerpt = String(item.evidence_excerpt || '').trim();
+  if (!hasBeautyEvidence(facts)) return 0;
+  if (evidenceExcerpt && !hasBeautyEvidence(evidenceExcerpt)) return 0;
   if (item.relevance === 'direct') return 2;
   if (item.relevance === 'indirect' && item.industry_impact !== 'low') return 1;
   return 0;

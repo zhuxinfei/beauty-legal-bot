@@ -16,7 +16,7 @@ import sourceCatalog from './sources.json' with { type: 'json' };
 import { buildDingTalkMessages } from './dingtalk-single-card.js';
 import { buildActionDashboardSvg } from './action-dashboard.js';
 import { classifyFreshness, filterCandidatesByFreshness } from './freshness.js';
-import { curateReportQuality, curateReportQualityWithAudit, objectiveFacts, objectiveObservation } from './report-quality.js';
+import { curateReportQuality, curateReportQualityWithAudit, findBeautyEvidenceIndex, objectiveFacts, objectiveObservation } from './report-quality.js';
 import {
   assertSourceCoverage,
   calculateSourceCoverage,
@@ -1800,6 +1800,9 @@ export function buildAnalysisPrompt({ candidates, leads = [], sources, period, t
 - fact_summary 输出 1-2 条客观事实，优先保留主体、事项、日期、金额、数量、规则变化和处理结果，合计通常 30-100 字。
 - next_observation 只输出一个可观察的后续事实节点，例如正式稿、生效日期、反馈截止、处罚后续、判决、复议诉讼、召回进展或执行口径。
 - 所有可见的标题、事实摘要、下一步观察和来源名使用简体中文；英文品牌名、机构缩写、法规编号和产品名可在中文后保留原文。
+- 中文标题使用“主体 + 具体事项或结果”的自然新闻表达，不要逐词直译，不得只写公告编号、栏目名、“最新动态”或其他空泛标题。
+- 来源名优先采用官方或通行中文名称；无通行中文译名时保留原名，不得臆造中文译名。
+- 事实摘要直接写明主体、动作、对象以及原文已有的日期、金额、数量或处理结果，避免“发布相关要求”“介绍有关情况”等空泛转述。
 - display_title_zh 和 source_name_zh 是面向用户的中文显示文本；程序会保留原文 URL 作为证据，不要翻译 URL。
 - core_judgement、why_it_matters、risk_level、business_impact、recommended_actions、owner_teams 等旧分析字段必须为空。
 - 法规原文明确的生效日、反馈截止日和法定整改节点应保留在 effective_date、feedback_deadline、next_deadline。
@@ -1850,7 +1853,7 @@ JSON 结构：
 }
 
 信息源统计：${JSON.stringify(getSourceStats(sources))}
-候选信息 candidates（已按7天新鲜度、国家/大洲、来源权威性和行业影响力预排序）：${JSON.stringify(sortCandidatesForAnalysis(candidates.map((candidate, candidateIndex) => ({ ...candidate, candidate_index: candidateIndex }))).map(candidate => ({
+候选信息 candidates（已按中国优先、7天新鲜度、来源权威性和行业影响力预排序）：${JSON.stringify(prioritizeCandidatesForAnalysis(candidates.map((candidate, candidateIndex) => ({ ...candidate, candidate_index: candidateIndex }))).map(candidate => ({
   ...candidate,
   snippet: String(candidate.snippet || ''),
 })))}
@@ -1936,6 +1939,31 @@ export async function reviewAnalysisReport({ apiKey, baseUrl, model, report, can
   }
 }
 
+function preferredDisplayTitle(translatedTitle, evidenceTitle, country = '') {
+  const evidence = String(evidenceTitle || '').trim();
+  if (/\p{Script=Han}/u.test(evidence)) return evidence;
+  const translated = String(translatedTitle || '').trim();
+  const compact = translated.replace(/[\s《》〈〉「」『』【】\[\]()（）]/g, '');
+  const generic = /^(?:第[\d一二三四五六七八九十百]+号)?(?:公告|通知|决定|通报|新闻|动态|最新动态|政策解读)$/i.test(compact);
+  if (!translated || generic || isNavigationTitle(translated) || !/\p{Script=Han}/u.test(translated)) return evidence;
+  const market = String(country || '').trim();
+  if (market && market !== '全球' && !translated.includes(market)) return evidence;
+  const anchors = [...new Set(evidence.match(/\b[A-Z]{2,}\b/g) || [])];
+  return anchors.every(anchor => translated.includes(anchor)) ? translated : evidence;
+}
+
+function preferredDisplaySourceName(translatedName, evidenceName) {
+  const evidence = String(evidenceName || '').trim();
+  return evidence || String(translatedName || '').trim();
+}
+
+function beautyEvidenceExcerpt(value) {
+  const text = String(value || '');
+  const index = findBeautyEvidenceIndex(text);
+  if (index < 0) return text.slice(0, 4000);
+  return text.slice(Math.max(0, index - 800), index + 4000);
+}
+
 function materializeCandidateBackedReport(report, candidates, targetModule) {
   const reviewed = Array.isArray(report.reviewed_candidates) ? report.reviewed_candidates : [];
   const decisions = new Map();
@@ -1968,8 +1996,11 @@ function materializeCandidateBackedReport(report, candidates, targetModule) {
       ...item,
       candidate_index: index,
       module: targetModule,
-      title: String(item.display_title_zh || '').trim() || candidate.title,
-      source_name: String(item.source_name_zh || '').trim() || candidate.source_name || candidate.name,
+      title: preferredDisplayTitle(item.display_title_zh, candidate.title, candidate.country),
+      evidence_title: candidate.title,
+      evidence_excerpt: beautyEvidenceExcerpt(candidate.snippet),
+      source_name: preferredDisplaySourceName(item.source_name_zh, candidate.source_name || candidate.name),
+      evidence_source_name: candidate.source_name || candidate.name || '',
       source_url: candidate.url || candidate.source_url,
       source_type: signalSourceType(candidate),
       country: candidate.country,
@@ -2072,6 +2103,9 @@ function buildRescueAnalysisPrompt(evidence, period) {
 - 必须依据 snippet 正文判断相关性，不能只看标题。
 - fact_summary 只提取 1-2 条原文事实；next_observation 只写一个可观察的后续节点。
 - 所有输出的自然语言使用简体中文；专有名词可用“中文译名（Original Name）”。
+- 中文标题使用“主体 + 具体事项或结果”的自然新闻表达，不要逐词直译，不得只写公告编号、栏目名或空泛的“最新动态”。
+- 来源名优先采用官方或通行中文名称；无通行中文译名时保留原名，不得臆造中文译名。
+- 事实摘要直接写明主体、动作、对象以及原文已有的日期、金额、数量或处理结果，避免空泛转述。
 - 不得输出核心判断、风险、业务影响、行动建议、责任团队或内部完成时间。
 - 必须在 reviewed_candidates 对每个 candidate_index 恰好返回一次 include 或 exclude，不得默认遗漏。
 - decision=include 必须恰好对应一条 item；decision=exclude 不得输出 item，且 reason 必须说明正文事实不符合哪条准入规则。
@@ -2106,8 +2140,11 @@ function rescueItemFromSelection(selection, candidate) {
     module,
     region: candidate.region || '全球',
     country: candidate.country || '全球',
-    title: String(selection.title_zh || '').trim() || candidate.title || `${candidate.source_name || candidate.name || '公开来源'}监管动态`,
-    source_name: String(selection.source_name_zh || '').trim() || candidate.source_name || candidate.name || '公开来源',
+    title: preferredDisplayTitle(selection.title_zh, candidate.title || `${candidate.source_name || candidate.name || '公开来源'}监管动态`, candidate.country),
+    evidence_title: candidate.title || '',
+    evidence_excerpt: beautyEvidenceExcerpt(candidate.snippet),
+    source_name: preferredDisplaySourceName(selection.source_name_zh, candidate.source_name || candidate.name || '公开来源'),
+    evidence_source_name: candidate.source_name || candidate.name || '',
     source_url: candidate.url || candidate.source_url,
     source_type: official ? 'regulator' : sourceType,
     published_at: candidate.published_at || '未知',
@@ -2580,7 +2617,9 @@ async function deepseekAnalyzeByModule({ apiKey, baseUrl, model, candidates, lea
           const chinaInput = batch.filter(candidate => candidate.country === '中国').length;
           const includedItems = (batchReport.sections || []).flatMap(section => section.items || []);
           const chinaIncluded = includedItems.filter(item => item.country === '中国').length;
-          console.log(`[stage 2/5] 候选批次审计：${module}，输入 ${batch.length}（中国 ${chinaInput}），逐条审阅 ${reviewed.length || (requireCandidateCoverage ? batch.length : 0)}，收录 ${included}（中国 ${chinaIncluded}），排除 ${Math.max(0, batch.length - included)}`);
+          const overseasInput = batch.length - chinaInput;
+          const overseasIncluded = included - chinaIncluded;
+          console.log(`[stage 2/5] 候选批次审计：${module}，输入 ${batch.length}（中国 ${chinaInput}，海外 ${overseasInput}），逐条审阅 ${reviewed.length || (requireCandidateCoverage ? batch.length : 0)}，收录 ${included}（中国 ${chinaIncluded}，海外 ${overseasIncluded}），排除 ${Math.max(0, batch.length - included)}（中国 ${Math.max(0, chinaInput - chinaIncluded)}，海外 ${Math.max(0, overseasInput - overseasIncluded)}）`);
           reports.push(batchReport);
         } catch (error) {
           console.warn(`[stage 2/5] 候选批次跳过：${module}，输入 ${batch.length}，原因 ${error.message}`);

@@ -743,11 +743,14 @@ function testGetSourceStats() {
 function testIsRelevantTitle() {
   assert.equal(isRelevantTitle('化妆品安全评估技术导则征求意见'), true);
   assert.equal(isRelevantTitle('直播带货虚假宣传处罚案例'), true);
+  assert.equal(isRelevantTitle('化妆品商标侵权处罚决定书'), true);
   assert.equal(isRelevantTitle('公司融资发布会'), false);
   assert.equal(isRelevantTitle('加强“三品一械”广告监管 新规公开征求意见'), false);
   assert.equal(isRelevantTitle('北京汇爱科技有限公司主动召回部分型号ipoosi牌婴儿床'), false);
   assert.equal(isNavigationTitle('欢迎访问中华商标网'), true);
   assert.equal(isNavigationTitle('网站首页'), true);
+  assert.equal(isNavigationTitle('登录'), true);
+  assert.equal(isNavigationTitle('站点导航'), true);
   assert.equal(isNavigationTitle('化妆品商标侵权处罚决定书'), false);
 }
 
@@ -903,6 +906,40 @@ function testReportQualitySeparatesActionWatchAndRejectedItems() {
   assert.equal(watch.tier, 'watch');
   assert.ok(watch.score >= 7);
   assert.equal(rejected.tier, 'reject');
+}
+
+function testReportQualityUsesOriginalEvidenceTitleForBeautyRelevance() {
+  const item = {
+    title: '《第42号公告》',
+    evidence_title: '化妆品商标侵权行政处罚决定书',
+    evidence_excerpt: '涉案商品为面霜、精华液等化妆品，包装使用了他人注册商标。',
+    type: 'IP',
+    module: '知识产权动态',
+    country: '中国',
+    region: '亚洲',
+    source_name: '地方市场监管局',
+    source_url: 'https://official.example.gov.cn/notices/42',
+    source_type: 'regulator',
+    confidence: 'high',
+    relevance: 'direct',
+    industry_impact: 'medium',
+    published_at: sampleReport.period.end,
+    report_tier: 'watch',
+    fact_summary: ['监管部门认定涉案主体未经许可在面霜和精华液包装上使用注册商标，并作出行政处罚。'],
+    next_observation: ['观察行政复议、诉讼或后续执行结果是否公开。'],
+  };
+
+  assert.equal(classifyReportItem(item, sampleReport.period).tier, 'watch');
+
+  const irrelevantBody = {
+    ...item,
+    title: '化妆品行业整治动态',
+    evidence_title: '化妆品监管公告',
+    evidence_excerpt: '机关食堂采购厨房设备，并公布供应商和中标金额。',
+    fact_summary: ['采购人完成机关食堂厨房设备采购，并公布供应商和中标金额。'],
+    next_observation: ['观察合同履行和设备验收结果。'],
+  };
+  assert.equal(classifyReportItem(irrelevantBody, sampleReport.period).tier, 'reject');
 }
 
 function testCurateReportQualityKeepsSixModulesButDropsEmptyDisplaySections() {
@@ -1098,6 +1135,7 @@ async function testDeepseekRescueAnalyzeUsesObservedCandidateIdentity() {
   const item = report.sections.find(section => section.module === candidate.module).items[0];
   assert.equal(item.source_url, candidate.url);
   assert.equal(item.source_name, candidate.source_name);
+  assert.equal(item.evidence_title, candidate.title);
   assert.equal(item.confidence, 'high');
   const processed = processAnalyzedReport(report, { candidates: [candidate], sources: [] });
   assert.equal(processed.audit.acceptedItems, 1);
@@ -1441,7 +1479,7 @@ function objectiveBriefFixture() {
   return {
     period, summary: [], risk_alerts: [],
     sections: [
-      { module: '新规及案例动态', items: [item({ type: '征求意见', module: '新规及案例动态', title: '《化妆品标准管理办法（征求意见稿）》公开征求意见', source_url: 'https://official.example.gov.cn/rules/standard-draft', fact_summary: ['征求意见稿明确强制性标准必须执行，被法规引用的推荐性标准内容同样必须执行。', '新标准过渡期一般不超过2年，实施前可选择执行新标准或原标准。'], next_observation: ['跟踪反馈截止日期、正式稿及新旧标准衔接安排。'] })] },
+      { module: '新规及案例动态', items: [item({ type: '征求意见', module: '新规及案例动态', title: '《化妆品标准管理办法（征求意见稿）》公开征求意见', source_url: 'https://official.example.gov.cn/rules/standard-draft', fact_summary: ['征求意见稿明确化妆品强制性标准必须执行，被法规引用的推荐性标准内容同样必须执行。', '化妆品新标准过渡期一般不超过2年，实施前可选择执行新标准或原标准。'], next_observation: ['跟踪反馈截止日期、正式稿及新旧标准衔接安排。'] })] },
       { module: '广告合规及处罚案例', items: [item({ type: '案例', module: '广告合规及处罚案例', title: '化妆品直播功效宣称与备案资料不一致被处罚', source_url: 'https://official.example.gov.cn/penalties/ad-1', fact_summary: ['监管部门认定直播功效宣称与备案资料不一致，责令停止相关宣传并处以罚款。'], next_observation: ['关注同类化妆品直播宣传案件的后续处罚公开。'] })] },
       { module: '知识产权动态', items: [
         item({ type: 'IP', module: '知识产权动态', title: '“PRO-XYLANE”化妆品商标侵权及刷单案被罚17万元', source_url: 'https://official.example.gov.cn/penalties/pro-xylane', fact_summary: ['当事人未经授权生产相关化妆品21,572盒，监管部门没收涉案商品并罚款15万元。', '当事人另通过刷单虚构销售和评价，被追加罚款2万元。'], next_observation: ['关注该案行政复议、诉讼及同类案件后续公开。'] }),
@@ -2443,6 +2481,9 @@ function testBuildAnalysisPromptUsesModuleTarget() {
   assert.ok(prompt.includes('中国候选优先'));
   assert.ok(prompt.includes('不够重大'));
   assert.ok(prompt.includes('report_tier=watch'));
+  assert.ok(prompt.includes('主体 + 具体事项或结果'));
+  assert.ok(prompt.includes('不要逐词直译'));
+  assert.ok(prompt.includes('无通行中文译名'));
 }
 
 async function testModuleAnalysisRequiresARecordedDecisionForEveryCandidate() {
@@ -2493,11 +2534,158 @@ async function testModuleAnalysisRequiresARecordedDecisionForEveryCandidate() {
 
   assert.equal(calls, 2);
   const item = result.sections[0].items[0];
-  assert.equal(item.title, '化妆品标签监管新规');
-  assert.equal(item.source_name, '中国监管机构');
+  assert.equal(item.title, candidates[0].title);
+  assert.equal(item.source_name, candidates[0].source_name);
+  assert.equal(item.evidence_source_name, candidates[0].source_name);
   assert.equal(item.source_url, candidates[0].url);
+  assert.equal(item.evidence_title, candidates[0].title);
   assert.equal(item.published_at, '未知');
   assert.equal(item.updated_at, '未知');
+}
+
+async function testModuleAnalysisFallsBackFromGenericChineseDisplayText() {
+  const candidate = {
+    title: '某品牌眼霜商标侵权处罚决定书',
+    url: 'https://official.example.cn/penalties/trademark-1',
+    source_name: '上海市市场监督管理局',
+    source_type: 'official_site',
+    authority_type: 'regulator',
+    module: '知识产权动态',
+    region: '亚洲',
+    country: '中国',
+    published_at: '2026-07-18',
+    snippet: `${'一般背景说明。'.repeat(2500)}涉案商品为眼霜，监管部门认定其未经许可使用注册商标并作出处罚。`,
+  };
+  const aiItem = {
+    ...objectiveBriefFixture().sections[0].items[0],
+    candidate_index: 0,
+    display_title_zh: '最新动态',
+    source_name_zh: '中国监管机构',
+    fact_summary: ['监管部门认定涉案主体未经许可在眼霜包装上使用注册商标，并作出行政处罚。'],
+  };
+  const response = {
+    period: { start: '2026-07-13', end: '2026-07-19' },
+    summary: [],
+    risk_alerts: [],
+    reviewed_candidates: [{ candidate_index: 0, decision: 'include', reason: '正文直接涉及化妆品商标侵权处罚' }],
+    sections: [{ module: '知识产权动态', items: [aiItem] }],
+  };
+
+  const report = await deepseekAnalyze({
+    apiKey: 'test-key',
+    baseUrl: 'https://example.com/v1',
+    model: 'gpt-5.5',
+    candidates: [candidate],
+    sources: [],
+    period: response.period,
+    targetModule: '知识产权动态',
+    review: false,
+    requireCandidateCoverage: true,
+    fetcher: async () => new Response(JSON.stringify({
+      choices: [{ message: { content: JSON.stringify(response) } }],
+    }), { status: 200 }),
+  });
+
+  const item = report.sections[0].items[0];
+  assert.equal(item.title, candidate.title);
+  assert.equal(item.source_name, candidate.source_name);
+  assert.equal(item.evidence_title, candidate.title);
+  assert.equal(item.evidence_source_name, candidate.source_name);
+  assert.ok(item.evidence_excerpt.includes('涉案商品为眼霜'));
+  assert.equal(processAnalyzedReport(report, { candidates: [candidate], sources: [] }).audit.acceptedItems, 1);
+}
+
+async function testModuleAnalysisRejectsMismatchedForeignTitleAndSourceTranslation() {
+  const candidate = {
+    title: 'FDA Announces Recall of Cosmetic Eye Cream',
+    url: 'https://www.fda.gov/safety/recalls/eye-cream',
+    source_name: 'U.S. Food and Drug Administration',
+    source_type: 'official_site',
+    authority_type: 'regulator',
+    module: '产品质量/召回与安全风险',
+    region: '北美洲',
+    country: '美国',
+    published_at: '2026-07-18',
+    snippet: 'FDA announced a recall of a cosmetic eye cream after microbial contamination was detected.',
+  };
+  const aiItem = {
+    ...objectiveBriefFixture().sections[0].items[0],
+    candidate_index: 0,
+    display_title_zh: '国家药监局发布化妆品召回公告',
+    source_name_zh: '中国国家药品监督管理局',
+  };
+  const response = {
+    period: { start: '2026-07-13', end: '2026-07-19' },
+    summary: [],
+    risk_alerts: [],
+    reviewed_candidates: [{ candidate_index: 0, decision: 'include', reason: '正文涉及化妆品召回' }],
+    sections: [{ module: candidate.module, items: [aiItem] }],
+  };
+
+  const report = await deepseekAnalyze({
+    apiKey: 'test-key',
+    baseUrl: 'https://example.com/v1',
+    model: 'gpt-5.5',
+    candidates: [candidate],
+    sources: [],
+    period: response.period,
+    targetModule: candidate.module,
+    review: false,
+    requireCandidateCoverage: true,
+    fetcher: async () => new Response(JSON.stringify({
+      choices: [{ message: { content: JSON.stringify(response) } }],
+    }), { status: 200 }),
+  });
+
+  const item = report.sections[0].items[0];
+  assert.equal(item.title, candidate.title);
+  assert.equal(item.source_name, candidate.source_name);
+}
+
+async function testModuleAnalysisKeepsAnchoredChineseTranslationWithoutEveryNumber() {
+  const candidate = {
+    title: 'FDA Recalls 1,000 Cosmetic Eye Creams in 2026',
+    url: 'https://www.fda.gov/safety/recalls/eye-cream-2026',
+    source_name: 'FDA',
+    source_type: 'official_site',
+    authority_type: 'regulator',
+    module: '产品质量/召回与安全风险',
+    region: '北美洲',
+    country: '美国',
+    published_at: '2026-07-18',
+    snippet: 'FDA recalled cosmetic eye creams after microbial contamination was detected.',
+  };
+  const translatedTitle = '美国 FDA 召回受微生物污染的化妆品眼霜';
+  const response = {
+    period: { start: '2026-07-13', end: '2026-07-19' },
+    summary: [],
+    risk_alerts: [],
+    reviewed_candidates: [{ candidate_index: 0, decision: 'include', reason: '正文涉及化妆品眼霜召回' }],
+    sections: [{ module: candidate.module, items: [{
+      ...objectiveBriefFixture().sections[0].items[0],
+      candidate_index: 0,
+      display_title_zh: translatedTitle,
+      source_name_zh: '美国食品药品监督管理局（FDA）',
+    }] }],
+  };
+
+  const report = await deepseekAnalyze({
+    apiKey: 'test-key',
+    baseUrl: 'https://example.com/v1',
+    model: 'gpt-5.5',
+    candidates: [candidate],
+    sources: [],
+    period: response.period,
+    targetModule: candidate.module,
+    review: false,
+    requireCandidateCoverage: true,
+    fetcher: async () => new Response(JSON.stringify({
+      choices: [{ message: { content: JSON.stringify(response) } }],
+    }), { status: 200 }),
+  });
+
+  assert.equal(report.sections[0].items[0].title, translatedTitle);
+  assert.equal(report.sections[0].items[0].source_name, candidate.source_name);
 }
 
 function testNormalizeModuleReportForcesTargetWorkbookModule() {
@@ -2667,6 +2855,20 @@ function testPrioritizeCandidatesForAnalysisPutsChinaEvidenceFirst() {
     { title: '中国直接相关事项', country: '中国', priority: 'medium', published_at: '2026-07-17' },
   ]);
   assert.equal(ranked[0].country, '中国');
+}
+
+function testAnalysisPromptKeepsChinaEvidenceFirst() {
+  const prompt = buildAnalysisPrompt({
+    candidates: [
+      { title: '海外高影响事项', country: '美国', priority: 'high', published_at: '2026-07-18' },
+      { title: '中国中等影响简讯', country: '中国', priority: 'medium', published_at: '2026-07-17' },
+    ],
+    leads: [],
+    sources: [],
+    period: { start: '2026-07-13', end: '2026-07-19' },
+  });
+
+  assert.ok(prompt.indexOf('中国中等影响简讯') < prompt.indexOf('海外高影响事项'));
 }
 
 async function testFetchWithTimeoutAbortsSlowFetch() {
@@ -3130,6 +3332,7 @@ testValidateReportRejectsAiAssignedInternalDeadlines();
 testFilterReportQualityDropsItemsWithoutSourceUrl();
 testFilterReportQualityKeepsLeadBasedBeautyAndImportSignals();
 testReportQualitySeparatesActionWatchAndRejectedItems();
+testReportQualityUsesOriginalEvidenceTitleForBeautyRelevance();
 testCurateReportQualityKeepsSixModulesButDropsEmptyDisplaySections();
 testCurateReportQualityAuditExplainsRejectedItems();
 await testAnalyzeReportWithRecoveryUsesOneRescuePass();
@@ -3187,6 +3390,9 @@ await testUploadDingTalkImageReturnsMediaId();
 testBuildAnalysisPromptIncludesLeads();
 testBuildAnalysisPromptUsesModuleTarget();
 await testModuleAnalysisRequiresARecordedDecisionForEveryCandidate();
+await testModuleAnalysisFallsBackFromGenericChineseDisplayText();
+await testModuleAnalysisRejectsMismatchedForeignTitleAndSourceTranslation();
+await testModuleAnalysisKeepsAnchoredChineseTranslationWithoutEveryNumber();
 testNormalizeModuleReportForcesTargetWorkbookModule();
 testFilterReportToObservedSourcesDropsFabricatedUrls();
 testFilterReportToObservedSourcesKeepsCanonicalUrlVariants();
@@ -3197,6 +3403,7 @@ testAttachReportImagesUsesObservedCandidateImages();
 testEnterprisePromptRequiresGlobalLegalIntelligence();
 testCandidateFreshnessAndInfluenceRanking();
 testPrioritizeCandidatesForAnalysisPutsChinaEvidenceFirst();
+testAnalysisPromptKeepsChinaEvidenceFirst();
 testFreshnessGateAcceptsCurrentWeekAndSevenDayBoundary();
 testFreshnessGateAllowsOnlyStructuredHistoricalExceptions();
 testFreshnessGateDowngradesUnknownDateToWatch();
