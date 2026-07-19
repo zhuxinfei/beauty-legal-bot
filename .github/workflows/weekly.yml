@@ -65,3 +65,14 @@ jobs:
 
       - name: Run pipeline
         run: FULL_SOURCE_SCAN=1 node worker/run-local.js
+
+      - name: Archive generated report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: beauty-legal-report-${{ github.run_id }}
+          path: |
+            out/latest-report.md
+            out/latest-report.json
+          if-no-files-found: warn
+          retention-days: 30

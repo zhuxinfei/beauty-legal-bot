@@ -2778,6 +2778,9 @@ function testWeeklyWorkflowDeploysRoutesBeforeVersionedAssetPipeline() {
   assert.ok(workflow.includes('fonts-noto-cjk'));
   assert.ok(workflow.includes('node worker/probe-ai.js'));
   assert.ok(workflow.indexOf('node worker/probe-ai.js') < workflow.indexOf('node worker/run-local.js'));
+  assert.ok(workflow.includes('actions/upload-artifact@v4'));
+  assert.ok(workflow.includes('out/latest-report.md'));
+  assert.ok(workflow.includes('out/latest-report.json'));
   assert.ok(workflow.includes('CLOUDFLARE_KV_NAMESPACE_ID'));
   assert.equal(workflow.includes('wrangler kv key put'), false);
   assert.ok(workflow.includes('DINGTALK_WEBHOOK_URL: ${{ secrets.DINGTALK_WEBHOOK_URL }}'));
