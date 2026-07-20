@@ -29,6 +29,7 @@ import {
   inferCandidateModule,
   isEditoriallyUsefulCandidate,
   evaluateSourceOnlyProof,
+  buildSourceOnlyAudit,
 } from './content-quality.js';
 import {
   default as worker,
@@ -234,6 +235,40 @@ function testEditorialGateRejectsIntermediaryAndNavigationUrls() {
   });
   assert.equal(navigation.accepted, false);
   assert.equal(navigation.reason, 'navigation-shell');
+}
+
+function testSourceOnlyAuditRecordsEveryCandidateReason() {
+  const audit = buildSourceOnlyAudit({
+    period: { start: '2026-07-13', end: '2026-07-19' },
+    candidates: [
+      {
+        title: '监管部门通报抽检不合格',
+        url: 'https://publisher.example/notice',
+        published_at: '2026-07-19',
+        detail_status: 'hydrated',
+        snippet_excerpt: '某市市场监管局于2026年7月19日通报，抽检发现护肤品超标，责令下架整改。',
+      },
+      {
+        title: '展会全球招展',
+        url: 'https://publisher.example/expo',
+        published_at: '2026-07-19',
+        detail_status: 'hydrated',
+        snippet_excerpt: '来源：企业供稿，欢迎报名参展和合作洽谈。',
+      },
+      {
+        title: '监管部门通报另一事项',
+        url: 'https://publisher.example/failed',
+        published_at: '2026-07-19',
+        detail_status: 'failed',
+        snippet_excerpt: '',
+      },
+    ],
+  });
+  assert.equal(audit.counts.input, 3);
+  assert.equal(audit.counts.editorial_accepted, 1);
+  assert.equal(audit.counts.primary_count, 1);
+  assert.equal(audit.items.find(item => item.title === '展会全球招展').reason, 'promotional-content');
+  assert.equal(audit.items.find(item => item.title === '监管部门通报另一事项').reason, 'not-hydrated');
 }
 
 function testFreshnessGateAllowsOnlyStructuredHistoricalExceptions() {
@@ -3621,4 +3656,5 @@ testEditorialModuleUsesArticleFactsAndChinaEvidence();
 testEditorialGateRunsAfterHydrationBeforeAnalysis();
 testSourceOnlyProofRequiresIndependentTwentyTenFour();
 testEditorialGateRejectsIntermediaryAndNavigationUrls();
+testSourceOnlyAuditRecordsEveryCandidateReason();
 console.log('worker pure function tests ok');

@@ -165,4 +165,62 @@ export function evaluateSourceOnlyProof(candidates = [], {
   };
 }
 
+export function buildSourceOnlyAudit(replay = {}) {
+  const period = replay.period || {};
+  const sourceCandidates = Array.isArray(replay.candidates) ? replay.candidates : [];
+  const items = sourceCandidates.map(candidate => {
+    const hydrated = candidate.detail_status === 'hydrated';
+    const reviewed = {
+      ...candidate,
+      article_text: candidate.article_text || candidate.full_text || candidate.snippet_excerpt || candidate.snippet || '',
+    };
+    if (!hydrated) {
+      return { title: candidate.title || '', url: candidate.url || '', detail_status: candidate.detail_status || '', accepted: false, reason: 'not-hydrated' };
+    }
+    const decision = evaluateEditorialCandidate(reviewed);
+    if (!decision.accepted) {
+      return { title: candidate.title || '', url: candidate.url || '', detail_status: candidate.detail_status, accepted: false, reason: decision.reason };
+    }
+    const china = inferArticleChinaRelevance(reviewed);
+    return {
+      title: candidate.title || '',
+      url: candidate.url || '',
+      published_at: candidate.published_at || '',
+      detail_status: candidate.detail_status,
+      accepted: true,
+      reason: 'concrete-event',
+      editorial_status: 'accepted',
+      module: inferCandidateModule(reviewed),
+      china_relevant: china.relevant,
+    };
+  });
+  const acceptedCandidates = items.filter(item => item.accepted).map(item => ({
+    ...item,
+    snippet: item.title,
+  }));
+  const proof = evaluateSourceOnlyProof(acceptedCandidates, { period });
+  const rejectionReasons = {};
+  for (const item of items) {
+    if (!item.accepted) rejectionReasons[item.reason] = (rejectionReasons[item.reason] || 0) + 1;
+  }
+  return {
+    period,
+    counts: {
+      input: sourceCandidates.length,
+      editorial_accepted: items.filter(item => item.accepted).length,
+      editorial_rejected: items.filter(item => !item.accepted).length,
+      primary_count: proof.primary_count,
+      china_count: proof.china_count,
+      active_module_count: proof.active_module_count,
+      duplicates: proof.duplicates,
+    },
+    rejection_reasons: rejectionReasons,
+    proof: {
+      pass: proof.pass,
+      failure_codes: proof.failure_codes,
+    },
+    items,
+  };
+}
+
 export { MODULES };
