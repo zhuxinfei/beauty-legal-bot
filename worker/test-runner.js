@@ -24,6 +24,13 @@ import {
   recoverPublicSource,
 } from './source-recovery.js';
 import {
+  evaluateEditorialCandidate,
+  inferArticleChinaRelevance,
+  inferCandidateModule,
+  isEditoriallyUsefulCandidate,
+  evaluateSourceOnlyProof,
+} from './content-quality.js';
+import {
   default as worker,
   normalizeUrl,
   htmlToText,
@@ -78,11 +85,13 @@ import {
   extractPublishedDate,
   extractArticleText,
   hydrateCandidateDetails,
+  applyEditorialGate,
   sortCandidatesForAnalysis,
   prioritizeCandidatesForAnalysis,
   classifyFreshness,
   filterCandidatesByFreshness,
   runPipeline,
+  isArtifactOnlyRun,
 } from './index.js';
 
 function testFreshnessGateAcceptsCurrentWeekAndSevenDayBoundary() {
@@ -90,6 +99,141 @@ function testFreshnessGateAcceptsCurrentWeekAndSevenDayBoundary() {
   assert.equal(classifyFreshness({ published_at: '2026-07-19' }, period).status, 'current-week');
   assert.equal(classifyFreshness({ published_at: '2026-07-12' }, period).accepted, true);
   assert.equal(classifyFreshness({ published_at: '2026-07-11' }, period).accepted, false);
+}
+
+function testEditorialGateRejectsPromotionalAndServicePages() {
+  const rejected = [
+    '企业供稿：2027澳门美妆展全面启动全球招展，欢迎合作洽谈',
+    '广州化妆品出口印尼双清包税到门，提供一站式代办服务',
+    '品牌宣传：新品发布会开启全新美妆体验',
+  ];
+  for (const title of rejected) {
+    const result = evaluateEditorialCandidate({
+      title,
+      url: 'https://publisher.example/article',
+      published_at: '2026-07-19',
+      article_text: `${title}\n欢迎报名参展，咨询合作方案。`,
+    });
+    assert.equal(isEditoriallyUsefulCandidate({
+      title,
+      url: 'https://publisher.example/article',
+      published_at: '2026-07-19',
+      article_text: `${title}\n欢迎报名参展，咨询合作方案。`,
+    }), false);
+    assert.match(result.reason, /promotional|service/);
+  }
+}
+
+function testEditorialGateRequiresConcreteFactsButKeepsWatch() {
+  const generic = evaluateEditorialCandidate({
+    title: '美妆行业趋势观察：增长逻辑正在重构',
+    url: 'https://publisher.example/opinion',
+    published_at: '2026-07-19',
+    article_text: '行业人士认为企业应持续关注消费变化，未来竞争将更加激烈。当前市场仍缺少可核验的单一事件、监管动作、具体主体和结果，文章主要讨论宏观方向，没有给出可核验的时间、数量、制度或处理结论。',
+  });
+  assert.equal(generic.accepted, false);
+  assert.equal(generic.reason, 'no-concrete-event');
+
+  const watch = evaluateEditorialCandidate({
+    title: '某市监管部门通报一款护肤品抽检不合格',
+    url: 'https://publisher.example/notice',
+    published_at: '2026-07-19',
+    article_text: '某市市场监管局于2026年7月19日通报，抽检发现某护肤品菌落总数超标，责令经营者下架并整改。',
+  });
+  assert.equal(watch.accepted, true);
+  assert.equal(watch.tier, 'watch');
+  assert.equal(isEditoriallyUsefulCandidate({
+    title: '某市监管部门通报一款护肤品抽检不合格',
+    url: 'https://publisher.example/notice',
+    published_at: '2026-07-19',
+    article_text: '某市市场监管局于2026年7月19日通报，抽检发现某护肤品菌落总数超标，责令经营者下架并整改。',
+  }), true);
+}
+
+function testEditorialModuleUsesArticleFactsAndChinaEvidence() {
+  assert.equal(inferCandidateModule({ title: '监管部门发布通知', article_text: '国家药监局发布化妆品备案新规，7月1日起执行。' }), '新规及案例动态');
+  assert.equal(inferCandidateModule({ title: '品牌纠纷', article_text: '法院判决某公司侵犯商标权并赔偿50万元。' }), '知识产权动态');
+  assert.equal(inferCandidateModule({ title: '市场消息', article_text: '海关公布化妆品进口关税调整，企业需补充报关文件。' }), '进出口动态');
+  assert.equal(inferCandidateModule({ title: '产品通报', article_text: '监管部门召回含禁用成分的护肤品，涉及1200件。' }), '产品质量/召回与安全风险');
+  assert.equal(inferCandidateModule({ title: '企业公告', article_text: '某公司与经销商签订300万美元化妆品品牌合作合同。' }), '美妆动态');
+
+  assert.equal(inferArticleChinaRelevance({ title: 'China NMPA发布化妆品通知', article_text: 'China NMPA要求企业在中国市场完成备案。' }).relevant, true);
+  assert.equal(inferArticleChinaRelevance({ title: '最新欧盟化妆品法规更新', article_text: '欧盟委员会修订附录II，意见征集截止9月6日。' }).relevant, false);
+  assert.equal(inferArticleChinaRelevance({ title: 'BPOM披露非法化妆品销售', article_text: '印尼食品药品监督局在雅加达查处线上销售。', source_name: '中文媒体' }).relevant, false);
+  assert.equal(inferArticleChinaRelevance({ title: '海外法规动态', article_text: '该规则将影响在中国市场销售的进口化妆品。' }).relevant, true);
+}
+
+function testEditorialGateRunsAfterHydrationBeforeAnalysis() {
+  const result = applyEditorialGate([
+    {
+      title: '监管部门通报护肤品抽检不合格',
+      url: 'https://publisher.example/notice',
+      published_at: '2026-07-19',
+      detail_status: 'hydrated',
+      snippet: '某市市场监管局于2026年7月19日通报，抽检发现护肤品菌落总数超标，责令下架整改。',
+    },
+    {
+      title: '2027澳门美妆展全球招展',
+      url: 'https://publisher.example/expo',
+      published_at: '2026-07-19',
+      detail_status: 'hydrated',
+      snippet: '来源：企业供稿。欢迎报名参展，欢迎合作洽谈。',
+    },
+  ]);
+  assert.equal(result.candidates.length, 1);
+  assert.equal(result.candidates[0].editorial_status, 'accepted');
+  assert.equal(result.candidates[0].module, '产品质量/召回与安全风险');
+  assert.equal(result.audit.rejected, 1);
+  assert.equal(result.audit.rejections[0].reason, 'promotional-content');
+}
+
+function testSourceOnlyProofRequiresIndependentTwentyTenFour() {
+  const base = index => ({
+    title: `监管部门通报第${index}款护肤品抽检结果`,
+    url: `https://publisher.example/notice-${index}`,
+    published_at: '2026-07-19',
+    detail_status: 'hydrated',
+    editorial_status: 'accepted',
+    module: ['产品质量/召回与安全风险', '新规及案例动态', '知识产权动态', '美妆动态'][index % 4],
+    china_relevant: index < 10,
+    snippet: `某市市场监管局于2026年7月19日通报，第${index}款产品抽检不合格，责令下架整改。`,
+  });
+  const proof = evaluateSourceOnlyProof([...Array.from({ length: 20 }, (_, index) => base(index)), {
+    ...base(0),
+    title: '监管部门通报第0款护肤品抽检结果（转载）',
+    url: 'https://second.example/repost-0',
+  }], { period: { start: '2026-07-13', end: '2026-07-19' } });
+  assert.equal(proof.primary_count, 20);
+  assert.equal(proof.china_count, 10);
+  assert.equal(proof.active_module_count, 4);
+  assert.equal(proof.pass, true);
+  assert.equal(proof.duplicates, 1);
+
+  const failed = evaluateSourceOnlyProof(Array.from({ length: 19 }, (_, index) => ({ ...base(index), china_relevant: index < 9 })), {
+    period: { start: '2026-07-13', end: '2026-07-19' },
+  });
+  assert.equal(failed.pass, false);
+  assert.deepEqual(failed.failure_codes, ['minimum-items', 'minimum-china-items']);
+}
+
+function testEditorialGateRejectsIntermediaryAndNavigationUrls() {
+  const intermediary = evaluateEditorialCandidate({
+    title: '监管部门发布化妆品召回公告',
+    url: 'https://news.google.com/rss/articles/opaque',
+    published_at: '2026-07-19',
+    article_text: '监管部门于2026年7月19日发布召回公告，涉及100件产品。',
+  });
+  assert.equal(intermediary.accepted, false);
+  assert.equal(intermediary.reason, 'non-publisher-url');
+
+  const navigation = evaluateEditorialCandidate({
+    title: '产品质量与召回信息源入口',
+    url: 'https://publisher.example/quality/entry',
+    published_at: '2026-07-19',
+    article_text: '首页 导航 登录 注册 联系我们 搜索 产品质量与召回信息源入口',
+  });
+  assert.equal(navigation.accepted, false);
+  assert.equal(navigation.reason, 'navigation-shell');
 }
 
 function testFreshnessGateAllowsOnlyStructuredHistoricalExceptions() {
@@ -3118,6 +3262,58 @@ function testRunLocalPropagatesPipelineFailure() {
   assert.equal(source.includes("process.env.DINGTALK_WEBHOOK_URL ? 'DingTalk webhook was called.'"), false);
 }
 
+function testArtifactOnlyModeIsDeliveryFree() {
+  assert.equal(isArtifactOnlyRun({ ARTIFACT_ONLY: '1' }), true);
+  assert.equal(isArtifactOnlyRun({ ARTIFACT_ONLY: '0' }), false);
+  assert.equal(isArtifactOnlyRun({}), false);
+  const source = readFileSync(new URL('./index.js', import.meta.url), 'utf8');
+  assert.match(source, /const artifactOnly = isArtifactOnlyRun\(env\);/);
+  assert.match(source, /if \(artifactOnly\)/);
+  assert.match(source, /stage: 'artifact-only',\s*status: 'done'/);
+  const localSource = readFileSync(new URL('./run-local.js', import.meta.url), 'utf8');
+  assert.match(localSource, /ARTIFACT_ONLY: process\.env\.ARTIFACT_ONLY/);
+  assert.match(localSource, /SOURCE_ONLY_PROOF_REQUIRED: process\.env\.SOURCE_ONLY_PROOF_REQUIRED/);
+}
+
+async function testArtifactOnlyPipelineSkipsDelivery() {
+  const originalFetch = globalThis.fetch;
+  const writes = [];
+  const kv = {
+    async get() { return null; },
+    async put(key) { writes.push(key); },
+  };
+  let artifactReady = false;
+  globalThis.fetch = async (url) => {
+    const href = String(url);
+    if (href.includes('oapi.dingtalk.com') || href.includes('open.feishu.cn')) {
+      throw new Error('artifact-only attempted delivery');
+    }
+    if (href.includes('/chat/completions')) {
+      return new Response(JSON.stringify({ choices: [{ message: { content: JSON.stringify(sampleReport) } }] }), { status: 200 });
+    }
+    return new Response('<html><body><a href="/notice">化妆品监管新规</a><p>公开监管正文。公开监管正文。公开监管正文。公开监管正文。公开监管正文。</p></body></html>', { status: 200 });
+  };
+  try {
+    const result = await runPipeline({
+      AI_API_KEY: 'test-key',
+      AI_MODEL: 'test-model',
+      ARTIFACT_ONLY: '1',
+      SOURCE_ONLY_PROOF_REQUIRED: '0',
+      DETAIL_FETCH_ENABLED: '0',
+      DINGTALK_WEBHOOK_URL: 'https://oapi.dingtalk.com/robot/send?access_token=should-not-call',
+      FEISHU_WEBHOOK_URL: 'https://open.feishu.cn/test/should-not-call',
+      SEEN_NEWS: kv,
+      ON_REPORT_READY: async () => { artifactReady = true; },
+    });
+    assert.equal(result.stage, 'artifact-only');
+    assert.equal(result.status, 'done');
+    assert.equal(artifactReady, true);
+    assert.deepEqual(writes, []);
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+}
+
 async function testManualTestRouteRecordsFailure() {
   const store = new Map();
   const response = await worker.fetch(
@@ -3417,4 +3613,12 @@ testPromptIncludesProductQualityRecallModule();
 testWeeklyWorkflowDeploysRoutesBeforeVersionedAssetPipeline();
 testDecisionMapPublicUrlCanOverrideWorkerAssetUrl();
 testRunLocalPropagatesPipelineFailure();
+testArtifactOnlyModeIsDeliveryFree();
+await testArtifactOnlyPipelineSkipsDelivery();
+testEditorialGateRejectsPromotionalAndServicePages();
+testEditorialGateRequiresConcreteFactsButKeepsWatch();
+testEditorialModuleUsesArticleFactsAndChinaEvidence();
+testEditorialGateRunsAfterHydrationBeforeAnalysis();
+testSourceOnlyProofRequiresIndependentTwentyTenFour();
+testEditorialGateRejectsIntermediaryAndNavigationUrls();
 console.log('worker pure function tests ok');

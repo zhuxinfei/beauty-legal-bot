@@ -22,6 +22,12 @@ import {
   calculateSourceCoverage,
   recoverPublicSource,
 } from './source-recovery.js';
+import {
+  evaluateEditorialCandidate,
+  evaluateSourceOnlyProof,
+  inferArticleChinaRelevance,
+  inferCandidateModule,
+} from './content-quality.js';
 
 // ---------------------------------------------------------------------------
 // 配置
@@ -1097,6 +1103,10 @@ async function recordLastRun(kv, patch) {
 // ---------------------------------------------------------------------------
 // 管道入口
 // ---------------------------------------------------------------------------
+export function isArtifactOnlyRun(env = {}) {
+  return env.ARTIFACT_ONLY === '1';
+}
+
 export async function runPipeline(env, requestUrl = 'https://beauty-legal-bot.workers.dev/') {
   const aiKey = env.AI_API_KEY;
   const aiBaseUrl = env.AI_API_BASE_URL || DEFAULT_AI_API_BASE_URL;
@@ -1104,6 +1114,7 @@ export async function runPipeline(env, requestUrl = 'https://beauty-legal-bot.wo
   const dingTalkUrl = env.DINGTALK_WEBHOOK_URL;
   const model = env.AI_MODEL || DEFAULT_AI_MODEL;
   const kv = env.SEEN_NEWS;
+  const artifactOnly = isArtifactOnlyRun(env);
   const qualityMode = env.QUALITY_MODE === '1' || env.REPORT_QUALITY_MODE === 'quality' || env.CONTENT_QUALITY_MODE === 'quality';
   const candidateLimit = Number(env.ANALYSIS_CANDIDATE_LIMIT || (qualityMode ? QUALITY_ANALYSIS_CANDIDATE_LIMIT : DEFAULT_ANALYSIS_CANDIDATE_LIMIT));
   const leadLimit = Number(env.ANALYSIS_LEAD_LIMIT || (qualityMode ? QUALITY_ANALYSIS_LEAD_LIMIT : DEFAULT_ANALYSIS_LEAD_LIMIT));
@@ -1111,7 +1122,7 @@ export async function runPipeline(env, requestUrl = 'https://beauty-legal-bot.wo
   const itemsPerModule = Number(env.REPORT_ITEMS_PER_MODULE || (qualityMode ? QUALITY_REPORT_ITEMS_PER_MODULE : DEFAULT_REPORT_ITEMS_PER_MODULE));
 
   if (!aiKey) throw new Error('AI_API_KEY is required');
-  if (!dingTalkUrl && !feishuUrl) throw new Error('DINGTALK_WEBHOOK_URL or FEISHU_WEBHOOK_URL is required');
+  if (!artifactOnly && !dingTalkUrl && !feishuUrl) throw new Error('DINGTALK_WEBHOOK_URL or FEISHU_WEBHOOK_URL is required');
   if (!kv) throw new Error('SEEN_NEWS KV binding is required');
 
   console.log("=== 周报管道启动 ===");
@@ -1144,10 +1155,29 @@ export async function runPipeline(env, requestUrl = 'https://beauty-legal-bot.wo
       : getPeriod();
     const freshCandidates = filterCandidatesByFreshness(fetchedCandidates, period);
     const requireFullText = env.DETAIL_FETCH_ENABLED !== '0';
-    const candidates = requireFullText
+    const hydratedCandidates = requireFullText
       ? freshCandidates.filter(candidate => candidate.detail_status === 'hydrated')
       : freshCandidates;
-    console.log(`[stage 1/5] 完成，候选 ${fetchedCandidates.length} 条，时效准入 ${freshCandidates.length} 条，全文准入 ${candidates.length} 条，线索 ${leads.length} 条，恢复源 ${sourceResults.filter(result => result.status === 'recovered').length} 个，失败源 ${failures.length} 个，覆盖率 ${(coverage.overall * 100).toFixed(1)}%`);
+    const enforceEditorialGate = qualityMode || env.ARTIFACT_ONLY === '1' || env.CONTENT_QUALITY_REBUILD === '1';
+    const editorial = enforceEditorialGate
+      ? applyEditorialGate(hydratedCandidates)
+      : { candidates: hydratedCandidates, audit: { input: hydratedCandidates.length, accepted: hydratedCandidates.length, rejected: 0, rejections: [] } };
+    const candidates = editorial.candidates;
+    console.log(`[stage 1/5] 完成，候选 ${fetchedCandidates.length} 条，时效准入 ${freshCandidates.length} 条，全文准入 ${hydratedCandidates.length} 条，编辑准入 ${candidates.length} 条，编辑拒绝 ${editorial.audit.rejected} 条，线索 ${leads.length} 条，恢复源 ${sourceResults.filter(result => result.status === 'recovered').length} 个，失败源 ${failures.length} 个，覆盖率 ${(coverage.overall * 100).toFixed(1)}%`);
+
+    if (enforceEditorialGate && env.SOURCE_ONLY_PROOF_REQUIRED !== '0') {
+      const proof = evaluateSourceOnlyProof(candidates, { period });
+      console.log(`[stage 1/5] source-only 证明：primary=${proof.primary_count}, china=${proof.china_count}, modules=${proof.active_module_count}, duplicates=${proof.duplicates}`);
+      if (!proof.pass) {
+        throw new Error(`Source-only proof failed: ${JSON.stringify({
+          primary_count: proof.primary_count,
+          china_count: proof.china_count,
+          active_module_count: proof.active_module_count,
+          failure_codes: proof.failure_codes,
+          duplicates: proof.duplicates,
+        })}`);
+      }
+    }
 
     console.log("[stage 2/5] AI 结构化分析...");
     const analysis = await analyzeReportWithRecovery({
@@ -1194,6 +1224,16 @@ export async function runPipeline(env, requestUrl = 'https://beauty-legal-bot.wo
     const markdown = previewMessages.map(message => message.markdown).join('\n\n---\n\n');
     if (typeof env.ON_REPORT_READY === 'function') {
       await env.ON_REPORT_READY({ report, markdown, generatedAt, failures, sourceResults, coverage });
+    }
+    if (artifactOnly) {
+      console.log('=== artifact-only report written; delivery and dedupe skipped ===');
+      return {
+        stage: 'artifact-only',
+        status: 'done',
+        message: 'artifact-only report written; no delivery attempted',
+        report,
+        markdown,
+      };
     }
     console.log("[stage 4/5] 内容去重检查...");
     const { isDup, seen, fps } = await isDuplicateFingerprints(extractReportFingerprints(report), kv);
@@ -1411,6 +1451,41 @@ export async function hydrateCandidateDetails(candidates = [], {
   return {
     candidates: candidates.map(candidate => replacements.get(normalizeSourceUrl(candidate.url)) || candidate),
     audit,
+  };
+}
+
+export function applyEditorialGate(candidates = []) {
+  const accepted = [];
+  const rejections = [];
+  for (const candidate of candidates) {
+    const decision = evaluateEditorialCandidate(candidate);
+    if (!decision.accepted) {
+      rejections.push({
+        title: candidate.title || '',
+        url: candidate.url || candidate.source_url || '',
+        reason: decision.reason,
+      });
+      continue;
+    }
+    const china = inferArticleChinaRelevance(candidate);
+    accepted.push({
+      ...candidate,
+      editorial_status: 'accepted',
+      editorial_tier: decision.tier,
+      module: inferCandidateModule(candidate),
+      china_relevant: china.relevant,
+      china_evidence_text: china.evidence_text,
+      china_evidence_markers: china.matched_markers,
+    });
+  }
+  return {
+    candidates: accepted,
+    audit: {
+      input: candidates.length,
+      accepted: accepted.length,
+      rejected: rejections.length,
+      rejections,
+    },
   };
 }
 
@@ -3010,8 +3085,22 @@ async function runAnalysisPhase(date, env, additionalCandidates = []) {
   const baseUrl = env.AI_API_BASE_URL || DEFAULT_AI_API_BASE_URL;
   const qualityOptions = pipelineQualityOptions(env);
   const period = getPeriod();
-  const candidates = filterCandidatesByFreshness(allCandidates, period)
+  const hydratedCandidates = filterCandidatesByFreshness(allCandidates, period)
     .filter(candidate => candidate.detail_status === 'hydrated');
+  const editorial = applyEditorialGate(hydratedCandidates);
+  const candidates = editorial.candidates;
+  const proof = evaluateSourceOnlyProof(candidates, { period });
+  console.log(`[stage 2/5] source-only 证明：primary=${proof.primary_count}, china=${proof.china_count}, modules=${proof.active_module_count}, duplicates=${proof.duplicates}`);
+  if (!proof.pass) {
+    throw new Error(`Source-only proof failed: ${JSON.stringify({
+      primary_count: proof.primary_count,
+      china_count: proof.china_count,
+      active_module_count: proof.active_module_count,
+      failure_codes: proof.failure_codes,
+      duplicates: proof.duplicates,
+      editorial_rejections: editorial.audit.rejections,
+    })}`);
+  }
   const analysis = await analyzeReportWithRecovery({
     candidates,
     leads: allLeads,

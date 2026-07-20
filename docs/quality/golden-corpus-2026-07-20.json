@@ -1,0 +1,166 @@
+{
+  "corpus_version": "2026-07-20.v1",
+  "provenance": "failure-artifact-title-identity-replay plus manual title/snippet review",
+  "status": "provisional_until_full_body_replay",
+  "limitations": [
+    "The replay stores snippet_excerpt rather than the complete article body.",
+    "No user-provided accepted/noise sample file was present in the repository or local Codex workspace.",
+    "Accepted records are training-quality examples for the gate, not source-only proof items."
+  ],
+  "records": [
+    {
+      "id": "cn-zhoushan-beauty-safety-20260716",
+      "title": "美妆安全牵手婚恋旅拍 浙江嵊泗守护特色旅拍经济",
+      "url": "http://www.zj.chinanews.com.cn/jzkzj/2026-07-16/detail-ihfhkain2479049.shtml",
+      "verdict": "keep-watch",
+      "expected_module": "新规及案例动态",
+      "china_relevant": true,
+      "body_status": "snippet-only",
+      "concrete_evidence": ["浙江嵊泗", "美妆安全", "2026-07-16"],
+      "why": "中国地点与安全治理动作明确；影响中等但有事实，不因影响不大而删除。"
+    },
+    {
+      "id": "eu-cosmetics-annexes-20260715",
+      "title": "最新：欧盟化妆品法规更新，涉及附录II、III、V",
+      "url": "https://www.cirs-group.com/cn/cosmetics/zui-xin-ou-meng-hua-zhuang-pin-fa-gui-geng-xin-she-ji-fu-lu-iiiiv",
+      "verdict": "keep-watch",
+      "expected_module": "新规及案例动态",
+      "china_relevant": false,
+      "body_status": "snippet-only",
+      "concrete_evidence": ["欧盟", "G/TBT/N/EU/1219", "意见征集截止2026-09-06"],
+      "why": "规则编号、附录范围和截止日具体；中文页面不构成中国证据。"
+    },
+    {
+      "id": "hangzhou-cosmetics-filing-fast-track-20260713",
+      "title": "杭州国产普通化妆品备案优审快办工作启动",
+      "url": "https://www.sohu.com/a/1049753335_121157270",
+      "verdict": "keep-watch",
+      "expected_module": "新规及案例动态",
+      "china_relevant": true,
+      "body_status": "snippet-only",
+      "concrete_evidence": ["杭州市市场监督管理局", "2个工作日", "国产普通化妆品备案"],
+      "why": "中国监管部门和办理时限明确；不是广告处罚模块。"
+    },
+    {
+      "id": "cn-unqualified-influencer-skincare-20260719",
+      "title": "无资质、无质检、无备案网红护肤品被指为三无产品",
+      "url": "https://www.chinanews.com.cn/cj/2026/07-19/10662608.shtml",
+      "verdict": "keep-watch",
+      "expected_module": "产品质量/召回与安全风险",
+      "china_relevant": true,
+      "body_status": "snippet-only",
+      "concrete_evidence": ["无资质", "无质检", "无备案", "2026-07-19"],
+      "why": "产品安全事实具体；需要事件指纹去重同源曝光改写。"
+    },
+    {
+      "id": "tongrentang-cosmetics-liquidation-20260718",
+      "title": "同仁堂集团申请强制清算控股化妆品公司",
+      "url": "https://www.bjnews.com.cn/detail/1784345893168362.html",
+      "verdict": "keep-watch",
+      "expected_module": "美妆动态",
+      "china_relevant": true,
+      "body_status": "snippet-only",
+      "concrete_evidence": ["同仁堂集团", "北京同仁堂化妆品有限公司", "强制清算", "法院申请"],
+      "why": "主体、法律动作和结果明确；不是广告处罚。"
+    },
+    {
+      "id": "vplatform-china-distributor-contract-20260714",
+      "title": "V Platform与中国美容流通企业签订300万美元出口合同",
+      "url": "https://www.mk.co.kr/cn/business/12098105",
+      "verdict": "keep-watch",
+      "expected_module": "进出口动态",
+      "china_relevant": true,
+      "body_status": "snippet-only",
+      "concrete_evidence": ["中国美容专门流通企业", "300万美元", "出口合同"],
+      "why": "交易主体、金额和动作具体；仍需正文核验是否为企业自宣软文。"
+    },
+    {
+      "id": "korea-paper-beauty-diversification-20260716",
+      "title": "韩国造纸企业加速向美妆领域多元化",
+      "url": "https://www.newspim.com/news/view/20260716000039",
+      "verdict": "keep-watch",
+      "expected_module": "美妆动态",
+      "china_relevant": false,
+      "body_status": "snippet-only",
+      "concrete_evidence": ["韩松制纸", "可绿纳乐", "原料和美容仪器业务"],
+      "why": "企业和业务动作具体；韩国事件不因中文翻译而计入中国。"
+    },
+    {
+      "id": "gs-global-japan-distribution-20260715",
+      "title": "GS Global通过日本Cosme Kitchen拓展韩国美妆流通",
+      "url": "https://www.asiae.co.kr/cn/article/2026071516070402263",
+      "verdict": "keep-watch",
+      "expected_module": "进出口动态",
+      "china_relevant": false,
+      "body_status": "snippet-only",
+      "concrete_evidence": ["日本Cosme Kitchen", "3个韩国品牌", "正式销售"],
+      "why": "跨境渠道动作明确，但没有中国主体或中国市场证据。"
+    },
+    {
+      "id": "bpom-illegal-digital-cosmetics-20260713",
+      "title": "BPOM披露数字平台上的非法化妆品宣传与销售",
+      "url": "https://www.shangbaoindonesia.com/index.php/read/2026/07/13/hukum-1783954486",
+      "verdict": "keep-watch",
+      "expected_module": "广告合规及处罚案例",
+      "china_relevant": false,
+      "body_status": "snippet-only",
+      "concrete_evidence": ["印尼BPOM", "数字平台", "非法宣传与销售", "2026-07-13"],
+      "why": "监管机构和违法动作具体；中文媒体不构成中国相关性。"
+    },
+    {
+      "id": "cn-vichy-tech-ipo-20260713",
+      "title": "化妆品原料企业维琪科技在北交所申购",
+      "url": "https://static.nfnews.com/content/202607/13/c12618930.html",
+      "verdict": "keep-watch",
+      "expected_module": "美妆动态",
+      "china_relevant": true,
+      "body_status": "snippet-only",
+      "concrete_evidence": ["北交所", "920176.BJ", "22个国家药监局备案新原料"],
+      "why": "中国市场、证券代码和备案数量明确；不是泛趋势评论。"
+    },
+    {
+      "id": "expo-global-recruitment-20260715",
+      "title": "2027澳门个护家清及美妆展全面启动全球招展",
+      "url": "http://www.zghzp.com/h-nd-136.html",
+      "verdict": "reject",
+      "expected_module": null,
+      "china_relevant": false,
+      "body_status": "snippet-only",
+      "concrete_evidence": ["来源：企业供稿", "全球招展", "欢迎合作洽谈"],
+      "why": "招展和企业供稿，属于广告/服务入口，不是行业资讯。"
+    },
+    {
+      "id": "logistics-double-clearance-ad-20260714",
+      "title": "广州化妆品出口印尼双清包税到门",
+      "url": "https://www.163.com/dy/article/L1QLP20C0538SR5T.html",
+      "verdict": "reject",
+      "expected_module": null,
+      "china_relevant": false,
+      "body_status": "snippet-only",
+      "concrete_evidence": ["双清包税", "一站式海运专线", "物流公司推广"],
+      "why": "物流广告和代办服务，不能作为进出口事实。"
+    },
+    {
+      "id": "beauty-channel-inventory-opinion-20260715",
+      "title": "美妆企业渠道库存健康度评估",
+      "url": "https://www.xhby.net/content/s6a5728b0e4b0b98c2df2d767.html",
+      "verdict": "reject",
+      "expected_module": null,
+      "china_relevant": false,
+      "body_status": "snippet-only",
+      "concrete_evidence": [],
+      "why": "只有指标解释和趋势评论，没有具体企业、动作或结果。"
+    },
+    {
+      "id": "beauty-executive-trend-opinion-20260714",
+      "title": "16位女高管上任，美妆行业重新分配增长权",
+      "url": "https://t.cj.sina.com.cn/articles/view/7746407306/1cdb8cb8a00102vdde",
+      "verdict": "reject",
+      "expected_module": null,
+      "china_relevant": false,
+      "body_status": "snippet-only",
+      "concrete_evidence": ["40余起变动（未逐案列出）"],
+      "why": "泛化趋势观察，缺少可审计的单一事件结果。"
+    }
+  ]
+}
