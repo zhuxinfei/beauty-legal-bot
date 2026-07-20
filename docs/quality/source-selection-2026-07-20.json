@@ -1,0 +1,31 @@
+{
+  "period": { "start": "2026-07-13", "end": "2026-07-20" },
+  "items": [
+    { "url_contains": "e72acb751f3548c9958cc758827ca6bb", "event_identity": "cn-illegal-addition-dishonesty-rule-20260715", "module": "新规及案例动态", "china_relevant": true },
+    { "url_contains": "1049753335_121157270", "event_identity": "cn-hangzhou-filing-fast-track-20260713", "module": "新规及案例动态", "china_relevant": true },
+    { "url_contains": "detail-ihfhkain2479049", "event_identity": "cn-shengsi-travel-makeup-inspection-20260716", "module": "产品质量/召回与安全风险", "china_relevant": true },
+    { "url_contains": "doc-iniiccuw7347076", "event_identity": "cn-guizhou-cosmetics-quality-notice-20260716", "module": "产品质量/召回与安全风险", "china_relevant": true },
+    { "url_contains": "article_id/5652", "event_identity": "cn-judydoll-cadenza-first-filing-20260720", "module": "美妆动态", "china_relevant": true },
+    { "url_contains": "L1PV4TNB0550TXNW", "event_identity": "cn-guiyang-perfume-sample-inspection-20260710", "module": "产品质量/召回与安全风险", "china_relevant": true },
+    { "url_contains": "10662608.shtml", "event_identity": "cn-illegal-lard-skincare-investigation-20260719", "module": "产品质量/召回与安全风险", "china_relevant": true },
+    { "url_contains": "economy-1784003490", "event_identity": "id-bpom-illegal-digital-cosmetics-20260713", "module": "广告合规及处罚案例", "china_relevant": false },
+    { "url_contains": "L1NJJQ750514CJ09", "event_identity": "cn-cosmetics-personalization-pilot-expansion-20260710", "module": "新规及案例动态", "china_relevant": true },
+    { "url_contains": "L1V3FUEF0556BN4G", "event_identity": "cn-cosmetics-retail-growth-2026h1", "module": "美妆动态", "china_relevant": true },
+    { "url_contains": "L20DEML6052583KJ", "event_identity": "cn-new-cosmetic-ingredient-rules-20260715", "module": "新规及案例动态", "china_relevant": true },
+    { "url_contains": "L1VVA65T0534PL1Q", "event_identity": "cn-yigang-cosmetics-inspection-20260716", "module": "产品质量/召回与安全风险", "china_relevant": true },
+    { "url_contains": "2fadbee04ec941a38ed49c883f9fd3c8", "event_identity": "cn-huadu-beauty-export-compliance-event-20260715", "module": "进出口动态", "china_relevant": true },
+    { "url_contains": "1784345893168362", "event_identity": "cn-tongrentang-cosmetics-liquidation-20260720", "module": "美妆动态", "china_relevant": true },
+    { "url_contains": "L1QUUQBB0514AU56", "event_identity": "cn-baiyunshan-beauty-subsidiary-20260714", "module": "美妆动态", "china_relevant": true },
+    { "url_contains": "20260716000039", "event_identity": "kr-paper-companies-beauty-diversification-20260716", "module": "美妆动态", "china_relevant": false },
+    { "url_contains": "korea-deploys-task-force", "event_identity": "kr-indonesia-halal-cosmetics-task-force-20260720", "module": "进出口动态", "china_relevant": false },
+    { "url_contains": "uk-cosmetics-regulation-changes-2026-salons", "event_identity": "gb-cosmetics-rules-july-august-2026", "module": "新规及案例动态", "china_relevant": false },
+    { "url_contains": "first-us-listed-k-beauty-etf", "event_identity": "us-kbeauty-etf-filing-20260716", "module": "美妆动态", "china_relevant": false },
+    {
+      "url_contains": "fda-upper-west-destroys-expired-banned-products",
+      "event_identity": "gh-upper-west-banned-cosmetics-destruction-20260717",
+      "title_override": "Ghana FDA destroys expired and banned hydroquinone cosmetics",
+      "module": "产品质量/召回与安全风险",
+      "china_relevant": false
+    }
+  ]
+}

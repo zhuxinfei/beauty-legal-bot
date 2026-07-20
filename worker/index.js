@@ -1387,6 +1387,15 @@ function selectDetailCandidates(candidates, limit = DETAIL_CANDIDATE_LIMIT) {
   return selected;
 }
 
+export function choosePublishedDate(candidateDate, extractedDate) {
+  const candidate = /^20\d{2}-\d{2}-\d{2}$/.test(String(candidateDate || '')) ? String(candidateDate) : '';
+  const extracted = /^20\d{2}-\d{2}-\d{2}$/.test(String(extractedDate || '')) ? String(extractedDate) : '';
+  if (!candidate) return extracted;
+  if (!extracted) return candidate;
+  const difference = Math.abs(Date.parse(`${candidate}T00:00:00Z`) - Date.parse(`${extracted}T00:00:00Z`));
+  return difference <= 3 * 24 * 60 * 60 * 1000 ? extracted : candidate;
+}
+
 export async function hydrateCandidateDetails(candidates = [], {
   fetcher = fetch,
   browserFetcher,
@@ -1441,7 +1450,7 @@ export async function hydrateCandidateDetails(candidates = [], {
       title: article.title || candidate.title,
       url: result?.finalUrl || candidate.url,
       snippet: article.text,
-      published_at: article.published_at || candidate.published_at,
+      published_at: choosePublishedDate(candidate.published_at, article.published_at),
       image_url: extractImageUrl(result?.html || '', result?.finalUrl || candidate.url) || candidate.image_url || '',
       detail_status: 'hydrated',
       detail_reason: 'complete-article-body',

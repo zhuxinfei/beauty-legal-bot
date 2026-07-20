@@ -17,6 +17,11 @@ import {
 } from './report-quality.js';
 import { publishVersionedPng } from './cloudflare-assets.js';
 import {
+  extractGoogleDecodingParams,
+  parseGoogleBatchResponse,
+  parseGoogleNewsRss,
+} from './google-rss-discovery.js';
+import {
   SourceCoverageError,
   assertSourceCoverage,
   calculateSourceCoverage,
@@ -86,6 +91,7 @@ import {
   extractPublishedDate,
   extractArticleText,
   hydrateCandidateDetails,
+  choosePublishedDate,
   applyEditorialGate,
   sortCandidatesForAnalysis,
   prioritizeCandidatesForAnalysis,
@@ -289,6 +295,83 @@ function testEditorialGateRejectsProductRankingsAndNonBeautyPolicy() {
   });
   assert.equal(taxOpinion.accepted, false);
   assert.equal(taxOpinion.reason, 'not-beauty-industry');
+}
+
+function testGoogleRssDiscoveryParsesAndDecodesStructuredData() {
+  const rss = `<?xml version="1.0"?><rss><channel><item>
+    <title><![CDATA[化妆品抽检通报 - 监管媒体]]></title>
+    <link>https://news.google.com/rss/articles/opaque</link>
+    <pubDate>Wed, 15 Jul 2026 09:04:22 GMT</pubDate>
+    <source url="https://publisher.example">监管媒体</source>
+  </item></channel></rss>`;
+  const [item] = parseGoogleNewsRss(rss, '产品质量/召回与安全风险');
+  assert.equal(item.title, '化妆品抽检通报');
+  assert.equal(item.source_name, '监管媒体');
+  assert.equal(item.published_at, '2026-07-15');
+  assert.equal(item.module, '产品质量/召回与安全风险');
+
+  assert.deepEqual(extractGoogleDecodingParams('<div data-n-a-ts="1784523803" data-n-a-sg="signature"></div>'), {
+    timestamp: '1784523803',
+    signature: 'signature',
+  });
+  const response = `)]}'\n\n[["wrb.fr","Fbv4je","[null,\\"https://publisher.example/article\\"]"]]`;
+  assert.equal(parseGoogleBatchResponse(response), 'https://publisher.example/article');
+}
+
+function testEditorialGateIgnoresPromotionalFooterAfterConcreteLead() {
+  const result = evaluateEditorialCandidate({
+    title: '市场监管部门通报44批次化妆品抽检不合格',
+    url: 'https://publisher.example/regulator-notice',
+    published_at: '2026-07-15',
+    article_text: [
+      '某省药品监督管理局于2026年7月15日通报44批次化妆品抽检不合格，责令相关企业下架整改。',
+      '本次抽检涉及防晒、洗护产品，检测结果和企业名单已经公开。',
+      '相关企业应按照通知要求完成召回和整改。',
+      '页面底部推荐：新品发布，欢迎合作洽谈。',
+    ].join('\n'),
+  });
+  assert.equal(result.accepted, true);
+}
+
+function testEditorialGateAcceptsConcreteEnglishRegulatoryEvents() {
+  const events = [
+    {
+      title: 'Korea deploys task force to shield cosmetics industry from new rules',
+      article_text: 'The Korean government announced on July 20, 2026 that a task force will implement new halal cosmetics rules affecting K-beauty exporters.',
+    },
+    {
+      title: 'Supreme Court rules on Drugs and Cosmetics Act prosecution',
+      article_text: 'The Supreme Court ruled on July 17, 2026 that the limitation period begins when authorities identify the accused under the Drugs and Cosmetics Act.',
+    },
+    {
+      title: 'FDA destroys banned hydroquinone cosmetics',
+      article_text: 'The Ghana FDA announced on July 17, 2026 that it destroyed 120 batches of expired and banned hydroquinone cosmetics after an inspection.',
+    },
+  ];
+  for (const [index, event] of events.entries()) {
+    const result = evaluateEditorialCandidate({
+      ...event,
+      url: `https://publisher.example/english-event-${index}`,
+      published_at: '2026-07-17',
+    });
+    assert.equal(result.accepted, true, event.title);
+  }
+}
+
+function testEditorialGateAcceptsConcreteCompanyLaunchAndAgreement() {
+  const result = evaluateEditorialCandidate({
+    title: '韩国造纸企业加速多元化发展，美妆领域成新赛道',
+    url: 'https://publisher.example/korean-paper-company-beauty-launch',
+    published_at: '2026-07-16',
+    article_text: '기사입력 2026년07월16일，韩松制纸推出用于化妆品的天然增稠剂Duracle，并与大型化妆品企业签署技术合作谅解备忘录。可绿纳乐则新增美容仪器销售经营范围，正式启动相关业务。',
+  });
+  assert.equal(result.accepted, true);
+}
+
+function testHydrationKeepsTrustedFeedDateWhenBodyDateIsUnrelated() {
+  assert.equal(choosePublishedDate('2026-07-17', '2006-05-01'), '2026-07-17');
+  assert.equal(choosePublishedDate('2026-07-15', '2026-07-16'), '2026-07-16');
+  assert.equal(choosePublishedDate('', '2026-07-16'), '2026-07-16');
 }
 
 function testFreshnessGateAllowsOnlyStructuredHistoricalExceptions() {
@@ -3678,4 +3761,9 @@ testSourceOnlyProofRequiresIndependentTwentyTenFour();
 testEditorialGateRejectsIntermediaryAndNavigationUrls();
 testSourceOnlyAuditRecordsEveryCandidateReason();
 testEditorialGateRejectsProductRankingsAndNonBeautyPolicy();
+testGoogleRssDiscoveryParsesAndDecodesStructuredData();
+testEditorialGateIgnoresPromotionalFooterAfterConcreteLead();
+testEditorialGateAcceptsConcreteEnglishRegulatoryEvents();
+testEditorialGateAcceptsConcreteCompanyLaunchAndAgreement();
+testHydrationKeepsTrustedFeedDateWhenBodyDateIsUnrelated();
 console.log('worker pure function tests ok');
