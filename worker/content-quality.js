@@ -12,6 +12,7 @@ const PROMOTIONAL_PATTERNS = [
   /全球招展|报名参展|招商|招代理|欢迎合作|欢迎报名/i,
   /双清包税|一站式(?:代办|服务)|包税到门|物流专线/i,
   /新品发布|品牌宣传|重磅上市|开启.*体验|打造.*实力/i,
+  /产品推荐|十大.*推荐|品牌实力(?:榜单|推荐)|实测(?:分级)?榜单|盘点.*好物|选购指南/i,
 ];
 
 const OPINION_PATTERNS = [
@@ -22,6 +23,7 @@ const OPINION_PATTERNS = [
 const ACTION_PATTERN = /发布|公布|通报|处罚|罚款|召回|下架|查处|判决|裁定|签订|出口|进口|实施|生效|修订|征求意见|备案|注册|清算|要求|禁止|限制|调整|超标|发现|调查|取缔|赔偿|上市/;
 const ACTOR_PATTERN = /(?:国家|省|市|县|区)?[\u4e00-\u9fffA-Za-z0-9]{2,}(?:局|委|院|署|海关|法院|公司|集团|企业|品牌|银行|协会|政府|部门|监管机构|NMPA|BPOM|FDA|MFDS|EUIPO|FTC)/i;
 const EVIDENCE_PATTERN = /(20\d{2}[年./-]\d{1,2}[月./-]\d{1,2}日?|\d+(?:\.\d+)?\s*(?:万|亿|元|美元|欧元|件|批|吨|天|个|家|%|％)|罚款|处罚|召回|备案|注册|规则|条例|通知|判决|裁定|进出口|征求意见|生效|禁用|限用|抽检|不合格|超标|清算)/i;
+const BEAUTY_DOMAIN_PATTERN = /化妆品|美妆|护肤|彩妆|香水|防晒|洗护|牙膏|化妆品原料|香料香精|功效宣称|功效评价|美容仪器|cosmetic|cosmetics|skincare|sunscreen|beauty\s+(?:product|brand|industry)/i;
 
 const CHINA_MARKERS = [
   /中国|中华人民共和国|中国大陆|国内市场|中国市场|在华|对华|输华|中国出口|中国进口/i,
@@ -89,6 +91,7 @@ export function evaluateEditorialCandidate(candidate = {}) {
   if (NAVIGATION_TITLE.test(title)) {
     return { accepted: false, reason: 'navigation-shell' };
   }
+  if (!BEAUTY_DOMAIN_PATTERN.test(text)) return { accepted: false, reason: 'not-beauty-industry' };
   const hasActor = ACTOR_PATTERN.test(text) || /监管部门|法院|海关|公司|集团|品牌|企业/.test(text);
   const hasAction = ACTION_PATTERN.test(text);
   const hasEvidence = EVIDENCE_PATTERN.test(text);

@@ -271,6 +271,26 @@ function testSourceOnlyAuditRecordsEveryCandidateReason() {
   assert.equal(audit.items.find(item => item.title === '监管部门通报另一事项').reason, 'not-hydrated');
 }
 
+function testEditorialGateRejectsProductRankingsAndNonBeautyPolicy() {
+  const ranking = evaluateEditorialCandidate({
+    title: '2026年祛痘去痘印十大产品推荐',
+    url: 'https://publisher.example/product-ranking',
+    published_at: '2026-07-15',
+    article_text: '某行业协会于2026年7月15日发布十大产品实测榜单，盘点高效修护好物并推荐多个品牌购买。',
+  });
+  assert.equal(ranking.accepted, false);
+  assert.equal(ranking.reason, 'promotional-content');
+
+  const taxOpinion = evaluateEditorialCandidate({
+    title: '消费税扩围政策讨论',
+    url: 'https://publisher.example/tax-policy',
+    published_at: '2026-07-13',
+    article_text: '某研究中心主任于2026年7月13日讨论含糖饮料、塑料制品和高端医疗服务的消费税扩围路径。',
+  });
+  assert.equal(taxOpinion.accepted, false);
+  assert.equal(taxOpinion.reason, 'not-beauty-industry');
+}
+
 function testFreshnessGateAllowsOnlyStructuredHistoricalExceptions() {
   const period = { start: '2026-07-13', end: '2026-07-19' };
   const stale = { published_at: '2026-05-01', type: '法规' };
@@ -3657,4 +3677,5 @@ testEditorialGateRunsAfterHydrationBeforeAnalysis();
 testSourceOnlyProofRequiresIndependentTwentyTenFour();
 testEditorialGateRejectsIntermediaryAndNavigationUrls();
 testSourceOnlyAuditRecordsEveryCandidateReason();
+testEditorialGateRejectsProductRankingsAndNonBeautyPolicy();
 console.log('worker pure function tests ok');
