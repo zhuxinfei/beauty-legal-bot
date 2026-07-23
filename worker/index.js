@@ -28,6 +28,10 @@ import {
   inferArticleChinaRelevance,
   inferCandidateModule,
 } from './content-quality.js';
+import {
+  loadHydratedRecordsFromEnv,
+  mergeHydratedCandidates,
+} from './source-hydration.js';
 
 // ---------------------------------------------------------------------------
 // 配置
@@ -1070,7 +1074,7 @@ async function prepareEditorialReportImage({ report, env, kv, requestUrl, date, 
 
 export async function notifyReport({ report, reportUrl: latestUrl, env, sendDingTalk = sendToDingTalk, sendFeishu = sendToFeishu }) {
   if (env.DINGTALK_WEBHOOK_URL) {
-    const messages = buildDingTalkWebhookMessages(report, {
+    const messages = buildDingTalkWebhookMessages({ ...report, premium_delivery: true }, {
       maxBytes: env.DINGTALK_MAX_BYTES,
     });
     const delivery = await sendDingTalkMessages({
@@ -1134,6 +1138,7 @@ export async function runPipeline(env, requestUrl = 'https://beauty-legal-bot.wo
       : selectSourcesForWorkerBudget(sourceCatalog.sources, Number(env.WORKER_FETCH_SOURCE_BUDGET || WORKER_FETCH_SOURCE_BUDGET));
     const { fetchableSources } = splitSources(sources);
     console.log(`[stage 1/5] Worker 抓取预算：${fetchableSources.length} 个可抓取源，${sources.length - fetchableSources.length} 个线索源`);
+    const hydrationRecords = await loadHydratedRecordsFromEnv(env, env.HYDRATION_FETCH || fetch);
     const { candidates: fetchedCandidates, leads, failures, sourceResults, coverage } = await collectCandidates(sources, async () => {}, {
       fetcher: env.SOURCE_FETCH || fetch,
       browserFetcher: env.BROWSER_FETCH_HTML,
@@ -1145,6 +1150,7 @@ export async function runPipeline(env, requestUrl = 'https://beauty-legal-bot.wo
       detailTimeoutMs: Number(env.DETAIL_FETCH_TIMEOUT_MS || DETAIL_FETCH_TIMEOUT_MS),
       detailConcurrency: Number(env.DETAIL_FETCH_CONCURRENCY || DETAIL_FETCH_CONCURRENCY),
       detailBrowserRecoveryLimit: Number(env.DETAIL_BROWSER_RECOVERY_LIMIT || DETAIL_BROWSER_RECOVERY_LIMIT),
+      hydrationRecords,
     });
     assertSourceCoverage(coverage, {
       minOverall: Number(env.MIN_SOURCE_COVERAGE || 0.9),
@@ -1220,7 +1226,7 @@ export async function runPipeline(env, requestUrl = 'https://beauty-legal-bot.wo
       ? "[stage 3/5] 生成单条原生 Markdown 报告..."
       : "[stage 3/5] 无准入事项，生成文字简报...");
     const generatedAt = new Date().toISOString();
-    const previewMessages = buildDingTalkWebhookMessages(report, { maxBytes: env.DINGTALK_MAX_BYTES });
+    const previewMessages = buildDingTalkWebhookMessages({ ...report, premium_delivery: true }, { maxBytes: env.DINGTALK_MAX_BYTES });
     const markdown = previewMessages.map(message => message.markdown).join('\n\n---\n\n');
     if (typeof env.ON_REPORT_READY === 'function') {
       await env.ON_REPORT_READY({ report, markdown, generatedAt, failures, sourceResults, coverage });
@@ -2973,6 +2979,7 @@ export async function collectCandidates(sources = sourceCatalog.sources, onProgr
   }
   let hydratedCandidates = unique;
   let detailAudit = { selected: 0, hydrated: 0, browserRecovered: 0, failed: 0, reasons: {} };
+  let hydrationAudit = { input: 0, records: 0, hydrated: 0, unmatched: 0 };
   if (options.hydrateDetails) {
     const hydrated = await hydrateCandidateDetails(unique, {
       fetcher: options.fetcher || fetch,
@@ -2987,7 +2994,13 @@ export async function collectCandidates(sources = sourceCatalog.sources, onProgr
     const detailReasons = Object.entries(detailAudit.reasons || {}).map(([reason, count]) => `${reason}=${count}`).join(', ') || 'none';
     console.log(`[stage 1/5] 详情页审计：选择 ${detailAudit.selected}，全文成功 ${detailAudit.hydrated}，浏览器恢复 ${detailAudit.browserRecovered}，失败保留 ${detailAudit.failed}，原因 ${detailReasons}`);
   }
-  return { candidates: hydratedCandidates, leads, failures, sourceResults, coverage, detailAudit };
+  if (Array.isArray(options.hydrationRecords) && options.hydrationRecords.length) {
+    const hydration = mergeHydratedCandidates(hydratedCandidates, options.hydrationRecords);
+    hydratedCandidates = hydration.candidates;
+    hydrationAudit = hydration.audit;
+    console.log(`[stage 1/5] Crawl4AI 提纯：输入 ${hydrationAudit.input}，记录 ${hydrationAudit.records}，覆盖 ${hydrationAudit.hydrated}，未命中 ${hydrationAudit.unmatched}`);
+  }
+  return { candidates: hydratedCandidates, leads, failures, sourceResults, coverage, detailAudit, hydrationAudit };
 }
 
 // ---------------------------------------------------------------------------
@@ -3045,6 +3058,7 @@ async function fetchSelf(env, pathname, body, retries = 2) {
 
 async function runCollectPhase(sources, batchId, date, env) {
   if (!env?.SEEN_NEWS) throw new Error('SEEN_NEWS KV binding required');
+  const hydrationRecords = await loadHydratedRecordsFromEnv(env, env.HYDRATION_FETCH || fetch);
   const { candidates, leads, failures, sourceResults, coverage } = await collectCandidates(sources, async () => {}, {
     fetcher: env.SOURCE_FETCH || fetch,
     browserFetcher: env.BROWSER_FETCH_HTML,
@@ -3056,10 +3070,11 @@ async function runCollectPhase(sources, batchId, date, env) {
     detailTimeoutMs: Number(env.DETAIL_FETCH_TIMEOUT_MS || DETAIL_FETCH_TIMEOUT_MS),
     detailConcurrency: Number(env.DETAIL_FETCH_CONCURRENCY || DETAIL_FETCH_CONCURRENCY),
     detailBrowserRecoveryLimit: Number(env.DETAIL_BROWSER_RECOVERY_LIMIT || DETAIL_BROWSER_RECOVERY_LIMIT),
+    hydrationRecords,
   });
   await env.SEEN_NEWS.put(
     `pipeline:${date}:batch:${batchId}`,
-    JSON.stringify({ candidates, leads, failures, sourceResults, coverage })
+    JSON.stringify({ candidates, leads, failures, sourceResults, coverage, hydrationRecords })
   );
   return { batchId, candidateCount: candidates.length, leadCount: leads.length, failures, coverage };
 }

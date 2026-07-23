@@ -1,4 +1,5 @@
 import { buildEditorialReport } from './editorial-report.js';
+import { buildPremiumDingTalkMessages } from './premium-quality.js';
 
 export const DINGTALK_REPORT_MODULES = ['新法律法规政策', '广告处罚案例', '知识产权保护与侵权', '进出口', '行业新闻简讯'];
 
@@ -192,6 +193,10 @@ function messageFromEditorial(editorial, byteLimit, index, total) {
 
 export function buildDingTalkMessages(report, { maxBytes = 18000 } = {}) {
   const byteLimit = Math.max(1200, Number(maxBytes || 18000));
+  if (report?.premium_delivery === true) {
+    const premiumMessages = buildPremiumDingTalkMessages(report, { maxBytes: byteLimit });
+    if (premiumMessages.length) return premiumMessages;
+  }
   try {
     return [buildSingleDingTalkMessage(report, { maxBytes: byteLimit })];
   } catch {}

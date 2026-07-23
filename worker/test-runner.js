@@ -37,6 +37,15 @@ import {
   buildSourceOnlyAudit,
 } from './content-quality.js';
 import {
+  buildPremiumDingTalkMarkdown,
+  selectPremiumEvidenceCards,
+  validatePremiumEvidenceCard,
+} from './premium-quality.js';
+import {
+  mergeHydratedCandidates,
+  normalizeHydratedRecord,
+} from './source-hydration.js';
+import {
   default as worker,
   normalizeUrl,
   htmlToText,
@@ -374,6 +383,129 @@ function testHydrationKeepsTrustedFeedDateWhenBodyDateIsUnrelated() {
   assert.equal(choosePublishedDate('', '2026-07-16'), '2026-07-16');
 }
 
+function testPremiumEvidenceGateRejectsWeakAndKeepsActionableItems() {
+  const weak = validatePremiumEvidenceCard({
+    title: '美妆行业趋势观察',
+    module: '美妆动态',
+    source_url: 'https://example.com/trend',
+    source_name: '行业媒体',
+    published_at: '2026-07-20',
+    facts: ['2026年7月20日，某品牌发布新品并披露阶段性销售表现。'],
+    legal_signal: '该动态不直接新增法定义务，但提示品牌传播方式正在变化。',
+    business_impact: '电商和品牌团队需要留意直播脚本是否继续使用同类表达。',
+    recommended_action: '持续关注。',
+  });
+  assert.equal(weak.accepted, false);
+  assert.equal(weak.reason, 'generic-action');
+
+  const strong = validatePremiumEvidenceCard({
+    title: '国家市场监管总局发布严重违法失信名单新规',
+    module: '新法律法规政策',
+    source_url: 'https://samr.gov.cn/notice/20260720',
+    source_name: '国家市场监管总局',
+    published_at: '2026-07-20',
+    country: '中国',
+    facts: ['2026年7月20日，新规将化妆品非法添加纳入严重违法失信名单管理。'],
+    legal_signal: '非法添加行为将触发更高信用惩戒和公开限制。',
+    business_impact: '配方、功效宣称和供应商准入需要纳入失信风险排查。',
+    recommended_action: '法务牵头更新违法失信筛查清单，质量团队复核高风险原料和代工厂准入记录。',
+  });
+  assert.equal(strong.accepted, true);
+  assert.equal(strong.tier, 'action');
+}
+
+function testPremiumSelectionPrioritizesQualityBeforeQuantityAndCoreModules() {
+  const cards = [
+    {
+      title: '普通品牌增长新闻',
+      module: '美妆动态',
+      source_url: 'https://example.com/brand',
+      source_name: '行业媒体',
+      published_at: '2026-07-20',
+      country: '中国',
+      facts: ['2026年7月20日，某品牌发布新产品并披露销售增长12%。'],
+      legal_signal: '未形成新增监管义务。',
+      business_impact: '可作为市场观察，不构成法务行动。',
+      recommended_action: '品牌合规团队记录为市场观察，暂不启动专项排查。',
+    },
+    {
+      title: '欧盟更新化妆品禁限用物质清单',
+      module: '新法律法规政策',
+      source_url: 'https://ec.europa.eu/cosmetics/rule',
+      source_name: '欧盟委员会',
+      published_at: '2026-07-19',
+      country: '欧盟',
+      facts: ['2026年7月19日，欧盟更新化妆品禁限用物质清单并设置过渡期。'],
+      legal_signal: '出口欧盟产品需要重新核查配方与标签合规。',
+      business_impact: '涉及欧盟销售的防晒和护肤产品可能需要配方复核。',
+      recommended_action: '法规团队确认受影响 SKU，研发和供应链在过渡期前完成配方替换评估。',
+    },
+    {
+      title: '某地市场监管局处罚虚假功效宣称',
+      module: '广告处罚案例',
+      source_url: 'https://amr.example.gov.cn/penalty',
+      source_name: '地方市场监管局',
+      published_at: '2026-07-18',
+      country: '中国',
+      facts: ['2026年7月18日，监管部门因普通化妆品宣称医疗功效处罚经营者。'],
+      legal_signal: '普通化妆品不得通过广告暗示治疗、修复疾病或医疗功效。',
+      business_impact: '直播话术、详情页和达人素材存在同类风险。',
+      recommended_action: '广告合规团队抽检功效宣称素材，电商团队下线医疗化表达并保留整改记录。',
+    },
+  ];
+  const selected = selectPremiumEvidenceCards(cards, { maxItems: 2 });
+  assert.deepEqual(selected.map(card => card.module), ['新法律法规政策', '广告处罚案例']);
+}
+
+function testPremiumDingTalkMarkdownUsesCompactEvidenceCardFormat() {
+  const markdown = buildPremiumDingTalkMarkdown({
+    period: { start: '2026-07-13', end: '2026-07-20' },
+    cards: [{
+      title: '某地市场监管局处罚虚假功效宣称',
+      module: '广告处罚案例',
+      source_url: 'https://amr.example.gov.cn/penalty',
+      source_name: '地方市场监管局',
+      published_at: '2026-07-18',
+      country: '中国',
+      facts: ['监管部门因普通化妆品宣称医疗功效处罚经营者。'],
+      legal_signal: '普通化妆品不得暗示医疗功效。',
+      business_impact: '直播话术、详情页和达人素材存在同类风险。',
+      recommended_action: '广告合规团队抽检功效宣称素材，电商团队下线医疗化表达。',
+    }],
+  });
+  assert.match(markdown, /美妆法务资讯精品卡/);
+  assert.match(markdown, /广告处罚案例/);
+  assert.match(markdown, /法务判断/);
+  assert.match(markdown, /\[原文\]\(https:\/\/amr\.example\.gov\.cn\/penalty\)/);
+  assert.doesNotMatch(markdown, /建议关注|持续关注/);
+}
+
+function testWebhookMessagesPreferPremiumCardFormatWhenAvailable() {
+  const messages = buildDingTalkWebhookMessages({
+    premium_delivery: true,
+    period: { start: '2026-07-13', end: '2026-07-20' },
+    sections: [{
+      module: '新规及案例动态',
+      items: [{
+        type: '法规',
+        module: '新规及案例动态',
+        title: 'BPOM 更新化妆品清真认证要求',
+        source_url: 'https://www.pom.go.id/',
+        source_name: 'BPOM',
+        published_at: '2026-05-21',
+        country: '印尼',
+        what_changed: ['2026年5月21日，BPOM 更新化妆品清真认证要求，设置过渡期。'],
+        legal_obligation: ['进口化妆品应在过渡期内核查清真认证状态。'],
+        affected_business: ['印尼市场进口化妆品的准入、清关和上架节奏。'],
+        recommended_actions: ['注册团队导出印尼在售 SKU 清单并标注认证状态，关务团队同步排查清关资料。'],
+        core_judgement: '印尼清真认证节点将直接影响进口化妆品准入、清关和上架。',
+      }],
+    }],
+  }, { maxBytes: 5000 });
+  assert.equal(messages[0].markdown.startsWith('# 美妆法务资讯精品卡'), true);
+  assert.match(messages[0].markdown, /法务判断/);
+}
+
 function testFreshnessGateAllowsOnlyStructuredHistoricalExceptions() {
   const period = { start: '2026-07-13', end: '2026-07-19' };
   const stale = { published_at: '2026-05-01', type: '法规' };
@@ -632,9 +764,14 @@ async function testPipelineSendsNativeMarkdownWithoutImageHooks() {
     if (href.startsWith('https://oapi.dingtalk.com/robot/send')) {
       calls.push('send-dingtalk');
       const payload = JSON.parse(init.body);
-      assert.ok(payload.markdown.text.includes('- **事实摘要**'));
-      assert.ok(payload.markdown.text.includes('- **来源链接**'));
-      assert.ok(payload.markdown.text.includes('- **事实摘要**\n  - '));
+      assert.ok(
+        payload.markdown.text.includes('- **事实摘要**')
+        || payload.markdown.text.includes('# 美妆法务资讯精品卡'),
+      );
+      assert.ok(
+        payload.markdown.text.includes('- **来源链接**')
+        || payload.markdown.text.includes('- **来源**'),
+      );
       assert.equal(payload.markdown.text.includes('![美妆法务资讯长图]'), false);
       assert.equal(payload.markdown.text.includes('查看高清原图'), false);
       return new Response(JSON.stringify({ errcode: 0, errmsg: 'ok' }), { status: 200 });
@@ -690,9 +827,18 @@ async function testPipelineIgnoresLegacyEditorialImageHooks() {
     if (href.startsWith('https://oapi.dingtalk.com/robot/send')) {
       calls.push('send-dingtalk');
       const payload = JSON.parse(init.body);
-      assert.ok(payload.markdown.text.includes('- **事实摘要**'));
-      assert.ok(payload.markdown.text.includes('- **来源链接**'));
-      assert.ok(payload.markdown.text.includes('- **事实摘要**\n  - '));
+      assert.ok(
+        payload.markdown.text.includes('- **事实摘要**')
+        || payload.markdown.text.includes('# 美妆法务资讯精品卡'),
+      );
+      assert.ok(
+        payload.markdown.text.includes('- **来源链接**')
+        || payload.markdown.text.includes('- **来源**'),
+      );
+      assert.ok(
+        payload.markdown.text.includes('- **事实摘要**\n  - ')
+        || payload.markdown.text.includes('- **事实依据**'),
+      );
       assert.equal(payload.markdown.text.includes('![美妆法务资讯长图]'), false);
       return new Response(JSON.stringify({ errcode: 0, errmsg: 'ok' }), { status: 200 });
     }
@@ -944,6 +1090,41 @@ async function testHydrateCandidateDetailsFetchesArticleBodiesWithoutDroppingFai
   assert.equal(hydrated.candidates[1].detail_status, 'failed');
   assert.equal(hydrated.audit.hydrated, 1);
   assert.equal(hydrated.audit.failed, 1);
+}
+
+function testHydratedRecordsOverrideWeakCandidateText() {
+  const record = normalizeHydratedRecord({
+    url: 'https://regulator.example.cn/news/20260723',
+    final_url: 'https://regulator.example.cn/news/20260723?ref=crwl',
+    title: '国家市场监管总局发布化妆品广告新规',
+    source_name: '国家市场监管总局',
+    published_at: '2026-07-23',
+    fit_markdown: '# 国家市场监管总局发布化妆品广告新规\n\n2026年7月23日，监管部门明确普通化妆品不得暗示医疗功效。',
+    raw_markdown: 'raw markdown',
+    references_markdown: '【1】https://regulator.example.cn/news/20260723',
+    metadata: { source_type: 'official_site' },
+    extraction: { legal_signal: '普通化妆品不得暗示医疗功效。' },
+  });
+  const merged = mergeHydratedCandidates([{
+    title: '化妆品广告新规',
+    url: 'https://regulator.example.cn/news/20260723',
+    snippet: '首页 导航 登录 注册',
+    source_name: '旧来源',
+    module: '广告合规及处罚案例',
+    country: '中国',
+    region: '亚洲',
+    priority: 'high',
+    detail_status: 'failed',
+    detail_reason: 'page-shell',
+  }], [record]);
+
+  assert.equal(merged.candidates[0].detail_status, 'hydrated');
+  assert.equal(merged.candidates[0].detail_reason, 'crawl4ai-hydrated');
+  assert.equal(merged.candidates[0].url, 'https://regulator.example.cn/news/20260723?ref=crwl');
+  assert.equal(merged.candidates[0].source_url, 'https://regulator.example.cn/news/20260723');
+  assert.equal(merged.candidates[0].article_text.includes('普通化妆品不得暗示医疗功效'), true);
+  assert.equal(merged.candidates[0].source_name, '国家市场监管总局');
+  assert.equal(merged.audit.hydrated, 1);
 }
 
 async function testHydrateCandidateDetailsContainsBrowserRecoveryFailures() {
@@ -2383,9 +2564,9 @@ async function testNotifyReportPrefersDingTalkWhenConfigured() {
   assert.equal(ok.sent, 1);
   assert.equal(ok.total, 1);
   assert.ok(sentTitle.includes('美妆法务资讯'));
-  assert.ok(sentMarkdown.includes('事实摘要'));
-  assert.ok(sentMarkdown.includes('下一步观察建议'));
-  assert.ok(sentMarkdown.includes('来源链接'));
+  assert.ok(sentMarkdown.includes('事实摘要') || sentMarkdown.includes('法务判断'));
+  assert.ok(sentMarkdown.includes('下一步观察建议') || sentMarkdown.includes('业务影响'));
+  assert.ok(sentMarkdown.includes('来源链接') || sentMarkdown.includes('来源'));
   assert.equal(sentMarkdown.includes('管理层摘要'), false);
   assert.equal(sentMarkdown.includes('产品质量/召回与安全风险'), false);
 }
@@ -3398,6 +3579,8 @@ function testRunLocalPropagatesPipelineFailure() {
   assert.ok(source.includes("result.status === 'failed'"));
   assert.ok(source.includes('await browserSourceFetcher.close()'));
   assert.equal(source.includes("process.env.DINGTALK_WEBHOOK_URL ? 'DingTalk webhook was called.'"), false);
+  assert.ok(source.includes('SOURCE_HYDRATION_JSON: process.env.SOURCE_HYDRATION_JSON'));
+  assert.ok(source.includes('SOURCE_HYDRATION_URL: process.env.SOURCE_HYDRATION_URL'));
 }
 
 function testArtifactOnlyModeIsDeliveryFree() {
@@ -3766,4 +3949,8 @@ testEditorialGateIgnoresPromotionalFooterAfterConcreteLead();
 testEditorialGateAcceptsConcreteEnglishRegulatoryEvents();
 testEditorialGateAcceptsConcreteCompanyLaunchAndAgreement();
 testHydrationKeepsTrustedFeedDateWhenBodyDateIsUnrelated();
+testPremiumEvidenceGateRejectsWeakAndKeepsActionableItems();
+testPremiumSelectionPrioritizesQualityBeforeQuantityAndCoreModules();
+testPremiumDingTalkMarkdownUsesCompactEvidenceCardFormat();
+testWebhookMessagesPreferPremiumCardFormatWhenAvailable();
 console.log('worker pure function tests ok');

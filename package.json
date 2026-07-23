@@ -3,7 +3,8 @@
   "scripts": {
     "render:decision-map": "node scripts/render-decision-map-png.js",
     "render:editorial-report": "node scripts/render-editorial-report-png.js",
-    "render:editorial-fixtures": "node scripts/render-editorial-report-fixtures.js"
+    "render:editorial-fixtures": "node scripts/render-editorial-report-fixtures.js",
+    "hydrate:crawl4ai": "node scripts/crawl4ai-hydrate.js"
   },
   "devDependencies": {
     "playwright": "^1.61.1",
