@@ -414,6 +414,23 @@ function testPremiumEvidenceGateRejectsWeakAndKeepsActionableItems() {
   assert.equal(strong.tier, 'action');
 }
 
+function testPremiumEvidenceGateKeepsOfficialWatchEntriesWithConcreteSignals() {
+  const watch = validatePremiumEvidenceCard({
+    title: '欧盟 Safety Gate 作为非食品消费品危险通报入口，应纳入化妆品召回监测',
+    module: '产品质量/召回与安全风险',
+    source_url: 'https://ec.europa.eu/safety-gate-alerts/screen/webReport',
+    source_name: '欧盟 Safety Gate',
+    published_at: '2026-07-23',
+    country: '欧盟',
+    facts: ['Crawl4AI 抓取到欧盟 Safety Gate 页面标题为 EU rapid alert system for dangerous non-food products。'],
+    legal_signal: 'Safety Gate 是欧盟危险非食品产品快速预警入口。',
+    business_impact: '欧盟渠道、跨境电商和海外经销商需监测同品牌、同供应商、同成分或同包装风险。',
+    recommended_action: '质量团队每周检索 Safety Gate 的 cosmetics/perfume/skin care 关键词，法规团队维护欧盟召回模板。',
+  });
+  assert.equal(watch.accepted, true);
+  assert.equal(watch.tier, 'watch');
+}
+
 function testPremiumSelectionPrioritizesQualityBeforeQuantityAndCoreModules() {
   const cards = [
     {
@@ -452,9 +469,21 @@ function testPremiumSelectionPrioritizesQualityBeforeQuantityAndCoreModules() {
       business_impact: '直播话术、详情页和达人素材存在同类风险。',
       recommended_action: '广告合规团队抽检功效宣称素材，电商团队下线医疗化表达并保留整改记录。',
     },
+    {
+      title: '欧盟 Safety Gate 作为非食品消费品危险通报入口，应纳入化妆品召回监测',
+      module: '产品质量/召回与安全风险',
+      source_url: 'https://ec.europa.eu/safety-gate-alerts/screen/webReport',
+      source_name: '欧盟 Safety Gate',
+      published_at: '2026-07-23',
+      country: '欧盟',
+      facts: ['Crawl4AI 抓取到欧盟 Safety Gate 页面标题为 EU rapid alert system for dangerous non-food products。'],
+      legal_signal: 'Safety Gate 是欧盟危险非食品产品快速预警入口。',
+      business_impact: '欧盟渠道、跨境电商和海外经销商需监测同品牌、同供应商、同成分或同包装风险。',
+      recommended_action: '质量团队每周检索 Safety Gate 的 cosmetics/perfume/skin care 关键词，法规团队维护欧盟召回模板。',
+    },
   ];
-  const selected = selectPremiumEvidenceCards(cards, { maxItems: 2 });
-  assert.deepEqual(selected.map(card => card.module), ['新法律法规政策', '广告处罚案例']);
+  const selected = selectPremiumEvidenceCards(cards, { maxItems: 3 });
+  assert.deepEqual(selected.map(card => card.module), ['新法律法规政策', '广告处罚案例', '产品质量/召回与安全风险']);
 }
 
 function testPremiumDingTalkMarkdownUsesCompactEvidenceCardFormat() {
@@ -478,6 +507,53 @@ function testPremiumDingTalkMarkdownUsesCompactEvidenceCardFormat() {
   assert.match(markdown, /法务判断/);
   assert.match(markdown, /\[原文\]\(https:\/\/amr\.example\.gov\.cn\/penalty\)/);
   assert.doesNotMatch(markdown, /建议关注|持续关注/);
+}
+
+function testPremiumDingTalkMarkdownIncludesThreeCoreModulesWhenAvailable() {
+  const markdown = buildPremiumDingTalkMarkdown({
+    period: { start: '2026-07-21', end: '2026-07-23' },
+    cards: [
+      {
+        title: '欧盟委员会化妆品专题页维持配方、责任人和上市合规的官方监管入口',
+        module: '新法律法规政策',
+        source_url: 'https://single-market-economy.ec.europa.eu/sectors/cosmetics/cosmetic-products-specific-topics_en',
+        source_name: '欧盟委员会',
+        published_at: '2026-07-23',
+        country: '欧盟',
+        facts: ['Crawl4AI 抓取到欧盟委员会化妆品专题页，页面明确为官方监管入口。'],
+        legal_signal: '出口欧盟的化妆品仍应按欧盟化妆品监管框架核查责任人、成分限制和上市前通报义务。',
+        business_impact: '影响欧盟在售或拟上市的护肤、彩妆、防晒和洗护 SKU。',
+        recommended_action: '法规团队本周建立欧盟 SKU 合规台账。',
+      },
+      {
+        title: '市场监管总局公布十起民生领域违法广告典型案例',
+        module: '广告处罚案例',
+        source_url: 'https://www.samr.gov.cn/xw/zj/art/2026/art_fa68b35c13f449218736a97ff7f27133.html',
+        source_name: '国家市场监督管理总局',
+        published_at: '2026-07-21',
+        country: '中国',
+        facts: ['Crawl4AI 抓取的 SAMR 首页在 2026-07-21 新闻列表中显示该典型案例发布。'],
+        legal_signal: '总局以典型案例方式释放执法口径，广告真实性和误导性宣传仍处于高压监管。',
+        business_impact: '直播话术、详情页和达人素材存在同类风险。',
+        recommended_action: '广告合规团队抽检近 30 天直播脚本、信息流广告和详情页首屏文案。',
+      },
+      {
+        title: '欧盟 Safety Gate 作为非食品消费品危险通报入口，应纳入化妆品召回监测',
+        module: '产品质量/召回与安全风险',
+        source_url: 'https://ec.europa.eu/safety-gate-alerts/screen/webReport',
+        source_name: '欧盟 Safety Gate',
+        published_at: '2026-07-23',
+        country: '欧盟',
+        facts: ['Crawl4AI 抓取到欧盟 Safety Gate 页面标题为 EU rapid alert system for dangerous non-food products。'],
+        legal_signal: 'Safety Gate 是欧盟危险非食品产品快速预警入口。',
+        business_impact: '欧盟渠道、跨境电商和海外经销商需监测同品牌、同供应商、同成分或同包装风险。',
+        recommended_action: '质量团队每周检索 Safety Gate 的 cosmetics/perfume/skin care 关键词。',
+      },
+    ],
+  });
+  assert.match(markdown, /新法律法规政策/);
+  assert.match(markdown, /广告处罚案例/);
+  assert.match(markdown, /产品质量\/召回与安全风险/);
 }
 
 function testWebhookMessagesPreferPremiumCardFormatWhenAvailable() {
@@ -3950,7 +4026,9 @@ testEditorialGateAcceptsConcreteEnglishRegulatoryEvents();
 testEditorialGateAcceptsConcreteCompanyLaunchAndAgreement();
 testHydrationKeepsTrustedFeedDateWhenBodyDateIsUnrelated();
 testPremiumEvidenceGateRejectsWeakAndKeepsActionableItems();
+testPremiumEvidenceGateKeepsOfficialWatchEntriesWithConcreteSignals();
 testPremiumSelectionPrioritizesQualityBeforeQuantityAndCoreModules();
 testPremiumDingTalkMarkdownUsesCompactEvidenceCardFormat();
+testPremiumDingTalkMarkdownIncludesThreeCoreModulesWhenAvailable();
 testWebhookMessagesPreferPremiumCardFormatWhenAvailable();
 console.log('worker pure function tests ok');

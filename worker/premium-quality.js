@@ -15,7 +15,7 @@ const MODULE_ALIAS = {
 };
 
 const GENERIC_PATTERNS = /建议关注|持续关注|企业应留意|可能产生影响|后续观察|待进一步明确|视情况|适时/i;
-const CONCRETE_PATTERNS = /(20\d{2}|发布|公布|通报|处罚|罚款|召回|判决|裁定|征求意见|生效|实施|备案|注册|禁用|限用|进口|出口|海关|监管|法院|委员会|药监|市场监管|FDA|FTC|BPOM|MFDS|EUIPO|WIPO|\d+(?:\.\d+)?\s*(?:万|亿|元|美元|欧元|件|批|天|%|％))/i;
+const CONCRETE_PATTERNS = /(20\d{2}|发布|公布|通报|处罚|罚款|召回|判决|裁定|征求意见|生效|实施|备案|注册|禁用|限用|进口|出口|海关|监管|法院|委员会|药监|市场监管|快速预警|危险非食品|rapid alert|dangerous non-food|Safety Gate|FDA|FTC|BPOM|MFDS|EUIPO|WIPO|\d+(?:\.\d+)?\s*(?:万|亿|元|美元|欧元|件|批|天|%|％))/i;
 const OWNER_PATTERN = /法务|合规|法规|质量|研发|供应链|采购|电商|广告|品牌|市场|知识产权|IP|进出口|关务|注册|备案|产品|渠道|海外|本地团队/;
 
 function text(value) {
@@ -138,7 +138,7 @@ function premiumCardFromItem(item, sectionModule) {
     country: text(item.country || item.region || '未知'),
     facts: list(item.what_changed || item.facts || item.fact_summary || item.dispute_focus || item.market_access_change || item.regulatory_signal),
     legal_signal: text(item.legal_obligation || item.compliance_meaning || item.violation_logic || item.infringement_logic || item.documents_needed || item.core_judgement),
-    business_impact: text(item.affected_business || item.business_impact || item.impact_on_brand_assets || item.affected_import_flow || item.why_it_matters),
+    business_impact: text(item.affected_business || item.business_impact || item.impact_on_brand_assets || item.affected_import_flow || item.why_it_matters || item.risk_pattern || item.business_lessons || item.penalty_or_result),
     recommended_action: text(item.recommended_actions || item.next_observation || item.possible_follow_up),
   };
 }
