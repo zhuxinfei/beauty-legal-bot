@@ -40,9 +40,31 @@ function isHttpUrl(value) {
   }
 }
 
+function isChinaCard(card) {
+  return /中国|China|CN|内地|大陆/i.test(text(card.country));
+}
+
+function moduleRank(module) {
+  const index = MODULE_ORDER.indexOf(normalizeModule(module));
+  return index >= 0 ? index : MODULE_ORDER.length;
+}
+
+function comparePremiumCards(a, b) {
+  const chinaDiff = Number(isChinaCard(b)) - Number(isChinaCard(a));
+  if (chinaDiff) return chinaDiff;
+  const moduleDiff = moduleRank(a.module) - moduleRank(b.module);
+  if (moduleDiff) return moduleDiff;
+  return b.score - a.score;
+}
+
+function compareSelectionCards(a, b) {
+  return b.score - a.score || moduleRank(a.module) - moduleRank(b.module);
+}
+
 function scoreCard(card) {
   let score = 0;
   score += Math.max(0, 60 - MODULE_ORDER.indexOf(normalizeModule(card.module)) * 8);
+  if (isChinaCard(card)) score += 20;
   if (/gov|gob|europa\.eu|fda\.gov|ftc\.gov|wipo\.int|euipo\.europa\.eu/i.test(text(card.source_url))) score += 30;
   if (/监管|药监|市场监督|市场监管|法院|海关|委员会|总局|FDA|FTC|BPOM|MFDS|EUIPO|WIPO/i.test(text(card.source_name))) score += 25;
   if (/处罚|罚款|召回|判决|裁定|禁用|限用|生效|征求意见|备案|注册|进口|出口|海关/i.test([card.title, card.legal_signal, card.business_impact, card.recommended_action].join(' '))) score += 18;
@@ -104,17 +126,19 @@ export function selectPremiumEvidenceCards(cards = [], { maxItems = 8, minItems 
     accepted.push({ ...card, tier: decision.tier, score: decision.score });
   }
 
-  accepted.sort((a, b) => {
-    const ra = MODULE_ORDER.indexOf(a.module);
-    const rb = MODULE_ORDER.indexOf(b.module);
-    if (ra !== rb) return ra - rb;
-    return b.score - a.score;
-  });
+  accepted.sort(compareSelectionCards);
 
   const selected = [];
-  for (const module of MODULE_ORDER.slice(0, 4)) {
-    const next = accepted.find(card => card.module === module && !selected.includes(card));
-    if (next) selected.push(next);
+  for (const preferChina of [true, false]) {
+    for (const module of MODULE_ORDER.slice(0, 4)) {
+      if (selected.length >= maxItems) break;
+      const next = accepted.find(card =>
+        card.module === module
+        && !selected.includes(card)
+        && (!preferChina || isChinaCard(card))
+      );
+      if (next) selected.push(next);
+    }
   }
   for (const card of accepted) {
     if (selected.length >= maxItems) break;
@@ -156,8 +180,19 @@ export function buildPremiumDingTalkMarkdown({ period = {}, cards = [] } = {}) {
   ];
 
   let number = 0;
-  for (const module of MODULE_ORDER) {
-    const items = selected.filter(card => card.module === module);
+  const modules = [...new Set(selected.map(card => card.module))]
+    .sort((a, b) => {
+      const aHasChina = selected.some(card => card.module === a && isChinaCard(card));
+      const bHasChina = selected.some(card => card.module === b && isChinaCard(card));
+      const chinaDiff = Number(bHasChina) - Number(aHasChina);
+      if (chinaDiff) return chinaDiff;
+      return moduleRank(a) - moduleRank(b);
+    });
+
+  for (const module of modules) {
+    const items = selected
+      .filter(card => card.module === module)
+      .sort(comparePremiumCards);
     if (!items.length) continue;
     lines.push('', `## ${module}`);
     for (const card of items) {

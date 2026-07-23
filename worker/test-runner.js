@@ -483,7 +483,7 @@ function testPremiumSelectionPrioritizesQualityBeforeQuantityAndCoreModules() {
     },
   ];
   const selected = selectPremiumEvidenceCards(cards, { maxItems: 3 });
-  assert.deepEqual(selected.map(card => card.module), ['新法律法规政策', '广告处罚案例', '产品质量/召回与安全风险']);
+  assert.deepEqual(selected.map(card => card.module), ['广告处罚案例', '新法律法规政策', '产品质量/召回与安全风险']);
 }
 
 function testPremiumDingTalkMarkdownUsesCompactEvidenceCardFormat() {
