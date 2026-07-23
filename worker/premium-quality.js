@@ -31,6 +31,63 @@ function list(value) {
   return (Array.isArray(value) ? value : [value]).map(text).filter(Boolean);
 }
 
+function normalizeHardFacts(value = {}) {
+  const input = value && typeof value === 'object' ? value : {};
+  return {
+    document_number: text(input.document_number),
+    authority: text(input.authority),
+    penalty_amount: text(input.penalty_amount),
+    legal_basis: text(input.legal_basis),
+    involved_party: text(input.involved_party),
+    product_or_batch: text(input.product_or_batch),
+    hs_code: text(input.hs_code),
+    effective_date: text(input.effective_date),
+    deadline: text(input.deadline),
+    risk_tier: text(input.risk_tier),
+    signal_type: text(input.signal_type),
+    affected_processes: list(input.affected_processes),
+    owner_teams: list(input.owner_teams),
+    action_deadline: text(input.action_deadline),
+  };
+}
+
+function inferSignalType(value) {
+  const source = text(value);
+  if (/规划|计划|专项行动|工作方案|会议审议/i.test(source)) return '执法趋势';
+  if (/处罚|罚款|行政处罚|判决|裁定|侵权行为|构成侵权|违法|召回|不合格/i.test(source)) return '风险案例';
+  if (/海关|关税|HS\s*编码|进口|出口|清关|报关|备案|注册|禁用|限用|生效|实施|征求意见|办法|规定|公告/i.test(source)) return '新增义务';
+  if (/入口|监测|预警|Safety Gate|rapid alert/i.test(source)) return '观察入口';
+  return '执法趋势';
+}
+
+function inferRiskTier(value) {
+  const source = text(value);
+  if (/处罚|罚款|行政处罚|召回|不合格|立即|3日内|三日内|截止|生效|违法/i.test(source)) return '立即处理';
+  if (/海关|关税|HS\s*编码|进口|出口|清关|报关|备案|注册|商标|知识产权|判决|裁定|公告|办法|规定|本周/i.test(source)) return '本周排查';
+  return '持续监测';
+}
+
+function withInferredHardFacts(hardFacts, card) {
+  const source = [
+    card.title,
+    card.facts,
+    card.legal_signal,
+    card.business_impact,
+    card.recommended_action,
+  ].flat().join(' ');
+  return {
+    ...hardFacts,
+    signal_type: hardFacts.signal_type || inferSignalType(source),
+    risk_tier: hardFacts.risk_tier || inferRiskTier(source),
+  };
+}
+
+function compactHardFacts(facts = {}, keys = []) {
+  return keys
+    .map(([key, label]) => facts[key] ? `${label}：${facts[key]}` : '')
+    .filter(Boolean);
+}
+
 function isHttpUrl(value) {
   try {
     const url = new URL(String(value || ''));
@@ -69,6 +126,11 @@ function scoreCard(card) {
   if (/监管|药监|市场监督|市场监管|法院|海关|委员会|总局|FDA|FTC|BPOM|MFDS|EUIPO|WIPO/i.test(text(card.source_name))) score += 25;
   if (/处罚|罚款|召回|判决|裁定|禁用|限用|生效|征求意见|备案|注册|进口|出口|海关/i.test([card.title, card.legal_signal, card.business_impact, card.recommended_action].join(' '))) score += 18;
   if (OWNER_PATTERN.test(text(card.recommended_action))) score += 12;
+  const hardFactCount = Object.entries(card.hard_facts || {})
+    .filter(([key]) => !['risk_tier', 'signal_type', 'affected_processes', 'owner_teams', 'action_deadline'].includes(key))
+    .filter(([, value]) => Array.isArray(value) ? value.length : text(value))
+    .length;
+  score += Math.min(30, hardFactCount * 5);
   return score;
 }
 
@@ -85,6 +147,7 @@ export function validatePremiumEvidenceCard(card = {}) {
     legal_signal: text(card.legal_signal),
     business_impact: text(card.business_impact),
     recommended_action: text(card.recommended_action),
+    hard_facts: withInferredHardFacts(normalizeHardFacts(card.hard_facts), card),
   };
 
   if (!normalized.title) return { accepted: false, reason: 'missing-title', card: normalized };
@@ -151,9 +214,47 @@ function esc(value) {
   return text(value).replace(/\|/g, '\\|');
 }
 
+function renderFactLine(card) {
+  const hard = compactHardFacts(card.hard_facts, [
+    ['authority', '机关'],
+    ['document_number', '文号'],
+    ['involved_party', '主体'],
+    ['product_or_batch', '产品/批次'],
+    ['penalty_amount', '金额'],
+    ['legal_basis', '依据'],
+    ['hs_code', 'HS编码'],
+    ['effective_date', '生效'],
+    ['deadline', '截止'],
+  ]);
+  return esc([...hard, card.facts[0]].filter(Boolean).join('；'));
+}
+
+function renderJudgementLine(card) {
+  const prefix = [
+    card.hard_facts.risk_tier ? `分级：${card.hard_facts.risk_tier}` : '',
+    card.hard_facts.signal_type ? `类型：${card.hard_facts.signal_type}` : '',
+  ].filter(Boolean).join('；');
+  return esc([prefix, card.legal_signal].filter(Boolean).join('；'));
+}
+
+function renderImpactLine(card) {
+  const processLine = card.hard_facts.affected_processes.length
+    ? `影响流程：${card.hard_facts.affected_processes.join('、')}`
+    : '';
+  return esc([card.business_impact, processLine].filter(Boolean).join('；'));
+}
+
+function renderActionLine(card) {
+  const ownerLine = card.hard_facts.owner_teams.length
+    ? `责任团队：${card.hard_facts.owner_teams.join('、')}`
+    : '';
+  const deadlineLine = card.hard_facts.action_deadline ? `时限：${card.hard_facts.action_deadline}` : '';
+  return esc([ownerLine, deadlineLine, card.recommended_action].filter(Boolean).join('；'));
+}
+
 function premiumCardFromItem(item, sectionModule) {
   const module = normalizeModule(item.module || sectionModule);
-  return {
+  const baseCard = {
     title: text(item.title),
     module,
     source_url: text(item.source_url),
@@ -164,6 +265,10 @@ function premiumCardFromItem(item, sectionModule) {
     legal_signal: text(item.legal_obligation || item.compliance_meaning || item.violation_logic || item.infringement_logic || item.documents_needed || item.core_judgement),
     business_impact: text(item.affected_business || item.business_impact || item.impact_on_brand_assets || item.affected_import_flow || item.why_it_matters || item.risk_pattern || item.business_lessons || item.penalty_or_result),
     recommended_action: text(item.recommended_actions || item.next_observation || item.possible_follow_up),
+  };
+  return {
+    ...baseCard,
+    hard_facts: withInferredHardFacts(normalizeHardFacts(item.hard_facts || item.extraction?.hard_facts || item.extraction?.legal_facts || {}), baseCard),
   };
 }
 
@@ -201,10 +306,10 @@ export function buildPremiumDingTalkMarkdown({ period = {}, cards = [] } = {}) {
         '',
         `### ${number}. ${esc(card.title)}`,
         `- **来源**：${esc(card.source_name)} / ${esc(card.country)} / ${esc(card.published_at)} / [原文](${card.source_url})`,
-        `- **事实依据**：${esc(card.facts[0])}`,
-        `- **法务判断**：${esc(card.legal_signal)}`,
-        `- **业务影响**：${esc(card.business_impact)}`,
-        `- **建议动作**：${esc(card.recommended_action)}`,
+        `- **事实依据**：${renderFactLine(card)}`,
+        `- **法务判断**：${renderJudgementLine(card)}`,
+        `- **业务影响**：${renderImpactLine(card)}`,
+        `- **建议动作**：${renderActionLine(card)}`,
       );
     }
   }

@@ -509,6 +509,47 @@ function testPremiumDingTalkMarkdownUsesCompactEvidenceCardFormat() {
   assert.doesNotMatch(markdown, /建议关注|持续关注/);
 }
 
+function testPremiumDingTalkMarkdownAlwaysAddsRiskTierAndSignalType() {
+  const markdown = buildPremiumDingTalkMarkdown({
+    period: { start: '2026-07-13', end: '2026-07-20' },
+    cards: [{
+      title: '地方海关发布化妆品进口申报要素调整提示',
+      module: '进出口',
+      source_url: 'https://customs.example.cn/rule',
+      source_name: '海关总署',
+      published_at: '2026-07-18',
+      country: '中国',
+      facts: ['2026年7月18日，海关发布化妆品进口申报要素调整提示，涉及 HS 编码 3304990010。'],
+      legal_signal: '进口化妆品申报应复核商品归类、成分用途描述和单证一致性。',
+      business_impact: '影响进口护肤 SKU 的清关、采购报价和到岸成本核算。',
+      recommended_action: '关务团队本周复核进口护肤 SKU 申报要素，采购团队同步更新报价模板。',
+    }],
+  });
+  assert.match(markdown, /分级：本周排查/);
+  assert.match(markdown, /类型：新增义务/);
+}
+
+function testPremiumDingTalkMarkdownDoesNotOverstatePolicyPlanningAsRiskCase() {
+  const markdown = buildPremiumDingTalkMarkdown({
+    period: { start: '2026-07-21', end: '2026-07-23' },
+    cards: [{
+      title: '国务院常务会议审议通过《知识产权保护和运用“十五五”规划》',
+      module: '知识产权保护或者侵权',
+      source_url: 'https://www.cnipa.gov.cn/art/2026/7/22/art_55_207319.html',
+      source_name: '国家知识产权局',
+      published_at: '2026-07-22',
+      country: '中国',
+      facts: ['CNIPA 首页在 2026-07-22 新闻列表中显示国务院常务会议审议通过该规划。'],
+      legal_signal: '知识产权保护和运用继续政策化、体系化。',
+      business_impact: '影响新品命名、包装视觉、达人素材授权和海外商标布局。',
+      recommended_action: '知识产权团队本周拉取重点品牌商标和外观设计清单，法务团队补齐授权链路。',
+    }],
+  });
+  assert.match(markdown, /分级：本周排查/);
+  assert.match(markdown, /类型：执法趋势/);
+  assert.doesNotMatch(markdown, /类型：风险案例/);
+}
+
 function testPremiumDingTalkMarkdownIncludesThreeCoreModulesWhenAvailable() {
   const markdown = buildPremiumDingTalkMarkdown({
     period: { start: '2026-07-21', end: '2026-07-23' },
@@ -554,6 +595,44 @@ function testPremiumDingTalkMarkdownIncludesThreeCoreModulesWhenAvailable() {
   assert.match(markdown, /新法律法规政策/);
   assert.match(markdown, /广告处罚案例/);
   assert.match(markdown, /产品质量\/召回与安全风险/);
+}
+
+function testPremiumDingTalkMarkdownSurfacesHardFieldsInsideExistingSections() {
+  const markdown = buildPremiumDingTalkMarkdown({
+    period: { start: '2026-07-21', end: '2026-07-23' },
+    cards: [{
+      title: '市场监管局处罚某公司普通化妆品医疗化宣称',
+      module: '广告处罚案例',
+      source_url: 'https://amr.example.gov.cn/case/20260723',
+      source_name: '上海市市场监督管理局',
+      published_at: '2026-07-23',
+      country: '中国',
+      facts: ['2026年7月23日，监管部门因普通化妆品宣称医疗功效处罚某公司，罚款12万元。'],
+      legal_signal: '普通化妆品不得通过直播话术、详情页或达人素材暗示治疗、修复疾病等医疗功效。',
+      business_impact: '影响天猫、抖音和小红书渠道的普通护肤 SKU 广告素材、达人脚本和功效证据留存。',
+      recommended_action: '广告合规团队3日内抽检近30天直播脚本，电商团队下线医疗化表达并保留整改记录。',
+      hard_facts: {
+        authority: '上海市市场监督管理局',
+        document_number: '沪市监处罚〔2026〕88号',
+        penalty_amount: '12万元',
+        legal_basis: '《广告法》第二十八条',
+        involved_party: '某化妆品有限公司',
+        product_or_batch: '普通护肤 SKU',
+        affected_processes: ['广告素材', '达人脚本', '功效证据留存'],
+        owner_teams: ['广告合规', '电商'],
+        action_deadline: '3日内',
+        signal_type: '风险案例',
+        risk_tier: '立即处理',
+      },
+    }],
+  });
+  assert.match(markdown, /立即处理/);
+  assert.match(markdown, /风险案例/);
+  assert.match(markdown, /沪市监处罚〔2026〕88号/);
+  assert.match(markdown, /《广告法》第二十八条/);
+  assert.match(markdown, /12万元/);
+  assert.match(markdown, /责任团队：广告合规、电商/);
+  assert.match(markdown, /时限：3日内/);
 }
 
 function testWebhookMessagesPreferPremiumCardFormatWhenAvailable() {
@@ -1201,6 +1280,33 @@ function testHydratedRecordsOverrideWeakCandidateText() {
   assert.equal(merged.candidates[0].article_text.includes('普通化妆品不得暗示医疗功效'), true);
   assert.equal(merged.candidates[0].source_name, '国家市场监管总局');
   assert.equal(merged.audit.hydrated, 1);
+}
+
+function testHydratedRecordExtractsHardLegalFactsFromCrawl4AiText() {
+  const record = normalizeHydratedRecord({
+    url: 'https://amr.example.gov.cn/case/20260723',
+    title: '上海市市场监督管理局行政处罚决定书',
+    source_name: '上海市市场监督管理局',
+    published_at: '2026-07-23',
+    country: '中国',
+    module: '广告合规及处罚案例',
+    fit_markdown: [
+      '行政处罚决定书文号：沪市监处罚〔2026〕88号。',
+      '处罚机关：上海市市场监督管理局。',
+      '当事人：某化妆品有限公司。',
+      '违反《广告法》第二十八条，普通化妆品宣称医疗功效。',
+      '罚款12万元。',
+      '涉及产品：普通护肤 SKU，批号 B202607。',
+    ].join('\n'),
+  });
+  assert.equal(record.hard_facts.document_number, '沪市监处罚〔2026〕88号');
+  assert.equal(record.hard_facts.authority, '上海市市场监督管理局');
+  assert.equal(record.hard_facts.involved_party, '某化妆品有限公司');
+  assert.equal(record.hard_facts.legal_basis, '《广告法》第二十八条');
+  assert.equal(record.hard_facts.penalty_amount, '12万元');
+  assert.equal(record.hard_facts.product_or_batch, '普通护肤 SKU，批号 B202607');
+  assert.equal(record.hard_facts.signal_type, '风险案例');
+  assert.equal(record.hard_facts.risk_tier, '立即处理');
 }
 
 async function testHydrateCandidateDetailsContainsBrowserRecoveryFailures() {
@@ -3912,6 +4018,8 @@ testExtractImageUrl();
 testExtractArticleTextRemovesPageChromeAndKeepsMetadata();
 testExtractArticleTextDoesNotSilentlyTruncateTheOriginalBody();
 await testHydrateCandidateDetailsFetchesArticleBodiesWithoutDroppingFailures();
+testHydratedRecordsOverrideWeakCandidateText();
+testHydratedRecordExtractsHardLegalFactsFromCrawl4AiText();
 await testHydrateCandidateDetailsContainsBrowserRecoveryFailures();
 await testHydrateCandidateDetailsRejectsUnsupportedDocumentsAndPageShells();
 testGetSourceStats();
@@ -4029,6 +4137,9 @@ testPremiumEvidenceGateRejectsWeakAndKeepsActionableItems();
 testPremiumEvidenceGateKeepsOfficialWatchEntriesWithConcreteSignals();
 testPremiumSelectionPrioritizesQualityBeforeQuantityAndCoreModules();
 testPremiumDingTalkMarkdownUsesCompactEvidenceCardFormat();
+testPremiumDingTalkMarkdownAlwaysAddsRiskTierAndSignalType();
+testPremiumDingTalkMarkdownDoesNotOverstatePolicyPlanningAsRiskCase();
 testPremiumDingTalkMarkdownIncludesThreeCoreModulesWhenAvailable();
+testPremiumDingTalkMarkdownSurfacesHardFieldsInsideExistingSections();
 testWebhookMessagesPreferPremiumCardFormatWhenAvailable();
 console.log('worker pure function tests ok');

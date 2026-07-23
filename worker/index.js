@@ -2097,6 +2097,7 @@ function materializeCandidateBackedReport(report, candidates, targetModule) {
       region: candidate.region,
       published_at: candidate.published_at || '未知',
       updated_at: candidate.updated_at || '未知',
+      hard_facts: candidate.hard_facts || {},
     };
   });
   for (const [index, decision] of decisions) {
@@ -2244,6 +2245,7 @@ function rescueItemFromSelection(selection, candidate) {
     next_observation: observation,
     report_tier: selection.report_tier === 'watch' ? 'watch' : 'action',
     confidence: ['high', 'medium', 'low'].includes(selection.confidence) ? selection.confidence : (official ? 'high' : 'medium'),
+    hard_facts: candidate.hard_facts || {},
   };
 }
 
