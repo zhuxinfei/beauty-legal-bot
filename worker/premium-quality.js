@@ -250,11 +250,7 @@ function renderFactLine(card) {
 }
 
 function renderJudgementLine(card) {
-  const prefix = [
-    card.hard_facts.risk_tier ? `分级：${card.hard_facts.risk_tier}` : '',
-    card.hard_facts.signal_type ? `类型：${card.hard_facts.signal_type}` : '',
-  ].filter(Boolean).join('；');
-  return esc([prefix, card.legal_signal].filter(Boolean).join('；'));
+  return esc(card.legal_signal);
 }
 
 function renderImpactLine(card) {
@@ -266,9 +262,9 @@ function renderImpactLine(card) {
 
 function renderActionLine(card) {
   const ownerLine = card.hard_facts.owner_teams.length
-    ? `责任团队：${card.hard_facts.owner_teams.join('、')}`
+    ? `涉及团队：${card.hard_facts.owner_teams.join('、')}`
     : '';
-  const deadlineLine = card.hard_facts.action_deadline ? `时限：${card.hard_facts.action_deadline}` : '';
+  const deadlineLine = card.hard_facts.action_deadline ? `观察窗口：${card.hard_facts.action_deadline}` : '';
   return esc([ownerLine, deadlineLine, card.recommended_action].filter(Boolean).join('；'));
 }
 
@@ -329,9 +325,9 @@ export function buildPremiumDingTalkMarkdown({ period = {}, cards = [] } = {}) {
         `### ${number}. ${esc(card.title)}`,
         `- **来源**：${esc(card.source_name)} / ${esc(card.country)} / ${esc(card.published_at)} / [原文](${card.source_url})`,
         `- **事实依据**：${renderFactLine(card)}`,
-        `- **法务判断**：${renderJudgementLine(card)}`,
+        `- **法务观察**：${renderJudgementLine(card)}`,
         `- **业务影响**：${renderImpactLine(card)}`,
-        `- **建议动作**：${renderActionLine(card)}`,
+        `- **下一步观察建议**：${renderActionLine(card)}`,
       );
     }
   }

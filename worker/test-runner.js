@@ -543,12 +543,13 @@ function testPremiumDingTalkMarkdownUsesCompactEvidenceCardFormat() {
   });
   assert.match(markdown, /美妆法务资讯精品卡/);
   assert.match(markdown, /广告处罚案例/);
-  assert.match(markdown, /法务判断/);
+  assert.match(markdown, /法务观察/);
+  assert.match(markdown, /下一步观察建议/);
   assert.match(markdown, /\[原文\]\(https:\/\/amr\.example\.gov\.cn\/penalty\)/);
-  assert.doesNotMatch(markdown, /建议关注|持续关注/);
+  assert.doesNotMatch(markdown, /建议关注|持续关注|分级：|类型：|建议动作/);
 }
 
-function testPremiumDingTalkMarkdownAlwaysAddsRiskTierAndSignalType() {
+function testPremiumDingTalkMarkdownDoesNotExposeRiskTierAndSignalType() {
   const markdown = buildPremiumDingTalkMarkdown({
     period: { start: '2026-07-13', end: '2026-07-20' },
     cards: [{
@@ -564,11 +565,12 @@ function testPremiumDingTalkMarkdownAlwaysAddsRiskTierAndSignalType() {
       recommended_action: '关务团队本周复核进口护肤 SKU 申报要素，采购团队同步更新报价模板。',
     }],
   });
-  assert.match(markdown, /分级：本周排查/);
-  assert.match(markdown, /类型：新增义务/);
+  assert.match(markdown, /法务观察/);
+  assert.match(markdown, /下一步观察建议/);
+  assert.doesNotMatch(markdown, /分级：|类型：|本周排查|新增义务/);
 }
 
-function testPremiumDingTalkMarkdownDoesNotOverstatePolicyPlanningAsRiskCase() {
+function testPremiumDingTalkMarkdownKeepsPolicyPlanningObservationNeutral() {
   const markdown = buildPremiumDingTalkMarkdown({
     period: { start: '2026-07-21', end: '2026-07-23' },
     cards: [{
@@ -584,9 +586,8 @@ function testPremiumDingTalkMarkdownDoesNotOverstatePolicyPlanningAsRiskCase() {
       recommended_action: '知识产权团队本周拉取重点品牌商标和外观设计清单，法务团队补齐授权链路。',
     }],
   });
-  assert.match(markdown, /分级：本周排查/);
-  assert.match(markdown, /类型：执法趋势/);
-  assert.doesNotMatch(markdown, /类型：风险案例/);
+  assert.match(markdown, /法务观察/);
+  assert.doesNotMatch(markdown, /分级：|类型：|风险案例|执法趋势|立即处理/);
 }
 
 function testPremiumDingTalkMarkdownIncludesThreeCoreModulesWhenAvailable() {
@@ -665,13 +666,14 @@ function testPremiumDingTalkMarkdownSurfacesHardFieldsInsideExistingSections() {
       },
     }],
   });
-  assert.match(markdown, /立即处理/);
-  assert.match(markdown, /风险案例/);
+  assert.doesNotMatch(markdown, /立即处理/);
+  assert.doesNotMatch(markdown, /风险案例/);
   assert.match(markdown, /沪市监处罚〔2026〕88号/);
   assert.match(markdown, /《广告法》第二十八条/);
   assert.match(markdown, /12万元/);
-  assert.match(markdown, /责任团队：广告合规、电商/);
-  assert.match(markdown, /时限：3日内/);
+  assert.match(markdown, /涉及团队：广告合规、电商/);
+  assert.match(markdown, /观察窗口：3日内/);
+  assert.match(markdown, /下一步观察建议/);
 }
 
 function testWebhookMessagesPreferPremiumCardFormatWhenAvailable() {
@@ -697,7 +699,7 @@ function testWebhookMessagesPreferPremiumCardFormatWhenAvailable() {
     }],
   }, { maxBytes: 5000 });
   assert.equal(messages[0].markdown.startsWith('# 美妆法务资讯精品卡'), true);
-  assert.match(messages[0].markdown, /法务判断/);
+  assert.match(messages[0].markdown, /法务观察/);
 }
 
 function testFreshnessGateAllowsOnlyStructuredHistoricalExceptions() {
@@ -2785,7 +2787,7 @@ async function testNotifyReportPrefersDingTalkWhenConfigured() {
   assert.equal(ok.sent, 1);
   assert.equal(ok.total, 1);
   assert.ok(sentTitle.includes('美妆法务资讯'));
-  assert.ok(sentMarkdown.includes('事实摘要') || sentMarkdown.includes('法务判断'));
+  assert.ok(sentMarkdown.includes('事实摘要') || sentMarkdown.includes('法务观察'));
   assert.ok(sentMarkdown.includes('下一步观察建议') || sentMarkdown.includes('业务影响'));
   assert.ok(sentMarkdown.includes('来源链接') || sentMarkdown.includes('来源'));
   assert.equal(sentMarkdown.includes('管理层摘要'), false);
@@ -4178,8 +4180,8 @@ testPremiumEvidenceGateKeepsOfficialWatchEntriesWithConcreteSignals();
 testPremiumEvidenceGateRejectsRepublisherSourceEvenWhenFactsAreHard();
 testPremiumSelectionPrioritizesQualityBeforeQuantityAndCoreModules();
 testPremiumDingTalkMarkdownUsesCompactEvidenceCardFormat();
-testPremiumDingTalkMarkdownAlwaysAddsRiskTierAndSignalType();
-testPremiumDingTalkMarkdownDoesNotOverstatePolicyPlanningAsRiskCase();
+testPremiumDingTalkMarkdownDoesNotExposeRiskTierAndSignalType();
+testPremiumDingTalkMarkdownKeepsPolicyPlanningObservationNeutral();
 testPremiumDingTalkMarkdownIncludesThreeCoreModulesWhenAvailable();
 testPremiumDingTalkMarkdownSurfacesHardFieldsInsideExistingSections();
 testWebhookMessagesPreferPremiumCardFormatWhenAvailable();
