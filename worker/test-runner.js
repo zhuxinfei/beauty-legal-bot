@@ -4168,14 +4168,14 @@ function testSelectSourcesForWorkerBudgetKeepsImportantCoverageUnderLimit() {
   }
 }
 
-function testWeeklyWorkflowDeploysRoutesBeforeVersionedAssetPipeline() {
+function testWeeklyWorkflowRunsLocalReportPipelineWithoutWorkerDeploy() {
   const workflow = readFileSync(new URL('../.github/workflows/weekly.yml', import.meta.url), 'utf8');
   assert.ok(workflow.includes('node worker/run-local.js'));
   assert.equal(workflow.includes('node run-local.js'), false);
   assert.ok(workflow.includes("cron: '17 0 * * 1'"));
   assert.equal(workflow.includes("cron: '52 23 * * 0'"), false);
-  assert.ok(workflow.includes('npx wrangler deploy'));
-  assert.ok(workflow.indexOf('npx wrangler deploy') < workflow.indexOf('node worker/run-local.js'));
+  assert.equal(workflow.includes('npx wrangler deploy'), false);
+  assert.equal(workflow.includes('Deploy worker routes'), false);
   assert.ok(workflow.includes('vars.AI_API_BASE_URL'));
   assert.ok(workflow.includes('vars.AI_MODEL'));
   assert.ok(workflow.includes("MIN_CHINA_CRITICAL_COVERAGE || '0.9'"));
@@ -4345,7 +4345,7 @@ testSourceLeadCandidateKeepsWeaklyFetchableModulesAnalyzable();
 testSourceCatalogUsesWorkbookModulesAndGlobalMarkets();
 testSelectSourcesForWorkerBudgetKeepsImportantCoverageUnderLimit();
 testPromptIncludesProductQualityRecallModule();
-testWeeklyWorkflowDeploysRoutesBeforeVersionedAssetPipeline();
+testWeeklyWorkflowRunsLocalReportPipelineWithoutWorkerDeploy();
 testDecisionMapPublicUrlCanOverrideWorkerAssetUrl();
 testRunLocalPropagatesPipelineFailure();
 testArtifactOnlyModeIsDeliveryFree();

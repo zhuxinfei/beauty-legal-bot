@@ -79,10 +79,6 @@ jobs:
             --attachment-limit "$CRAWL4AI_ATTACHMENT_LIMIT"
           node -e "const fs=require('fs'); const p=JSON.parse(fs.readFileSync(process.env.SOURCE_HYDRATION_FILE,'utf8')); const rows=(p.records||[]); console.log('hydrated records=' + rows.length + ', withText=' + rows.filter(r => (r.article_text||r.raw_markdown||r.fit_markdown||'').length > 0).length + ', attachments=' + rows.reduce((s,r)=>s+(r.attachment_urls||[]).length,0));"
 
-      - name: Deploy worker routes
-        working-directory: worker
-        run: npx wrangler deploy
-
       - name: Probe AI endpoint
         run: node worker/probe-ai.js
 
