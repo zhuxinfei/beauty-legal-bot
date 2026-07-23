@@ -34,6 +34,27 @@ const CHINA_MARKERS = [
 
 const SHELL_LINE = /^(?:首页|导航|登录|注册|联系我们|搜索|移动版|客户端|分享|打印|字体大小|English|Home|Menu|关闭|上一页|下一页|订阅|欢迎访问)/i;
 const NAVIGATION_TITLE = /(?:信息源入口|首页|主页|导航|登录|注册|联系我们|网站地图|搜索结果|welcome\s+to|site\s+map|contact\s+us)/i;
+const REPUBLISHER_HOST_PATTERN = /(?:^|\.)((?:sohu|163|sina|qq|toutiao|baijiahao|thepaper|jiemian|36kr)\.com|(?:baijiahao|mp)\.baidu\.com)$/i;
+const MEDIA_SOURCE_TYPES = new Set(['industry_media', 'media', 'wechat_lead', 'wechat_public_account']);
+
+function hostOf(value) {
+  try {
+    return new URL(String(value || '')).hostname;
+  } catch {
+    return '';
+  }
+}
+
+export function isNonAuthoritativeRepublisher(candidate = {}) {
+  const sourceType = String(candidate.source_type || '').trim();
+  const authorityType = String(candidate.authority_type || '').trim();
+  const sourceName = String(candidate.source_name || candidate.name || '').trim();
+  const host = hostOf(candidate.url || candidate.source_url);
+  return REPUBLISHER_HOST_PATTERN.test(host)
+    || MEDIA_SOURCE_TYPES.has(sourceType)
+    || authorityType === 'media'
+    || /搜狐|转载|综合自|公众号线索|行业媒体/.test(sourceName);
+}
 
 function isPublisherArticleUrl(value) {
   try {
@@ -91,6 +112,9 @@ export function evaluateEditorialCandidate(candidate = {}) {
   if (promotional) return { accepted: false, reason: /物流|双清|包税|代办|服务/.test(promotional.source) ? 'service-promotion' : 'promotional-content' };
   if (NAVIGATION_TITLE.test(title)) {
     return { accepted: false, reason: 'navigation-shell' };
+  }
+  if (isNonAuthoritativeRepublisher(candidate)) {
+    return { accepted: false, reason: 'non-authoritative-source' };
   }
   if (!BEAUTY_DOMAIN_PATTERN.test(leadText)) return { accepted: false, reason: 'not-beauty-industry' };
   const hasActor = ACTOR_PATTERN.test(leadText) || /监管部门|法院|海关|公司|集团|品牌|企业|government|court|commission|authority|ministry|\bFDA\b|task force/i.test(leadText);

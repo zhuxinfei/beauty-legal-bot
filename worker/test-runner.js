@@ -166,6 +166,20 @@ function testEditorialGateRequiresConcreteFactsButKeepsWatch() {
   }), true);
 }
 
+function testEditorialGateRejectsRepublisherSourcesEvenWithConcretePenaltyFacts() {
+  const sohuRepost = evaluateEditorialCandidate({
+    title: '化妆品“PRO-XYLANE”商标侵权刷单案被罚17万元',
+    url: 'https://www.sohu.com/a/900000000_121000000',
+    source_name: '搜狐转载',
+    source_type: 'industry_media',
+    authority_type: 'media',
+    published_at: '2026-07-19',
+    article_text: '2026年7月19日，某商家未经授权生产带 PRO-XYLANE 商标化妆品21,572盒，销售8,556盒，违法经营额124,700.89元，并因刷单7,521单被市场监管部门合计罚款17万元。',
+  });
+  assert.equal(sohuRepost.accepted, false);
+  assert.equal(sohuRepost.reason, 'non-authoritative-source');
+}
+
 function testEditorialModuleUsesArticleFactsAndChinaEvidence() {
   assert.equal(inferCandidateModule({ title: '监管部门发布通知', article_text: '国家药监局发布化妆品备案新规，7月1日起执行。' }), '新规及案例动态');
   assert.equal(inferCandidateModule({ title: '品牌纠纷', article_text: '法院判决某公司侵犯商标权并赔偿50万元。' }), '知识产权动态');
@@ -388,7 +402,7 @@ function testPremiumEvidenceGateRejectsWeakAndKeepsActionableItems() {
     title: '美妆行业趋势观察',
     module: '美妆动态',
     source_url: 'https://example.com/trend',
-    source_name: '行业媒体',
+    source_name: '官方来源',
     published_at: '2026-07-20',
     facts: ['2026年7月20日，某品牌发布新品并披露阶段性销售表现。'],
     legal_signal: '该动态不直接新增法定义务，但提示品牌传播方式正在变化。',
@@ -429,6 +443,31 @@ function testPremiumEvidenceGateKeepsOfficialWatchEntriesWithConcreteSignals() {
   });
   assert.equal(watch.accepted, true);
   assert.equal(watch.tier, 'watch');
+}
+
+function testPremiumEvidenceGateRejectsRepublisherSourceEvenWhenFactsAreHard() {
+  const repost = validatePremiumEvidenceCard({
+    title: '两家美妆企业冒用爱马仕商标合计被罚63.5万元',
+    module: '知识产权保护或者侵权',
+    source_url: 'https://www.sohu.com/a/900000001_121000000',
+    source_name: '搜狐转载',
+    source_type: 'industry_media',
+    authority_type: 'media',
+    published_at: '2026-07-19',
+    country: '中国',
+    facts: ['两家美妆企业因在产品瓶身和包装上冒用 HERMES 商标，合计被罚63.5万元并没收侵权商品33,082件。'],
+    legal_signal: '化妆品包装、套盒和传播素材使用奢侈品牌标识会形成商标侵权和行政处罚风险。',
+    business_impact: '影响品牌命名、包装设计、达人素材和商标授权链路。',
+    recommended_action: '知识产权团队3日内复核在售套盒包装，品牌团队同步下线未经授权的大牌联名表达。',
+    hard_facts: {
+      penalty_amount: '63.5万元',
+      legal_basis: '《商标法》第五十七条',
+      involved_party: '两家美妆企业',
+      product_or_batch: '涉 HERMES 标识化妆品',
+    },
+  });
+  assert.equal(repost.accepted, false);
+  assert.equal(repost.reason, 'non-authoritative-source');
 }
 
 function testPremiumSelectionPrioritizesQualityBeforeQuantityAndCoreModules() {
@@ -4122,6 +4161,7 @@ testArtifactOnlyModeIsDeliveryFree();
 await testArtifactOnlyPipelineSkipsDelivery();
 testEditorialGateRejectsPromotionalAndServicePages();
 testEditorialGateRequiresConcreteFactsButKeepsWatch();
+testEditorialGateRejectsRepublisherSourcesEvenWithConcretePenaltyFacts();
 testEditorialModuleUsesArticleFactsAndChinaEvidence();
 testEditorialGateRunsAfterHydrationBeforeAnalysis();
 testSourceOnlyProofRequiresIndependentTwentyTenFour();
@@ -4135,6 +4175,7 @@ testEditorialGateAcceptsConcreteCompanyLaunchAndAgreement();
 testHydrationKeepsTrustedFeedDateWhenBodyDateIsUnrelated();
 testPremiumEvidenceGateRejectsWeakAndKeepsActionableItems();
 testPremiumEvidenceGateKeepsOfficialWatchEntriesWithConcreteSignals();
+testPremiumEvidenceGateRejectsRepublisherSourceEvenWhenFactsAreHard();
 testPremiumSelectionPrioritizesQualityBeforeQuantityAndCoreModules();
 testPremiumDingTalkMarkdownUsesCompactEvidenceCardFormat();
 testPremiumDingTalkMarkdownAlwaysAddsRiskTierAndSignalType();
