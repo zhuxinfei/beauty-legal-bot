@@ -1431,6 +1431,22 @@ function testHydratedRecordMergesAttachmentTextForCrawl4AiSecondHopEvidence() {
   assert.equal(record.hard_facts.signal_type, '新增义务');
 }
 
+function testHydratedRecordDowngradesEmptyHydratedBody() {
+  const record = normalizeHydratedRecord({
+    url: 'https://www.nmpa.gov.cn/index.html',
+    title: '国家药品监督管理局',
+    source_name: '国家药监局',
+    published_at: '2026-07-23',
+    country: '中国',
+    module: '新规及案例动态',
+    crawl_status: 'hydrated',
+    article_text: '',
+    quality_flags: [],
+  });
+  assert.equal(record.crawl_status, 'failed');
+  assert.ok(record.quality_flags.includes('empty-hydrated-body'));
+}
+
 function testAuthorityResolverTurnsMediaLeadIntoOfficialSearchQueries() {
   const queries = buildAuthoritySearchQueries({
     title: '化妆品“PRO-XYLANE”商标侵权刷单案被罚17万元',
@@ -4202,6 +4218,7 @@ testHydratedRecordsOverrideWeakCandidateText();
 testHydratedRecordExtractsHardLegalFactsFromCrawl4AiText();
 testHydratedRecordExtractsAttachmentLinksForCrawl4AiSecondHop();
 testHydratedRecordMergesAttachmentTextForCrawl4AiSecondHopEvidence();
+testHydratedRecordDowngradesEmptyHydratedBody();
 testAuthorityResolverTurnsMediaLeadIntoOfficialSearchQueries();
 testAuthorityResolverBuildsSearchTasksFromLeadOnlySources();
 testAuthorityResolverClassifiesFinalSourceTrust();

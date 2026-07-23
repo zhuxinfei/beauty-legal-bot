@@ -207,6 +207,11 @@ export function normalizeHydratedRecord(record = {}) {
     : text(record.quality_flags)
       ? [text(record.quality_flags)]
       : [];
+  const emptyHydratedBody = text(record.crawl_status || 'hydrated') === 'hydrated' && !stripMarkdown(articleText);
+  const normalizedQualityFlags = emptyHydratedBody
+    ? [...new Set([...qualityFlags, 'empty-hydrated-body'])]
+    : qualityFlags;
+  const crawlStatus = emptyHydratedBody ? 'failed' : text(record.crawl_status || 'hydrated');
   const attachmentUrls = [
     ...extractAttachmentUrls([fitMarkdown, rawMarkdown, text(record.references_markdown)].join('\n'), finalUrl || sourceUrl),
     ...normalizeArray(record.attachment_urls),
@@ -235,8 +240,8 @@ export function normalizeHydratedRecord(record = {}) {
     metadata: record.metadata || {},
     extraction: record.extraction || {},
     hard_facts: normalizeHardFacts(record, articleText),
-    crawl_status: text(record.crawl_status || 'hydrated'),
-    quality_flags: qualityFlags,
+    crawl_status: crawlStatus,
+    quality_flags: normalizedQualityFlags,
     hydration_source: text(record.hydration_source || 'crawl4ai'),
   };
 }
