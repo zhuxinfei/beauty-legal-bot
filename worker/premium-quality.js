@@ -24,6 +24,20 @@ function text(value) {
   return String(value || '').replace(/\s+/g, ' ').trim();
 }
 
+function sanitizeBriefingText(value) {
+  return text(value)
+    .replace(/Crawl4AI\s*(?:抓取到|提取到|发现|显示|返回)?/gi, '')
+    .replace(/(?:本工具|本系统|本文|笔者|本人)(?:认为|判断|看到|发现|建议)?/g, '')
+    .replace(/(?:我们|咱们)(?:认为|判断|看到|发现|注意到|建议|可)?/g, '')
+    .replace(/对我们的/g, '对')
+    .replace(/我们的/g, '')
+    .replace(/我国/g, '中国')
+    .replace(/\bI\b|\bwe\b|\bour\b|\bmy\b|\bme\b/gi, '')
+    .replace(/\s+/g, ' ')
+    .replace(/^[，,。；;：:\s]+/, '')
+    .trim();
+}
+
 function normalizeModule(value) {
   const module = text(value);
   return MODULE_ALIAS[module] || module || '美妆动态';
@@ -231,7 +245,7 @@ export function selectPremiumEvidenceCards(cards = [], { maxItems = 8, minItems 
 }
 
 function esc(value) {
-  return text(value).replace(/\|/g, '\\|');
+  return sanitizeBriefingText(value).replace(/\|/g, '\\|');
 }
 
 function renderFactLine(card) {

@@ -46,6 +46,12 @@ import {
   normalizeHydratedRecord,
 } from './source-hydration.js';
 import {
+  buildAuthoritySearchTasks,
+  buildAuthoritySearchQueries,
+  classifyAuthorityTrust,
+  selectAuthorityResolvedCandidates,
+} from './authority-resolver.js';
+import {
   default as worker,
   normalizeUrl,
   htmlToText,
@@ -588,6 +594,35 @@ function testPremiumDingTalkMarkdownKeepsPolicyPlanningObservationNeutral() {
   });
   assert.match(markdown, /法务观察/);
   assert.doesNotMatch(markdown, /分级：|类型：|风险案例|执法趋势|立即处理/);
+}
+
+function testPremiumDingTalkMarkdownDoesNotExposeInternalVoiceOrCrawlerName() {
+  const markdown = buildPremiumDingTalkMarkdown({
+    period: { start: '2026-07-20', end: '2026-07-23' },
+    cards: [{
+      title: '化妆品标准管理办法征求意见',
+      module: '新法律法规政策',
+      source_url: 'https://www.nmpa.gov.cn/xxgk/zhqyj/20260723.html',
+      source_name: '国家药监局',
+      source_type: 'official_site',
+      authority_type: 'regulator',
+      published_at: '2026-07-23',
+      country: '中国',
+      facts: ['Crawl4AI 抓取到《化妆品标准管理办法（征求意见稿）》正文，我们看到过渡期一般不超过2年。'],
+      legal_signal: '我们判断该事项涉及标准执行、新旧衔接和企业参与渠道。',
+      business_impact: '对我们的标签、备案和标准执行流程形成影响。',
+      recommended_action: '法规、研发、质量团队跟踪征求意见稿和反馈渠道。',
+      hard_facts: {
+        authority: '国家药监局',
+        deadline: '2026年8月15日',
+        owner_teams: ['法规', '研发', '质量'],
+        affected_processes: ['标签', '备案', '标准执行'],
+      },
+    }],
+  });
+  assert.doesNotMatch(markdown, /Crawl4AI|我|我们|咱们|本人|本工具|本系统/);
+  assert.match(markdown, /过渡期一般不超过2年/);
+  assert.match(markdown, /涉及标准执行、新旧衔接和企业参与渠道/);
 }
 
 function testPremiumDingTalkMarkdownIncludesThreeCoreModulesWhenAvailable() {
@@ -1157,6 +1192,10 @@ async function testCollectCandidatesReturnsRecoveryEvidenceAndRealCoverage() {
       name: '空白行业源', url: 'https://empty.test', module: '美妆动态',
       country: '美国', region: '北美', priority: 'medium', source_type: 'industry_site', topics: [],
     },
+    {
+      name: '化妆品观察', url: '微信公众号', module: '知识产权动态',
+      country: '中国', region: '亚洲', priority: 'medium', source_type: 'wechat_public_account', authority_type: 'media', topics: ['PRO-XYLANE 商标侵权 刷单 17万'],
+    },
   ];
   const result = await collectCandidates(sources, async () => {}, {
     fetcher: async url => {
@@ -1185,6 +1224,7 @@ async function testCollectCandidatesReturnsRecoveryEvidenceAndRealCoverage() {
   assert.ok(result.candidates.some(candidate => candidate.url === 'https://direct.test/notice'));
   assert.ok(result.candidates.some(candidate => candidate.url === 'https://browser.test/case'));
   assert.ok(result.candidates.some(candidate => candidate.title.includes('行业线索')));
+  assert.ok(result.authoritySearchTasks.some(task => task.source_name === '化妆品观察' && task.queries.some(query => query.includes('site:gov.cn'))));
 }
 
 function testNormalizeUrl() {
@@ -1348,6 +1388,105 @@ function testHydratedRecordExtractsHardLegalFactsFromCrawl4AiText() {
   assert.equal(record.hard_facts.product_or_batch, '普通护肤 SKU，批号 B202607');
   assert.equal(record.hard_facts.signal_type, '风险案例');
   assert.equal(record.hard_facts.risk_tier, '立即处理');
+}
+
+function testHydratedRecordExtractsAttachmentLinksForCrawl4AiSecondHop() {
+  const record = normalizeHydratedRecord({
+    url: 'https://www.nmpa.gov.cn/xxgk/zhqyj/20260723.html',
+    title: '化妆品标准管理办法征求意见',
+    source_name: '国家药监局',
+    published_at: '2026-07-23',
+    country: '中国',
+    module: '新规及案例动态',
+    fit_markdown: [
+      '# 关于公开征求《化妆品标准管理办法（征求意见稿）》意见的通知',
+      '[附件1：化妆品标准管理办法（征求意见稿）.pdf](https://www.nmpa.gov.cn/attachments/cosmetic-standard-draft.pdf)',
+      '[意见反馈表.docx](/attachments/feedback.docx)',
+    ].join('\n'),
+  });
+  assert.deepEqual(record.attachment_urls, [
+    'https://www.nmpa.gov.cn/attachments/cosmetic-standard-draft.pdf',
+    'https://www.nmpa.gov.cn/attachments/feedback.docx',
+  ]);
+}
+
+function testHydratedRecordMergesAttachmentTextForCrawl4AiSecondHopEvidence() {
+  const record = normalizeHydratedRecord({
+    url: 'https://www.nmpa.gov.cn/xxgk/zhqyj/20260723.html',
+    title: '化妆品标准管理办法征求意见',
+    source_name: '国家药监局',
+    published_at: '2026-07-23',
+    country: '中国',
+    module: '新规及案例动态',
+    fit_markdown: '关于公开征求《化妆品标准管理办法（征求意见稿）》意见的通知。',
+    attachment_records: [{
+      url: 'https://www.nmpa.gov.cn/attachments/cosmetic-standard-draft.pdf',
+      title: '附件1：化妆品标准管理办法（征求意见稿）',
+      article_text: '强制性标准必须执行。过渡期一般不超过2年。企业可提出立项建议、申请起草单位、反馈标准实施问题。',
+    }],
+  });
+  assert.match(record.article_text, /强制性标准必须执行/);
+  assert.match(record.article_text, /过渡期一般不超过2年/);
+  assert.equal(record.attachment_records.length, 1);
+  assert.equal(record.hard_facts.signal_type, '新增义务');
+}
+
+function testAuthorityResolverTurnsMediaLeadIntoOfficialSearchQueries() {
+  const queries = buildAuthoritySearchQueries({
+    title: '化妆品“PRO-XYLANE”商标侵权刷单案被罚17万元',
+    source_name: '搜狐转载',
+    source_type: 'industry_media',
+    authority_type: 'media',
+    snippet: '当事人未经授权生产 PRO-XYLANE 商标化妆品21,572盒，刷单7,521单，合计罚款17万元。',
+  });
+  assert.ok(queries.some(query => query.includes('PRO-XYLANE') && query.includes('行政处罚决定书')));
+  assert.ok(queries.some(query => query.includes('site:gov.cn')));
+  assert.ok(queries.some(query => query.includes('市场监督管理局')));
+}
+
+function testAuthorityResolverBuildsSearchTasksFromLeadOnlySources() {
+  const tasks = buildAuthoritySearchTasks([{
+    title: '两家美妆企业冒用爱马仕商标合计被罚63.5万元',
+    source_name: '行业媒体',
+    source_type: 'wechat_public_account',
+    authority_type: 'media',
+    module: '知识产权动态',
+    snippet: '奢颜名品两家公司因 HERMES 商标侵权被罚，并没收侵权商品33,082件。',
+  }]);
+  assert.equal(tasks.length, 1);
+  assert.equal(tasks[0].module, '知识产权动态');
+  assert.equal(tasks[0].trust.level, 'lead_only');
+  assert.ok(tasks[0].queries[0].includes('行政处罚决定书'));
+}
+
+function testAuthorityResolverClassifiesFinalSourceTrust() {
+  assert.equal(classifyAuthorityTrust({ url: 'https://www.sohu.com/a/900000000_121000000', source_type: 'industry_media', authority_type: 'media' }).level, 'lead_only');
+  assert.equal(classifyAuthorityTrust({ url: 'https://www.samr.gov.cn/xw/zj/art/2026/art_1.html', source_name: '国家市场监督管理总局' }).level, 'primary_authority');
+  assert.equal(classifyAuthorityTrust({ url: 'https://www.customs.gov.cn/customs/302249/2480148/index.html', source_name: '海关总署' }).level, 'primary_authority');
+}
+
+function testAuthorityResolverKeepsOnlyAuthorityResolvedCandidates() {
+  const selected = selectAuthorityResolvedCandidates([
+    {
+      title: 'PRO-XYLANE 商标侵权刷单案被罚17万元',
+      url: 'https://www.sohu.com/a/900000000_121000000',
+      source_name: '搜狐转载',
+      source_type: 'industry_media',
+      authority_type: 'media',
+      snippet: '转载消息。',
+    },
+    {
+      title: '行政处罚决定书',
+      url: 'https://amr.example.gov.cn/penalty/pro-xylane',
+      source_name: '地方市场监督管理局',
+      authority_type: 'regulator',
+      source_type: 'official_site',
+      snippet: '当事人 PRO-XYLANE 商标侵权并刷单，合计罚款17万元。',
+    },
+  ]);
+  assert.equal(selected.length, 1);
+  assert.equal(selected[0].url, 'https://amr.example.gov.cn/penalty/pro-xylane');
+  assert.equal(selected[0].authority_resolution_status, 'resolved');
 }
 
 async function testHydrateCandidateDetailsContainsBrowserRecoveryFailures() {
@@ -4061,6 +4200,12 @@ testExtractArticleTextDoesNotSilentlyTruncateTheOriginalBody();
 await testHydrateCandidateDetailsFetchesArticleBodiesWithoutDroppingFailures();
 testHydratedRecordsOverrideWeakCandidateText();
 testHydratedRecordExtractsHardLegalFactsFromCrawl4AiText();
+testHydratedRecordExtractsAttachmentLinksForCrawl4AiSecondHop();
+testHydratedRecordMergesAttachmentTextForCrawl4AiSecondHopEvidence();
+testAuthorityResolverTurnsMediaLeadIntoOfficialSearchQueries();
+testAuthorityResolverBuildsSearchTasksFromLeadOnlySources();
+testAuthorityResolverClassifiesFinalSourceTrust();
+testAuthorityResolverKeepsOnlyAuthorityResolvedCandidates();
 await testHydrateCandidateDetailsContainsBrowserRecoveryFailures();
 await testHydrateCandidateDetailsRejectsUnsupportedDocumentsAndPageShells();
 testGetSourceStats();
@@ -4182,6 +4327,7 @@ testPremiumSelectionPrioritizesQualityBeforeQuantityAndCoreModules();
 testPremiumDingTalkMarkdownUsesCompactEvidenceCardFormat();
 testPremiumDingTalkMarkdownDoesNotExposeRiskTierAndSignalType();
 testPremiumDingTalkMarkdownKeepsPolicyPlanningObservationNeutral();
+testPremiumDingTalkMarkdownDoesNotExposeInternalVoiceOrCrawlerName();
 testPremiumDingTalkMarkdownIncludesThreeCoreModulesWhenAvailable();
 testPremiumDingTalkMarkdownSurfacesHardFieldsInsideExistingSections();
 testWebhookMessagesPreferPremiumCardFormatWhenAvailable();

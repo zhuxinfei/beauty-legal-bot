@@ -35,6 +35,57 @@ function firstMatch(value, patterns) {
   return '';
 }
 
+function normalizeLink(urlValue, baseValue) {
+  const raw = text(urlValue);
+  if (!raw) return '';
+  try {
+    return new URL(raw, baseValue || undefined).href;
+  } catch {
+    return '';
+  }
+}
+
+function extractAttachmentUrls(markdown = '', baseUrl = '') {
+  const source = String(markdown || '');
+  const urls = [
+    ...Array.from(source.matchAll(/\[[^\]]+\]\(([^)]+?\.(?:pdf|docx?|xlsx?))(?:[?#][^)]*)?\)/gi)).map(match => match[1]),
+    ...Array.from(source.matchAll(/https?:\/\/[^\s)]+?\.(?:pdf|docx?|xlsx?)(?:[?#][^\s)]*)?/gi)).map(match => match[0]),
+  ];
+  const seen = new Set();
+  const result = [];
+  for (const url of urls) {
+    const normalized = normalizeLink(url, baseUrl);
+    if (!normalized || seen.has(normalized)) continue;
+    seen.add(normalized);
+    result.push(normalized);
+  }
+  return result;
+}
+
+function normalizeAttachmentRecord(record = {}, baseUrl = '') {
+  const sourceUrl = text(record.source_url || record.url);
+  const finalUrl = text(record.final_url || record.url || record.source_url);
+  const fitMarkdown = text(record.fit_markdown);
+  const rawMarkdown = text(record.raw_markdown);
+  const articleText = fitMarkdown
+    || rawMarkdown
+    || text(record.article_text || record.extraction?.article_text || record.extraction?.text || record.extraction?.summary || '');
+  return {
+    ...record,
+    url: finalUrl || sourceUrl,
+    final_url: finalUrl || sourceUrl,
+    source_url: sourceUrl || finalUrl,
+    title: text(record.title),
+    article_text: articleText,
+    raw_markdown: rawMarkdown,
+    fit_markdown: fitMarkdown,
+    references_markdown: text(record.references_markdown),
+    attachment_urls: extractAttachmentUrls([fitMarkdown, rawMarkdown, text(record.references_markdown)].join('\n'), finalUrl || sourceUrl || baseUrl),
+    crawl_status: text(record.crawl_status || 'hydrated'),
+    quality_flags: Array.isArray(record.quality_flags) ? record.quality_flags.map(text).filter(Boolean) : [],
+  };
+}
+
 function normalizeArray(value) {
   return (Array.isArray(value) ? value : [value]).map(text).filter(Boolean);
 }
@@ -135,6 +186,9 @@ export function normalizeHydratedRecord(record = {}) {
   const finalUrl = text(record.final_url || record.url || record.source_url);
   const fitMarkdown = text(record.fit_markdown);
   const rawMarkdown = text(record.raw_markdown);
+  const attachmentRecords = (Array.isArray(record.attachment_records) ? record.attachment_records : [])
+    .map(item => normalizeAttachmentRecord(item, finalUrl || sourceUrl))
+    .filter(item => item.url || item.title || item.article_text);
   const extractedText = text(
     record.article_text
       || record.extraction?.article_text
@@ -142,12 +196,22 @@ export function normalizeHydratedRecord(record = {}) {
       || record.extraction?.summary
       || ''
   );
-  const articleText = fitMarkdown || rawMarkdown || extractedText;
+  const primaryArticleText = fitMarkdown || rawMarkdown || extractedText;
+  const attachmentText = attachmentRecords
+    .map(item => [item.title, item.article_text].filter(Boolean).join('\n'))
+    .filter(Boolean)
+    .join('\n\n');
+  const articleText = [primaryArticleText, attachmentText].filter(Boolean).join('\n\n');
   const qualityFlags = Array.isArray(record.quality_flags)
     ? record.quality_flags.map(text).filter(Boolean)
     : text(record.quality_flags)
       ? [text(record.quality_flags)]
       : [];
+  const attachmentUrls = [
+    ...extractAttachmentUrls([fitMarkdown, rawMarkdown, text(record.references_markdown)].join('\n'), finalUrl || sourceUrl),
+    ...normalizeArray(record.attachment_urls),
+    ...attachmentRecords.flatMap(item => [item.source_url, item.final_url, item.url, ...(item.attachment_urls || [])]),
+  ].map(url => normalizeLink(url, finalUrl || sourceUrl)).filter(Boolean);
 
   return {
     ...record,
@@ -163,6 +227,8 @@ export function normalizeHydratedRecord(record = {}) {
     raw_markdown: rawMarkdown,
     fit_markdown: fitMarkdown,
     references_markdown: text(record.references_markdown),
+    attachment_urls: [...new Set(attachmentUrls)],
+    attachment_records: attachmentRecords,
     article_text: articleText,
     full_text: articleText,
     snippet: text(record.snippet || stripMarkdown(articleText).slice(0, 1200)),

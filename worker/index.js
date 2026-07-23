@@ -32,6 +32,7 @@ import {
   loadHydratedRecordsFromEnv,
   mergeHydratedCandidates,
 } from './source-hydration.js';
+import { buildAuthoritySearchTasks } from './authority-resolver.js';
 
 // ---------------------------------------------------------------------------
 // 配置
@@ -2955,6 +2956,7 @@ async function fetchSourceCandidates(source, {
 export async function collectCandidates(sources = sourceCatalog.sources, onProgress = async () => {}, options = {}) {
   const { fetchableSources, leadSources } = splitSources(sources);
   const leads = leadSources.map(makeLead);
+  const authoritySearchTasks = buildAuthoritySearchTasks(leads);
   const leadCandidates = leadSources.map(makeSourceLeadCandidate);
 
   const results = await mapWithConcurrency(fetchableSources, SOURCE_FETCH_CONCURRENCY, async (source, index) => {
@@ -3002,7 +3004,7 @@ export async function collectCandidates(sources = sourceCatalog.sources, onProgr
     hydrationAudit = hydration.audit;
     console.log(`[stage 1/5] Crawl4AI 提纯：输入 ${hydrationAudit.input}，记录 ${hydrationAudit.records}，覆盖 ${hydrationAudit.hydrated}，未命中 ${hydrationAudit.unmatched}`);
   }
-  return { candidates: hydratedCandidates, leads, failures, sourceResults, coverage, detailAudit, hydrationAudit };
+  return { candidates: hydratedCandidates, leads, authoritySearchTasks, failures, sourceResults, coverage, detailAudit, hydrationAudit };
 }
 
 // ---------------------------------------------------------------------------
