@@ -31,6 +31,9 @@ jobs:
       DETAIL_FETCH_TIMEOUT_MS: 12000
       DETAIL_FETCH_CONCURRENCY: 8
       DETAIL_BROWSER_RECOVERY_LIMIT: 18
+      SOURCE_HYDRATION_FILE: out/hydrated-authority.json
+      CRAWL4_AI_BASE_DIRECTORY: /tmp/beauty-legal-bot-crawl4ai
+      CRAWL4AI_ATTACHMENT_LIMIT: 2
       FORCE_DELIVERY: ${{ github.event_name == 'workflow_dispatch' && '1' || '0' }}
       DINGTALK_WEBHOOK_URL: ${{ secrets.DINGTALK_WEBHOOK_URL }}
       DINGTALK_SECRET: ${{ secrets.DINGTALK_SECRET }}
@@ -46,15 +49,35 @@ jobs:
         with:
           node-version: '22'
 
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
       - name: Install dependencies
-        run: npm ci
+        run: |
+          npm ci
+          python -m pip install --upgrade pip
+          python -m pip install crawl4ai
 
       - name: Install browser and Chinese fonts
         run: |
           sudo apt-get update
           sudo apt-get install -y fonts-noto-cjk
           npx playwright install --with-deps chromium
+          python -m playwright install chromium
           fc-match "Noto Sans CJK SC"
+
+      - name: Hydrate authoritative sources
+        run: |
+          mkdir -p out
+          node scripts/crawl4ai-hydrate.js \
+            --python python \
+            --input worker/sources.json \
+            --output "$SOURCE_HYDRATION_FILE" \
+            --limit 24 \
+            --page-timeout-ms 25000 \
+            --attachment-limit "$CRAWL4AI_ATTACHMENT_LIMIT"
+          node -e "const fs=require('fs'); const p=JSON.parse(fs.readFileSync(process.env.SOURCE_HYDRATION_FILE,'utf8')); const rows=(p.records||[]); console.log('hydrated records=' + rows.length + ', withText=' + rows.filter(r => (r.article_text||r.raw_markdown||r.fit_markdown||'').length > 0).length + ', attachments=' + rows.reduce((s,r)=>s+(r.attachment_urls||[]).length,0));"
 
       - name: Deploy worker routes
         working-directory: worker

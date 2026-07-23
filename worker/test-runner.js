@@ -42,6 +42,7 @@ import {
   validatePremiumEvidenceCard,
 } from './premium-quality.js';
 import {
+  loadHydratedRecordsFromEnv,
   mergeHydratedCandidates,
   normalizeHydratedRecord,
 } from './source-hydration.js';
@@ -1445,6 +1446,25 @@ function testHydratedRecordDowngradesEmptyHydratedBody() {
   });
   assert.equal(record.crawl_status, 'failed');
   assert.ok(record.quality_flags.includes('empty-hydrated-body'));
+}
+
+async function testLoadHydratedRecordsFromEnvReadsFilePayload() {
+  const path = '/private/tmp/beauty-legal-bot-hydrated-fixture.json';
+  await import('node:fs/promises').then(fs => fs.writeFile(path, JSON.stringify({
+    records: [{
+      url: 'https://www.samr.gov.cn/example',
+      title: '市场监管总局处罚案例',
+      source_name: '国家市场监督管理总局',
+      published_at: '2026-07-23',
+      country: '中国',
+      module: '广告合规及处罚案例',
+      fit_markdown: '2026年7月23日，市场监管总局发布广告处罚案例，罚款12万元。',
+    }],
+  }), 'utf8'));
+  const records = await loadHydratedRecordsFromEnv({ SOURCE_HYDRATION_FILE: path });
+  assert.equal(records.length, 1);
+  assert.equal(records[0].source_name, '国家市场监督管理总局');
+  assert.equal(records[0].hard_facts.penalty_amount, '12万元');
 }
 
 function testAuthorityResolverTurnsMediaLeadIntoOfficialSearchQueries() {
@@ -3958,6 +3978,7 @@ function testRunLocalPropagatesPipelineFailure() {
   assert.ok(source.includes('await browserSourceFetcher.close()'));
   assert.equal(source.includes("process.env.DINGTALK_WEBHOOK_URL ? 'DingTalk webhook was called.'"), false);
   assert.ok(source.includes('SOURCE_HYDRATION_JSON: process.env.SOURCE_HYDRATION_JSON'));
+  assert.ok(source.includes('SOURCE_HYDRATION_FILE: process.env.SOURCE_HYDRATION_FILE'));
   assert.ok(source.includes('SOURCE_HYDRATION_URL: process.env.SOURCE_HYDRATION_URL'));
 }
 
@@ -4159,6 +4180,11 @@ function testWeeklyWorkflowDeploysRoutesBeforeVersionedAssetPipeline() {
   assert.ok(workflow.includes('vars.AI_MODEL'));
   assert.ok(workflow.includes("MIN_CHINA_CRITICAL_COVERAGE || '0.9'"));
   assert.ok(workflow.includes('npx playwright install --with-deps chromium'));
+  assert.ok(workflow.includes('actions/setup-python@v5'));
+  assert.ok(workflow.includes('python -m pip install crawl4ai'));
+  assert.ok(workflow.includes('SOURCE_HYDRATION_FILE: out/hydrated-authority.json'));
+  assert.ok(workflow.includes('node scripts/crawl4ai-hydrate.js'));
+  assert.ok(workflow.indexOf('node scripts/crawl4ai-hydrate.js') < workflow.indexOf('node worker/run-local.js'));
   assert.ok(workflow.includes('DETAIL_FETCH_ENABLED: 1'));
   assert.ok(workflow.includes('DETAIL_CANDIDATE_LIMIT: 48'));
   assert.ok(workflow.includes('REPORT_TARGET_ITEMS: 8'));
@@ -4219,6 +4245,7 @@ testHydratedRecordExtractsHardLegalFactsFromCrawl4AiText();
 testHydratedRecordExtractsAttachmentLinksForCrawl4AiSecondHop();
 testHydratedRecordMergesAttachmentTextForCrawl4AiSecondHopEvidence();
 testHydratedRecordDowngradesEmptyHydratedBody();
+await testLoadHydratedRecordsFromEnvReadsFilePayload();
 testAuthorityResolverTurnsMediaLeadIntoOfficialSearchQueries();
 testAuthorityResolverBuildsSearchTasksFromLeadOnlySources();
 testAuthorityResolverClassifiesFinalSourceTrust();

@@ -1,3 +1,5 @@
+import { readFile } from 'node:fs/promises';
+
 function text(value) {
   return String(value || '').replace(/\s+/g, ' ').trim();
 }
@@ -317,6 +319,11 @@ export async function loadHydratedRecordsFromEnv(env = {}, fetcher = fetch) {
   const payload = text(env.SOURCE_HYDRATION_JSON || '');
   if (payload) {
     return normalizeHydratedPayload(payload);
+  }
+
+  const file = text(env.SOURCE_HYDRATION_FILE || '');
+  if (file) {
+    return normalizeHydratedPayload(await readFile(file, 'utf8'));
   }
 
   const url = text(env.SOURCE_HYDRATION_URL || '');
