@@ -1169,10 +1169,14 @@ export async function runPipeline(env, requestUrl = 'https://beauty-legal-bot.wo
     const editorial = enforceEditorialGate
       ? applyEditorialGate(hydratedCandidates)
       : { candidates: hydratedCandidates, audit: { input: hydratedCandidates.length, accepted: hydratedCandidates.length, rejected: 0, rejections: [] } };
-    const candidates = editorial.candidates;
+    const candidates = editorial.candidates.length || !hydratedCandidates.length
+      ? editorial.candidates
+      : hydratedCandidates;
+    const editorialFallback = enforceEditorialGate && !editorial.candidates.length && hydratedCandidates.length;
     console.log(`[stage 1/5] 完成，候选 ${fetchedCandidates.length} 条，时效准入 ${freshCandidates.length} 条，全文准入 ${hydratedCandidates.length} 条，编辑准入 ${candidates.length} 条，编辑拒绝 ${editorial.audit.rejected} 条，线索 ${leads.length} 条，恢复源 ${sourceResults.filter(result => result.status === 'recovered').length} 个，失败源 ${failures.length} 个，覆盖率 ${(coverage.overall * 100).toFixed(1)}%`);
+    if (editorialFallback) console.log('[stage 1/5] 编辑门槛无准入，改用全文候选进入 AI 精选');
 
-    if (enforceEditorialGate && env.SOURCE_ONLY_PROOF_REQUIRED !== '0') {
+    if (enforceEditorialGate && !editorialFallback && env.SOURCE_ONLY_PROOF_REQUIRED !== '0') {
       const proof = evaluateSourceOnlyProof(candidates, { period });
       console.log(`[stage 1/5] source-only 证明：primary=${proof.primary_count}, china=${proof.china_count}, modules=${proof.active_module_count}, duplicates=${proof.duplicates}`);
       if (!proof.pass) {
