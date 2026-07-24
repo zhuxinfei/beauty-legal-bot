@@ -2103,7 +2103,7 @@ export async function reviewAnalysisReport({ apiKey, baseUrl, model, report, can
 
 function preferredDisplayTitle(translatedTitle, evidenceTitle, country = '') {
   const evidence = String(evidenceTitle || '').trim();
-  if (/\p{Script=Han}/u.test(evidence)) return evidence;
+  if (/\p{Script=Han}/u.test(evidence) && !isNavigationTitle(evidence)) return evidence;
   const translated = String(translatedTitle || '').trim();
   const compact = translated.replace(/[\s《》〈〉「」『』【】\[\]()（）]/g, '');
   const generic = /^(?:第[\d一二三四五六七八九十百]+号)?(?:公告|通知|决定|通报|新闻|动态|最新动态|政策解读)$/i.test(compact);
@@ -2146,7 +2146,7 @@ function materializeCandidateBackedReport(report, candidates, targetModule) {
 
   const rawItems = (report.sections || []).flatMap(section => section.items || []);
   const itemIndexes = new Set();
-  const items = rawItems.map(item => {
+  const items = rawItems.flatMap(item => {
     const index = Number(item.candidate_index);
     if (!Number.isInteger(index) || index < 0 || index >= candidates.length || itemIndexes.has(index)) {
       throw new Error(`invalid or duplicate included candidate_index: ${item.candidate_index}`);
@@ -2154,11 +2154,13 @@ function materializeCandidateBackedReport(report, candidates, targetModule) {
     if (decisions.get(index) !== 'include') throw new Error(`excluded candidate emitted as item: ${index}`);
     itemIndexes.add(index);
     const candidate = candidates[index];
-    return {
+    const title = preferredDisplayTitle(item.display_title_zh, candidate.title, candidate.country);
+    if (isNavigationTitle(title)) return [];
+    return [{
       ...item,
       candidate_index: index,
       module: targetModule,
-      title: preferredDisplayTitle(item.display_title_zh, candidate.title, candidate.country),
+      title,
       evidence_title: candidate.title,
       evidence_excerpt: beautyEvidenceExcerpt(candidate.snippet),
       source_name: preferredDisplaySourceName(item.source_name_zh, candidate.source_name || candidate.name),
@@ -2170,7 +2172,7 @@ function materializeCandidateBackedReport(report, candidates, targetModule) {
       published_at: candidate.published_at || '未知',
       updated_at: candidate.updated_at || '未知',
       hard_facts: { ...(candidate.hard_facts || {}), ...(item.hard_facts || {}) },
-    };
+    }];
   });
   for (const [index, decision] of decisions) {
     if (decision === 'include' && !itemIndexes.has(index)) throw new Error(`included candidate missing item: ${index}`);

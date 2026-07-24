@@ -195,7 +195,14 @@ export function buildDingTalkMessages(report, { maxBytes = 18000 } = {}) {
   const byteLimit = Math.max(1200, Number(maxBytes || 18000));
   if (report?.premium_delivery === true) {
     const premiumMessages = buildPremiumDingTalkMessages(report, { maxBytes: byteLimit });
-    if (premiumMessages.length) return premiumMessages;
+    return premiumMessages.length ? premiumMessages : [{
+      id: 'weekly-report',
+      title: `美妆法务资讯｜${report.period?.end || '本期'}`,
+      markdown: `# 美妆法务资讯精品卡\n\n周期：${report.period?.start || ''} 至 ${report.period?.end || ''}\n\n本期没有达到精品证据门槛的事项，宁缺毋滥。\n`,
+      bytes: 0,
+      itemCount: 0,
+      displayedItemCount: 0,
+    }];
   }
   try {
     return [buildSingleDingTalkMessage(report, { maxBytes: byteLimit })];
