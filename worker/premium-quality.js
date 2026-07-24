@@ -313,7 +313,20 @@ export function selectPremiumEvidenceCards(cards = [], { maxItems = 8, minItems 
   }
 
   accepted.sort(compareSelectionCards);
-  return accepted.slice(0, Math.max(minItems, Math.min(maxItems, accepted.length)));
+  const selected = [];
+  const moduleLeaders = MODULE_ORDER
+    .map(module => accepted.find(card => card.module === module))
+    .filter(Boolean)
+    .sort(compareSelectionCards);
+  for (const card of moduleLeaders) {
+    if (selected.length >= maxItems) break;
+    selected.push(card);
+  }
+  for (const card of accepted) {
+    if (selected.length >= maxItems) break;
+    if (!selected.includes(card)) selected.push(card);
+  }
+  return selected.slice(0, Math.max(minItems, Math.min(maxItems, selected.length)));
 }
 
 function esc(value) {

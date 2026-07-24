@@ -77,9 +77,7 @@ function noveltyScore(item, period) {
 
 function relevanceScore(item) {
   const facts = objectiveFacts(item).join(' ');
-  const evidenceExcerpt = String(item.evidence_excerpt || '').trim();
   if (!hasBeautyEvidence(facts)) return 0;
-  if (evidenceExcerpt && !hasBeautyEvidence(evidenceExcerpt)) return 0;
   if (item.relevance === 'direct') return 2;
   if (item.relevance === 'indirect' && item.industry_impact !== 'low') return 1;
   return 0;
