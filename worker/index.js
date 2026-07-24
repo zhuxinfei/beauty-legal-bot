@@ -100,7 +100,7 @@ const TYPE_REQUIRED_FIELDS = {
   '进出口': ['market_access_change', 'affected_import_flow', 'documents_needed', 'recommended_actions', 'owner_teams', 'risk_level', 'why_it_matters', 'confidence'],
   '动态': ['regulatory_signal', 'compliance_meaning', 'possible_follow_up', 'recommended_actions', 'owner_teams', 'risk_level', 'why_it_matters', 'confidence'],
 };
-const OBJECTIVE_REQUIRED_FIELDS = ['source_type', 'relevance', 'industry_impact', 'fact_summary', 'next_observation', 'confidence'];
+const OBJECTIVE_REQUIRED_FIELDS = ['source_type', 'relevance', 'industry_impact', 'fact_summary', 'legal_signal', 'business_impact', 'next_observation', 'hard_facts', 'confidence'];
 
 // ---------------------------------------------------------------------------
 // AI：一站式搜索 + 分析 + 格式化（OpenAI-compatible API）
@@ -1725,6 +1725,49 @@ function hasValue(value) {
   return String(value || '').trim().length > 0;
 }
 
+function firstObjectiveText(...values) {
+  for (const value of values) {
+    const entries = Array.isArray(value) ? value : [value];
+    const result = entries.map(entry => String(entry || '').trim()).filter(Boolean).join('；');
+    if (result) return result;
+  }
+  return '';
+}
+
+function objectiveLegalSignal(item = {}) {
+  return firstObjectiveText(
+    item.legal_signal,
+    item.legal_obligation,
+    item.compliance_meaning,
+    item.violation_logic,
+    item.infringement_logic,
+    item.documents_needed,
+    item.core_judgement,
+  );
+}
+
+function objectiveBusinessImpact(item = {}) {
+  return firstObjectiveText(
+    item.business_impact,
+    item.affected_business,
+    item.impact_on_brand_assets,
+    item.affected_import_flow,
+    item.market_scope,
+    item.business_lessons,
+    item.why_it_matters,
+  );
+}
+
+function objectiveHardFacts(item = {}) {
+  return {
+    ...(item.hard_facts || {}),
+    authority: item.hard_facts?.authority || item.authority || item.source_name || '',
+    involved_party: item.hard_facts?.involved_party || item.parties || '',
+    effective_date: item.hard_facts?.effective_date || item.effective_date || '',
+    deadline: item.hard_facts?.deadline || item.feedback_deadline || item.next_deadline || '',
+  };
+}
+
 export function getRequiredFields(item) {
   return OBJECTIVE_REQUIRED_FIELDS;
 }
@@ -1756,7 +1799,10 @@ export function validateReport(report) {
       const item = {
         ...rawItem,
         fact_summary: objectiveFacts(rawItem),
+        legal_signal: objectiveLegalSignal(rawItem),
+        business_impact: objectiveBusinessImpact(rawItem),
         next_observation: objectiveObservation(rawItem),
+        hard_facts: objectiveHardFacts(rawItem),
       };
       for (const field of ['title', 'type', 'source_name', 'source_url', 'region', 'country']) {
         if (!hasValue(item[field])) throw new Error(`${field} missing: ${item.title || 'unknown'}`);
@@ -1778,7 +1824,10 @@ export function normalizeReportForValidation(report) {
       items: (section.items || []).map(item => ({
         ...item,
         fact_summary: objectiveFacts(item),
+        legal_signal: objectiveLegalSignal(item),
+        business_impact: objectiveBusinessImpact(item),
         next_observation: objectiveObservation(item),
+        hard_facts: objectiveHardFacts(item),
       })),
     })),
   };
@@ -1849,7 +1898,7 @@ export function buildAnalysisPrompt({ candidates, leads = [], sources, period, t
 - 进出口动态重点看进口准入、清关、口岸抽检、跨境电商、认证、海关监管、召回和贸易合规。
 - 产品质量/召回与安全风险重点看产品安全、抽检不合格、召回、禁限用成分、质量投诉、过敏/微生物/重金属风险和平台下架。
 ` : '';
-  return `你是美妆行业客观资讯编辑。你只负责提取、分类、去重和压缩公开事实，不生成核心判断、法律分析、风险评价、业务影响推断、管理层总结或行动分派。
+  return `你是美妆行业客观资讯编辑，也是法务情报提炼员。目标是把公开原文压缩成“法务可执行情报”：事实更硬、判断更硬、动作更硬、影响更硬，但不得脱离原文证据。
 
 集团业务背景：
 - 国际化美妆电商集团，关注中国、欧盟、美国、日本、韩国、泰国、越南、印尼、墨西哥、意大利等市场。
@@ -1887,15 +1936,18 @@ export function buildAnalysisPrompt({ candidates, leads = [], sources, period, t
 - “不够重大”不是排除理由。只要正文明确包含美妆相关的主体、产品、规则、处罚结果、抽检/召回、进出口要求或品牌保护事实，即使影响为 medium/low 也应作为 report_tier=watch 的新闻简讯收录。
 - 仍然必须排除：正文无美妆对象、只有欢迎语/导航/来源首页、事实无法核验、超期且无时效例外、或与已收录事件重复的候选。
 - 行业媒体只有在提供具体文章原文、事实明确且与美妆实质相关时才可作为行业新闻简讯；公众号主页不能形成条目。
-- 每条只生成 fact_summary 和 next_observation 两类正文信息。
-- fact_summary 输出 1-2 条客观事实，优先保留主体、事项、日期、金额、数量、规则变化和处理结果，合计通常 30-100 字。
-- next_observation 只输出一个可观察的后续事实节点，例如正式稿、生效日期、反馈截止、处罚后续、判决、复议诉讼、召回进展或执行口径。
+- 每条生成 fact_summary、legal_signal、business_impact、next_observation 和 hard_facts，供最终卡片组装为“标题 / 事实摘要 / 法务观察 / 业务影响 / 下一步观察建议 / 来源”。
+- fact_summary 输出 1-2 条客观事实，必须尽量拆出制度点、案件点、金额点、主体点、产品点、日期点；法规政策写“文件名称 + 发布/征求意见机关 + 截止/生效节点 + 关键条款变化”，处罚案例写“处罚机关 + 当事人 + 违法行为 + 金额/没收结果 + 依据”，知识产权写“权利主体 + 被诉/被罚主体 + 商标/专利/作品 + 判罚/行政处理结果”，进出口写“国家/口岸/HS 编码/准入文件/清关影响”。
+- legal_signal 必须明确归入“新增义务 / 执法趋势 / 风险案例 / 观察入口”之一，并说明原文支持的合规含义；不得只写“纳入统一管理框架”“释放监管信号”这类抽象句，必须落到具体义务、执法口径或证据要求。
+- business_impact 必须关联具体 SKU、渠道、国家、流程或业务对象，例如标签、备案、进口申报、达人素材、商标授权、口岸清关、平台店铺、批次召回；原文没有业务对象时写“原文未披露具体 SKU/渠道/批次，需仅作为观察入口”。
+- next_observation 只输出一个可观察的后续事实节点，例如正式稿、生效日期、反馈截止、处罚后续、判决、复议诉讼、召回进展、执行口径、同类处罚扩散或口岸抽检结果；不得写成任务分派。
 - 所有可见的标题、事实摘要、下一步观察和来源名使用简体中文；英文品牌名、机构缩写、法规编号和产品名可在中文后保留原文。
 - 中文标题使用“主体 + 具体事项或结果”的自然新闻表达，不要逐词直译，不得只写公告编号、栏目名、“最新动态”或其他空泛标题。
 - 来源名优先采用官方或通行中文名称；无通行中文译名时保留原名，不得臆造中文译名。
 - 事实摘要直接写明主体、动作、对象以及原文已有的日期、金额、数量或处理结果，避免“发布相关要求”“介绍有关情况”等空泛转述。
 - display_title_zh 和 source_name_zh 是面向用户的中文显示文本；程序会保留原文 URL 作为证据，不要翻译 URL。
-- core_judgement、why_it_matters、risk_level、business_impact、recommended_actions、owner_teams 等旧分析字段必须为空。
+- recommended_actions、owner_teams、core_judgement、why_it_matters、risk_level 等旧分析字段必须为空；不要替法务领导分派任务或作最终决策。
+- hard_facts 只能填原文明确出现或可从原文直接识别的字段；没有证据就留空字符串或空数组，不得补写。
 - 法规原文明确的生效日、反馈截止日和法定整改节点应保留在 effective_date、feedback_deadline、next_deadline。
 - 禁止“建议关注”“持续关注”“企业应留意”等空泛动作。
 ${moduleInstruction}
@@ -1933,7 +1985,22 @@ JSON 结构：
       "relevance": "direct",
       "industry_impact": "high|medium|low",
       "fact_summary": ["客观事实1", "客观事实2（可省略）"],
+      "legal_signal": "新增义务|执法趋势|风险案例|观察入口 + 一句话证据化说明",
+      "business_impact": "关联 SKU、渠道、国家或流程的影响对象；证据不足时写明仅作为观察入口",
       "next_observation": ["一个客观后续观察节点"],
+      "hard_facts": {
+        "document_number": "文号或空",
+        "authority": "处罚/发布/审理机关或空",
+        "penalty_amount": "处罚金额或空",
+        "legal_basis": "违法条款/依据或空",
+        "involved_party": "涉案主体或空",
+        "product_or_batch": "产品/批次或空",
+        "hs_code": "HS 编码或空",
+        "effective_date": "生效日期或空",
+        "deadline": "反馈/整改/过渡期截止或空",
+        "affected_processes": ["标签", "备案", "进口申报", "达人素材", "商标授权等，按原文证据填写"],
+        "action_deadline": "仅限原文明确时间窗口或空"
+      },
       "report_tier": "action|watch",
       "confidence": "high|medium|low",
       "effective_date": "生效日或未知",
@@ -2098,7 +2165,7 @@ function materializeCandidateBackedReport(report, candidates, targetModule) {
       region: candidate.region,
       published_at: candidate.published_at || '未知',
       updated_at: candidate.updated_at || '未知',
-      hard_facts: candidate.hard_facts || {},
+      hard_facts: { ...(candidate.hard_facts || {}), ...(item.hard_facts || {}) },
     };
   });
   for (const [index, decision] of decisions) {
@@ -2210,7 +2277,22 @@ JSON 结构：
   "source_name_zh":"中文来源名",
   "report_tier":"action|watch",
   "fact_summary":["客观事实1","客观事实2（可省略）"],
+  "legal_signal":"新增义务|执法趋势|风险案例|观察入口 + 一句话证据化说明",
+  "business_impact":"关联 SKU、渠道、国家或流程的影响对象；证据不足时写明仅作为观察入口",
   "next_observation":["一个客观后续节点"],
+  "hard_facts":{
+    "document_number":"文号或空",
+    "authority":"处罚/发布/审理机关或空",
+    "penalty_amount":"处罚金额或空",
+    "legal_basis":"违法条款/依据或空",
+    "involved_party":"涉案主体或空",
+    "product_or_batch":"产品/批次或空",
+    "hs_code":"HS 编码或空",
+    "effective_date":"生效日期或空",
+    "deadline":"反馈/整改/过渡期截止或空",
+    "affected_processes":["标签","备案","进口申报","达人素材","商标授权等，按原文证据填写"],
+    "action_deadline":"仅限原文明确时间窗口或空"
+  },
   "relevance":"direct",
   "industry_impact":"high|medium|low",
   "confidence":"high|medium|low"
@@ -2243,10 +2325,12 @@ function rescueItemFromSelection(selection, candidate) {
     relevance: selection.relevance === 'indirect' ? 'indirect' : 'direct',
     industry_impact: ['high', 'medium', 'low'].includes(selection.industry_impact) ? selection.industry_impact : 'medium',
     fact_summary: facts,
+    legal_signal: selection.legal_signal || '',
+    business_impact: selection.business_impact || '',
     next_observation: observation,
     report_tier: selection.report_tier === 'watch' ? 'watch' : 'action',
     confidence: ['high', 'medium', 'low'].includes(selection.confidence) ? selection.confidence : (official ? 'high' : 'medium'),
-    hard_facts: candidate.hard_facts || {},
+    hard_facts: { ...(candidate.hard_facts || {}), ...(selection.hard_facts || {}) },
   };
 }
 

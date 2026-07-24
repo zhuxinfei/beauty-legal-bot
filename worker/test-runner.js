@@ -430,6 +430,7 @@ function testPremiumEvidenceGateRejectsWeakAndKeepsActionableItems() {
     legal_signal: '非法添加行为将触发更高信用惩戒和公开限制。',
     business_impact: '配方、功效宣称和供应商准入需要纳入失信风险排查。',
     recommended_action: '法务牵头更新违法失信筛查清单，质量团队复核高风险原料和代工厂准入记录。',
+    hard_facts: { effective_date: '2026-08-01' },
   });
   assert.equal(strong.accepted, true);
   assert.equal(strong.tier, 'action');
@@ -502,6 +503,7 @@ function testPremiumSelectionPrioritizesQualityBeforeQuantityAndCoreModules() {
       legal_signal: '出口欧盟产品需要重新核查配方与标签合规。',
       business_impact: '涉及欧盟销售的防晒和护肤产品可能需要配方复核。',
       recommended_action: '法规团队确认受影响 SKU，研发和供应链在过渡期前完成配方替换评估。',
+      hard_facts: { deadline: '过渡期截止日见原文' },
     },
     {
       title: '某地市场监管局处罚虚假功效宣称',
@@ -556,6 +558,55 @@ function testPremiumDingTalkMarkdownUsesCompactEvidenceCardFormat() {
   assert.doesNotMatch(markdown, /建议关注|持续关注|分级：|类型：|建议动作/);
 }
 
+function testPremiumSelectionRanksByImpactBeforeModuleOrder() {
+  const selected = selectPremiumEvidenceCards([
+    {
+      title: '国家药监局就化妆品标准制度公开征求意见',
+      module: '新法律法规政策',
+      source_url: 'https://www.nmpa.gov.cn/xxgk/zhqyj/standard-policy.html',
+      source_name: '国家药品监督管理局',
+      source_type: 'official_site',
+      authority_type: 'regulator',
+      published_at: '2026-07-20',
+      country: '中国',
+      facts: ['国家药监局发布化妆品标准制度征求意见稿，公开征求意见截止日期为2026年7月30日。'],
+      legal_signal: '新增义务：化妆品标准执行和新旧衔接规则需要跟踪正式稿。',
+      business_impact: '影响标签、备案、质量放行和标准识别流程。',
+      recommended_action: '观察正式稿是否保留标准执行、新旧衔接和企业参与渠道等条款。',
+      hard_facts: {
+        authority: '国家药品监督管理局',
+        deadline: '2026年7月30日',
+        affected_processes: ['标签', '备案', '质量放行', '标准识别'],
+      },
+    },
+    {
+      title: '两家美妆企业冒用爱马仕商标被罚没63.5万元',
+      module: '知识产权保护或者侵权',
+      source_url: 'https://amr.example.gov.cn/ip/hermes-cosmetics-penalty',
+      source_name: '上海市市场监督管理局',
+      source_type: 'official_site',
+      authority_type: 'regulator',
+      published_at: '2026-07-21',
+      country: '中国',
+      facts: ['两家美妆企业因冒用爱马仕商标被市场监管部门处罚，合计罚没63.5万元并没收涉案货品。'],
+      legal_signal: '风险案例：美妆产品包装、店铺展示和宣传物料使用他人高知名度商标，可能同时触发商标侵权和行政处罚。',
+      business_impact: '影响香水、彩妆和礼盒 SKU 的商标授权、包装设计、达人素材、平台店铺和供应商准入审查。',
+      recommended_action: '观察同类高知名度商标在美妆包装、香型描述、礼盒装潢和平台详情页中的行政处罚扩散。',
+      hard_facts: {
+        authority: '上海市市场监督管理局',
+        involved_party: '两家美妆企业',
+        penalty_amount: '63.5万元',
+        legal_basis: '《商标法》',
+        product_or_batch: '香水、彩妆和礼盒 SKU',
+        affected_processes: ['商标授权', '包装设计', '达人素材', '平台店铺', '供应商准入审查'],
+        action_deadline: '本周',
+      },
+    },
+  ], { maxItems: 2, minItems: 0 });
+
+  assert.equal(selected[0].title, '两家美妆企业冒用爱马仕商标被罚没63.5万元');
+}
+
 function testPremiumDingTalkMarkdownDoesNotExposeRiskTierAndSignalType() {
   const markdown = buildPremiumDingTalkMarkdown({
     period: { start: '2026-07-13', end: '2026-07-20' },
@@ -581,20 +632,61 @@ function testPremiumDingTalkMarkdownKeepsPolicyPlanningObservationNeutral() {
   const markdown = buildPremiumDingTalkMarkdown({
     period: { start: '2026-07-21', end: '2026-07-23' },
     cards: [{
-      title: '国务院常务会议审议通过《知识产权保护和运用“十五五”规划》',
-      module: '知识产权保护或者侵权',
-      source_url: 'https://www.cnipa.gov.cn/art/2026/7/22/art_55_207319.html',
-      source_name: '国家知识产权局',
-      published_at: '2026-07-22',
+      title: '国家药监局就《化妆品标准管理办法（征求意见稿）》公开征求意见',
+      module: '新法律法规政策',
+      source_url: 'https://www.nmpa.gov.cn/xxgk/zhqyj/zhqyjhzhp/20260630164455119.html',
+      source_name: '国家药品监督管理局',
+      published_at: '2026-06-30',
       country: '中国',
-      facts: ['CNIPA 首页在 2026-07-22 新闻列表中显示国务院常务会议审议通过该规划。'],
-      legal_signal: '知识产权保护和运用继续政策化、体系化。',
-      business_impact: '影响新品命名、包装视觉、达人素材授权和海外商标布局。',
-      recommended_action: '知识产权团队本周拉取重点品牌商标和外观设计清单，法务团队补齐授权链路。',
+      facts: [
+        '国家药监局综合司发布《化妆品标准管理办法（征求意见稿）》，公开征求意见时间为2026年6月30日至7月30日。',
+        '征求意见稿涉及标准执行、新旧衔接、企业参与化妆品标准制修订等制度安排。',
+      ],
+      legal_signal: '征求意见稿把化妆品标准制修订、实施及监督管理纳入统一管理框架。',
+      business_impact: '影响中国境内化妆品及牙膏的标准识别、配方/检验依据、标签备案引用、质量放行和进口备案资料引用标准。',
+      recommended_action: '观察正式稿是否保留强制性标准执行、推荐性标准被引用后严格执行等条款，并记录2026年7月30日意见反馈截止节点。',
+      hard_facts: { authority: '国家药品监督管理局', deadline: '2026-07-30' },
     }],
   });
   assert.match(markdown, /法务观察/);
   assert.doesNotMatch(markdown, /分级：|类型：|风险案例|执法趋势|立即处理/);
+}
+
+function testPremiumDingTalkMarkdownAcceptsEvidenceObservationWithoutOwnerAssignment() {
+  const markdown = buildPremiumDingTalkMarkdown({
+    period: { start: '2026-07-17', end: '2026-07-23' },
+    cards: [{
+      title: '国家药监局就《化妆品标准管理办法（征求意见稿）》公开征求意见',
+      module: '新法律法规政策',
+      source_url: 'https://www.nmpa.gov.cn/xxgk/zhqyj/zhqyjhzhp/20260630164455119.html',
+      source_name: '国家药品监督管理局',
+      source_type: 'official_site',
+      authority_type: 'regulator',
+      published_at: '2026-06-30',
+      country: '中国',
+      facts: [
+        '国家药监局综合司发布《化妆品标准管理办法（征求意见稿）》，公开征求意见时间为2026年6月30日至7月30日。',
+        '征求意见稿涉及标准执行、新旧衔接、企业参与化妆品标准制修订等制度安排。',
+      ],
+      legal_signal: '新增义务：征求意见稿把化妆品标准制修订、实施及监督管理纳入统一管理框架。',
+      business_impact: '影响中国境内化妆品及牙膏的标准识别、配方/检验依据、标签备案引用、质量放行和进口备案资料引用标准。',
+      recommended_action: '观察正式稿是否保留强制性标准执行、推荐性标准被引用后严格执行等条款，并记录2026年7月30日意见反馈截止节点。',
+      hard_facts: {
+        authority: '国家药监局综合司',
+        document_number: '征求意见稿',
+        deadline: '2026年7月30日',
+        effective_date: '尚未生效',
+        affected_processes: ['标准识别', '配方/检验依据', '标签备案引用', '质量放行', '进口备案资料引用标准'],
+        action_deadline: '2026年7月30日前',
+      },
+    }],
+  });
+  assert.match(markdown, /化妆品标准管理办法/);
+  assert.match(markdown, /\n  - 机关：国家药监局综合司/);
+  assert.match(markdown, /\n  - 截止：2026年7月30日/);
+  assert.match(markdown, /\n  - 征求意见稿涉及标准执行、新旧衔接、企业参与化妆品标准制修订等制度安排/);
+  assert.match(markdown, /\n  - 观察对象：标准识别、配方\/检验依据、标签备案引用、质量放行、进口备案资料引用标准/);
+  assert.doesNotMatch(markdown, /涉及团队|法规团队|质量团队|研发团队/);
 }
 
 function testPremiumDingTalkMarkdownDoesNotExposeInternalVoiceOrCrawlerName() {
@@ -707,9 +799,74 @@ function testPremiumDingTalkMarkdownSurfacesHardFieldsInsideExistingSections() {
   assert.match(markdown, /沪市监处罚〔2026〕88号/);
   assert.match(markdown, /《广告法》第二十八条/);
   assert.match(markdown, /12万元/);
-  assert.match(markdown, /涉及团队：广告合规、电商/);
-  assert.match(markdown, /观察窗口：3日内/);
+  assert.match(markdown, /\n- \*\*事实依据\*\*/);
+  assert.match(markdown, /\n  - 机关：上海市市场监督管理局/);
+  assert.match(markdown, /\n  - 文号：沪市监处罚〔2026〕88号/);
+  assert.match(markdown, /\n- \*\*业务影响\*\*/);
+  assert.doesNotMatch(markdown, /涉及团队/);
+  assert.match(markdown, /\n  - 观察对象：广告素材、达人脚本、功效证据留存/);
+  assert.match(markdown, /\n  - 时间窗口：3日内/);
   assert.match(markdown, /下一步观察建议/);
+}
+
+function testPremiumGateRequiresTypeSpecificHardFacts() {
+  const base = {
+    source_url: 'https://official.example.gov.cn/item/1',
+    source_name: '官方来源',
+    source_type: 'official_site',
+    authority_type: 'regulator',
+    published_at: '2026-07-23',
+    country: '中国',
+    facts: ['2026年7月23日，官方发布化妆品合规事项。'],
+    legal_signal: '新增义务：原文披露具体监管要求。',
+    business_impact: '影响标签、备案、进口申报或商标授权流程。',
+    recommended_action: '观察正式稿、生效日期或后续公开节点。',
+  };
+
+  assert.equal(validatePremiumEvidenceCard({
+    ...base,
+    title: '化妆品标准新规征求意见',
+    module: '新法律法规政策',
+    hard_facts: { authority: '国家药监局' },
+  }).reason, 'policy-missing-effective-or-deadline');
+
+  assert.equal(validatePremiumEvidenceCard({
+    ...base,
+    title: '化妆品广告监测线索',
+    module: '广告处罚案例',
+    hard_facts: { authority: '市场监管局' },
+  }).reason, 'case-missing-hard-result');
+
+  assert.equal(validatePremiumEvidenceCard({
+    ...base,
+    title: '美妆企业品牌争议线索',
+    module: '知识产权保护或者侵权',
+    hard_facts: { involved_party: '某美妆企业' },
+  }).reason, 'ip-missing-right-or-result');
+
+  assert.equal(validatePremiumEvidenceCard({
+    ...base,
+    title: '化妆品进口事项线索',
+    module: '进出口',
+    hard_facts: { authority: '海关总署' },
+  }).reason, 'trade-missing-clearance-detail');
+
+  assert.equal(validatePremiumEvidenceCard({
+    ...base,
+    title: '两家美妆企业冒用爱马仕商标被罚没63.5万元',
+    module: '知识产权保护或者侵权',
+    facts: ['监管部门披露两家美妆企业冒用爱马仕商标，合计罚没63.5万元并没收大量货品。'],
+    legal_signal: '风险案例：原文披露商标冒用、罚没金额和没收结果。',
+    business_impact: '影响香水、彩妆和礼盒 SKU 的商标授权、包装设计、达人素材和平台店铺审查。',
+    hard_facts: {
+      authority: '市场监督管理局',
+      involved_party: '两家美妆企业',
+      penalty_amount: '63.5万元',
+      legal_basis: '商标法',
+      product_or_batch: '香水、彩妆和礼盒 SKU',
+      affected_processes: ['商标授权', '包装设计', '达人素材', '平台店铺'],
+    },
+  }).accepted, true);
 }
 
 function testWebhookMessagesPreferPremiumCardFormatWhenAvailable() {
@@ -1974,7 +2131,13 @@ async function testDeepseekRescueAnalyzeUsesObservedCandidateIdentity() {
       candidate_index: 0,
       report_tier: 'action',
       fact_summary: ['中国监管通报要求化妆品功效宣称与备案证据保持一致。'],
+      legal_signal: '新增义务：化妆品功效宣称需要与备案资料和功效证据保持一致。',
+      business_impact: '影响中国电商渠道 SKU 的直播口播、详情页、达人素材和功效证据留存。',
       next_observation: ['跟踪同类化妆品功效宣称通报和后续处罚公开。'],
+      hard_facts: {
+        authority: '中国市场监管机构',
+        affected_processes: ['直播口播', '详情页', '达人素材', '功效证据留存'],
+      },
       relevance: 'direct',
       industry_impact: 'high',
       confidence: 'high',
@@ -2334,7 +2497,10 @@ function objectiveBriefFixture() {
     source_type: 'regulator', published_at: '2026-07-10', relevance: 'direct', industry_impact: 'medium',
     report_tier: 'action', confidence: 'high',
     fact_summary: ['监管部门发布与化妆品生产经营直接相关的公开信息，明确了适用对象和具体事项。'],
+    legal_signal: '观察入口：原文披露化妆品生产经营相关监管事项，可作为后续正式文件或执行口径观察入口。',
+    business_impact: '影响中国市场化妆品标签、备案、广告素材或进口申报等合规流程。',
     next_observation: ['跟踪正式文件、生效日期或后续公开执行口径。'],
+    hard_facts: { authority: '官方来源', affected_processes: ['标签', '备案', '广告素材', '进口申报'] },
     ...overrides,
   });
   return {
@@ -3067,7 +3233,7 @@ function testBuildAnalysisPromptUsesConfigurableInputLimits() {
   assert.ok(prompt.includes('线索3'));
 }
 
-function testBuildAnalysisPromptRequiresCoreJudgementWithoutInternalDeadlines() {
+function testBuildAnalysisPromptRequiresLegalIntelligenceCardFields() {
   const prompt = buildAnalysisPrompt({
     candidates: [],
     leads: [],
@@ -3076,10 +3242,16 @@ function testBuildAnalysisPromptRequiresCoreJudgementWithoutInternalDeadlines() 
   });
 
   assert.ok(prompt.includes('"fact_summary"'));
+  assert.ok(prompt.includes('"legal_signal"'));
+  assert.ok(prompt.includes('"business_impact"'));
   assert.ok(prompt.includes('"next_observation"'));
-  assert.ok(prompt.includes('只负责提取、分类、去重和压缩公开事实'));
+  assert.ok(prompt.includes('"hard_facts"'));
+  assert.ok(prompt.includes('法务可执行情报'));
+  assert.ok(prompt.includes('新增义务 / 执法趋势 / 风险案例 / 观察入口'));
+  assert.ok(prompt.includes('制度点、案件点、金额点、主体点、产品点、日期点'));
   assert.equal(prompt.includes('"core_judgement"'), false);
   assert.equal(prompt.includes('"recommended_actions"'), false);
+  assert.equal(prompt.includes('不生成核心判断、法律分析、风险评价、业务影响推断、管理层总结或行动分派'), false);
   for (const statutoryField of ['"effective_date"', '"feedback_deadline"', '"next_deadline"']) {
     assert.ok(prompt.includes(statutoryField));
   }
@@ -3096,6 +3268,8 @@ function testAnalysisPromptSupportsWatchItemsWithoutForcedModuleFilling() {
 
   assert.ok(prompt.includes('"report_tier": "action|watch"'));
   assert.ok(prompt.includes('"fact_summary"'));
+  assert.ok(prompt.includes('"legal_signal"'));
+  assert.ok(prompt.includes('"business_impact"'));
   assert.ok(prompt.includes('"next_observation"'));
   assert.ok(prompt.includes('返回所有符合准入规则的条目'));
   assert.equal(prompt.includes('至少输出 2 条'), false);
@@ -3454,6 +3628,66 @@ async function testModuleAnalysisFallsBackFromGenericChineseDisplayText() {
   assert.equal(item.evidence_source_name, candidate.source_name);
   assert.ok(item.evidence_excerpt.includes('涉案商品为眼霜'));
   assert.equal(processAnalyzedReport(report, { candidates: [candidate], sources: [] }).audit.acceptedItems, 1);
+}
+
+async function testModuleAnalysisPreservesAiExtractedHardFacts() {
+  const candidate = {
+    title: '两家美妆企业冒用爱马仕商标被罚',
+    url: 'https://official.example.cn/penalties/hermes-cosmetics',
+    source_name: '上海市市场监督管理局',
+    source_type: 'official_site',
+    authority_type: 'regulator',
+    module: '知识产权动态',
+    region: '亚洲',
+    country: '中国',
+    published_at: '2026-07-18',
+    snippet: '两家美妆企业冒用爱马仕商标，合计罚没63.5万元并没收侵权货品。',
+  };
+  const aiItem = {
+    ...objectiveBriefFixture().sections[0].items[0],
+    candidate_index: 0,
+    display_title_zh: '两家美妆企业冒用爱马仕商标被罚没63.5万元',
+    source_name_zh: '上海市市场监督管理局',
+    fact_summary: ['两家美妆企业冒用爱马仕商标，合计罚没63.5万元并没收侵权货品。'],
+    legal_signal: '风险案例：原文披露商标冒用、罚没金额和没收结果。',
+    business_impact: '影响香水、彩妆和礼盒 SKU 的商标授权、包装设计、达人素材和平台店铺审查。',
+    next_observation: ['观察同类高知名度商标在美妆包装、礼盒装潢和平台详情页中的行政处罚扩散。'],
+    hard_facts: {
+      authority: '上海市市场监督管理局',
+      involved_party: '两家美妆企业',
+      penalty_amount: '63.5万元',
+      legal_basis: '《商标法》',
+      product_or_batch: '侵权货品',
+      affected_processes: ['商标授权', '包装设计', '达人素材', '平台店铺'],
+    },
+  };
+  const response = {
+    period: { start: '2026-07-13', end: '2026-07-19' },
+    summary: [],
+    risk_alerts: [],
+    reviewed_candidates: [{ candidate_index: 0, decision: 'include', reason: '正文直接涉及化妆品商标侵权处罚' }],
+    sections: [{ module: '知识产权动态', items: [aiItem] }],
+  };
+
+  const report = await deepseekAnalyze({
+    apiKey: 'test-key',
+    baseUrl: 'https://example.com/v1',
+    model: 'gpt-5.5',
+    candidates: [candidate],
+    sources: [],
+    period: response.period,
+    targetModule: '知识产权动态',
+    review: false,
+    requireCandidateCoverage: true,
+    fetcher: async () => new Response(JSON.stringify({
+      choices: [{ message: { content: JSON.stringify(response) } }],
+    }), { status: 200 }),
+  });
+
+  const item = report.sections[0].items[0];
+  assert.equal(item.hard_facts.penalty_amount, '63.5万元');
+  assert.equal(item.hard_facts.legal_basis, '《商标法》');
+  assert.deepEqual(item.hard_facts.affected_processes, ['商标授权', '包装设计', '达人素材', '平台店铺']);
 }
 
 async function testModuleAnalysisRejectsMismatchedForeignTitleAndSourceTranslation() {
@@ -4308,7 +4542,7 @@ await testRequestAiChatUsesOpenAiCompatibleBaseUrl();
 await testRequestAiChatEnablesHighReasoningForSolModel();
 await testRequestAiChatRetriesHeadersTimeout();
 testBuildAnalysisPromptUsesConfigurableInputLimits();
-testBuildAnalysisPromptRequiresCoreJudgementWithoutInternalDeadlines();
+testBuildAnalysisPromptRequiresLegalIntelligenceCardFields();
 testAnalysisPromptSupportsWatchItemsWithoutForcedModuleFilling();
 await testModuleAnalysisFailureReturnsEmptySectionWithoutPlaceholder();
 await testDeepseekAnalyzeUsesValidatedEvidenceReview();
@@ -4322,6 +4556,7 @@ testBuildAnalysisPromptIncludesLeads();
 testBuildAnalysisPromptUsesModuleTarget();
 await testModuleAnalysisRequiresARecordedDecisionForEveryCandidate();
 await testModuleAnalysisFallsBackFromGenericChineseDisplayText();
+await testModuleAnalysisPreservesAiExtractedHardFacts();
 await testModuleAnalysisRejectsMismatchedForeignTitleAndSourceTranslation();
 await testModuleAnalysisKeepsAnchoredChineseTranslationWithoutEveryNumber();
 testNormalizeModuleReportForcesTargetWorkbookModule();
@@ -4369,10 +4604,13 @@ testPremiumEvidenceGateKeepsOfficialWatchEntriesWithConcreteSignals();
 testPremiumEvidenceGateRejectsRepublisherSourceEvenWhenFactsAreHard();
 testPremiumSelectionPrioritizesQualityBeforeQuantityAndCoreModules();
 testPremiumDingTalkMarkdownUsesCompactEvidenceCardFormat();
+testPremiumSelectionRanksByImpactBeforeModuleOrder();
 testPremiumDingTalkMarkdownDoesNotExposeRiskTierAndSignalType();
 testPremiumDingTalkMarkdownKeepsPolicyPlanningObservationNeutral();
+testPremiumDingTalkMarkdownAcceptsEvidenceObservationWithoutOwnerAssignment();
 testPremiumDingTalkMarkdownDoesNotExposeInternalVoiceOrCrawlerName();
 testPremiumDingTalkMarkdownIncludesThreeCoreModulesWhenAvailable();
 testPremiumDingTalkMarkdownSurfacesHardFieldsInsideExistingSections();
+testPremiumGateRequiresTypeSpecificHardFacts();
 testWebhookMessagesPreferPremiumCardFormatWhenAvailable();
 console.log('worker pure function tests ok');

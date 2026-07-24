@@ -138,20 +138,103 @@ function moduleRank(module) {
 }
 
 function comparePremiumCards(a, b) {
-  const chinaDiff = Number(isChinaCard(b)) - Number(isChinaCard(a));
-  if (chinaDiff) return chinaDiff;
-  const moduleDiff = moduleRank(a.module) - moduleRank(b.module);
-  if (moduleDiff) return moduleDiff;
-  return b.score - a.score;
+  return b.score - a.score
+    || Number(isChinaCard(b)) - Number(isChinaCard(a))
+    || moduleRank(a.module) - moduleRank(b.module);
 }
 
 function compareSelectionCards(a, b) {
-  return b.score - a.score || moduleRank(a.module) - moduleRank(b.module);
+  return b.score - a.score
+    || Number(isChinaCard(b)) - Number(isChinaCard(a))
+    || moduleRank(a.module) - moduleRank(b.module);
+}
+
+function amountScore(value) {
+  const source = text(value).replace(/,/g, '');
+  const match = source.match(/(\d+(?:\.\d+)?)\s*(万|亿)?元/);
+  if (!match) return 0;
+  const amount = Number(match[1]) * (match[2] === '亿' ? 10000 : match[2] === '万' ? 1 : 0.0001);
+  if (amount >= 50) return 45;
+  if (amount >= 10) return 32;
+  if (amount > 0) return 18;
+  return 0;
+}
+
+function impactSignalScore(card) {
+  const hard = card.hard_facts || {};
+  const source = [
+    card.title,
+    card.facts,
+    card.legal_signal,
+    card.business_impact,
+    card.recommended_action,
+    hard.penalty_amount,
+    hard.legal_basis,
+    hard.product_or_batch,
+  ].flat().join(' ');
+  let score = 0;
+  score += amountScore(`${hard.penalty_amount} ${source}`);
+  if (/没收|罚没|销毁|下架|召回|停止销售|责令改正/i.test(source)) score += 22;
+  if (/商标|专利|著作权|知识产权|侵权|冒用|假冒|仿冒/i.test(source)) score += 18;
+  if (/处罚|罚款|行政处罚|判决|裁定|典型案例|违法/i.test(source)) score += 18;
+  if (/强制性标准|禁用|限用|生效|截止|征求意见|备案|注册|海关|HS\s*编码|进口|出口/i.test(source)) score += 12;
+  if (hard.involved_party) score += 8;
+  if (hard.legal_basis) score += 8;
+  if (hard.product_or_batch) score += 8;
+  if ((hard.affected_processes || []).length) score += Math.min(12, hard.affected_processes.length * 3);
+  return score;
+}
+
+function sourceTextForCard(card) {
+  return [
+    card.title,
+    card.facts,
+    card.legal_signal,
+    card.business_impact,
+    card.recommended_action,
+  ].flat().join(' ');
+}
+
+function validateTypeHardFacts(card) {
+  const hard = card.hard_facts || {};
+  const source = sourceTextForCard(card);
+  const module = normalizeModule(card.module);
+
+  if (module === '新法律法规政策') {
+    if (!hard.effective_date && !hard.deadline && !hard.action_deadline) {
+      return 'policy-missing-effective-or-deadline';
+    }
+    if (!/(办法|规定|公告|标准|新规|名单|管理|征求意见|生效|实施|过渡期|条款|执行|备案|注册|禁用|限用)/.test(source)) {
+      return 'policy-missing-concrete-change';
+    }
+  }
+
+  if (module === '广告处罚案例') {
+    const hasResult = Boolean(hard.penalty_amount || hard.legal_basis || hard.involved_party || hard.product_or_batch)
+      || /(罚款|处罚|没收|罚没|责令|违法所得|吊销|停止发布|停止销售)/.test(source);
+    if (!hasResult) return 'case-missing-hard-result';
+  }
+
+  if (module === '知识产权保护或者侵权') {
+    const hasParty = Boolean(hard.involved_party) || /(权利人|当事人|公司|企业|品牌|原告|被告)/.test(source);
+    const hasRight = /(商标|专利|著作权|版权|外观设计|爱马仕|PRO-XYLANE|玻色因)/i.test(source);
+    const hasResult = Boolean(hard.penalty_amount || hard.legal_basis) || /(罚款|处罚|没收|判决|裁定|赔偿|侵权|冒用|假冒)/.test(source);
+    if (!hasParty || !hasRight || !hasResult) return 'ip-missing-right-or-result';
+  }
+
+  if (module === '进出口') {
+    const hasClearanceDetail = Boolean(hard.hs_code || hard.product_or_batch || hard.legal_basis || hard.document_number)
+      || /(HS\s*编码|口岸|报关单|清关文件|通关单|准入文件|检验检疫|关税税则|原产地证)/i.test(source);
+    if (!hasClearanceDetail) return 'trade-missing-clearance-detail';
+  }
+
+  return '';
 }
 
 function scoreCard(card) {
   let score = 0;
-  score += Math.max(0, 60 - MODULE_ORDER.indexOf(normalizeModule(card.module)) * 8);
+  score += Math.max(0, 12 - MODULE_ORDER.indexOf(normalizeModule(card.module)) * 2);
+  score += impactSignalScore(card);
   if (isChinaCard(card)) score += 20;
   if (/gov|gob|europa\.eu|fda\.gov|ftc\.gov|wipo\.int|euipo\.europa\.eu/i.test(text(card.source_url))) score += 30;
   if (/监管|药监|市场监督|市场监管|法院|海关|委员会|总局|FDA|FTC|BPOM|MFDS|EUIPO|WIPO/i.test(text(card.source_name))) score += 25;
@@ -199,7 +282,13 @@ export function validatePremiumEvidenceCard(card = {}) {
   if (!normalized.recommended_action || GENERIC_PATTERNS.test(normalized.recommended_action)) {
     return { accepted: false, reason: 'generic-action', card: normalized };
   }
-  if (!OWNER_PATTERN.test(normalized.recommended_action)) {
+  const typeHardFactReason = validateTypeHardFacts(normalized);
+  if (typeHardFactReason) {
+    return { accepted: false, reason: typeHardFactReason, card: normalized };
+  }
+  const hasObservationObject = normalized.hard_facts.affected_processes.length > 0;
+  const hasObservationWindow = Boolean(normalized.hard_facts.action_deadline || normalized.hard_facts.deadline || normalized.hard_facts.effective_date);
+  if (!OWNER_PATTERN.test(normalized.recommended_action) && !hasObservationObject && !hasObservationWindow) {
     return { accepted: false, reason: 'missing-owner-action', card: normalized };
   }
   return {
@@ -224,31 +313,25 @@ export function selectPremiumEvidenceCards(cards = [], { maxItems = 8, minItems 
   }
 
   accepted.sort(compareSelectionCards);
-
-  const selected = [];
-  for (const preferChina of [true, false]) {
-    for (const module of MODULE_ORDER.slice(0, 4)) {
-      if (selected.length >= maxItems) break;
-      const next = accepted.find(card =>
-        card.module === module
-        && !selected.includes(card)
-        && (!preferChina || isChinaCard(card))
-      );
-      if (next) selected.push(next);
-    }
-  }
-  for (const card of accepted) {
-    if (selected.length >= maxItems) break;
-    if (!selected.includes(card)) selected.push(card);
-  }
-  return selected.slice(0, Math.max(minItems, Math.min(maxItems, selected.length)));
+  return accepted.slice(0, Math.max(minItems, Math.min(maxItems, accepted.length)));
 }
 
 function esc(value) {
   return sanitizeBriefingText(value).replace(/\|/g, '\\|');
 }
 
-function renderFactLine(card) {
+function cleanBriefPart(value) {
+  return text(value).replace(/[。；;,\s]+$/g, '');
+}
+
+function briefParts(parts = []) {
+  return parts
+    .map(cleanBriefPart)
+    .filter(Boolean)
+    .map(esc);
+}
+
+function renderFactLines(card) {
   const hard = compactHardFacts(card.hard_facts, [
     ['authority', '机关'],
     ['document_number', '文号'],
@@ -260,26 +343,33 @@ function renderFactLine(card) {
     ['effective_date', '生效'],
     ['deadline', '截止'],
   ]);
-  return esc([...hard, card.facts[0]].filter(Boolean).join('；'));
+  return briefParts([...hard, ...card.facts]);
 }
 
-function renderJudgementLine(card) {
-  return esc(card.legal_signal);
+function renderJudgementLines(card) {
+  return briefParts([card.legal_signal]);
 }
 
-function renderImpactLine(card) {
+function renderImpactLines(card) {
   const processLine = card.hard_facts.affected_processes.length
     ? `影响流程：${card.hard_facts.affected_processes.join('、')}`
     : '';
-  return esc([card.business_impact, processLine].filter(Boolean).join('；'));
+  return briefParts([card.business_impact, processLine]);
 }
 
-function renderActionLine(card) {
-  const ownerLine = card.hard_facts.owner_teams.length
-    ? `涉及团队：${card.hard_facts.owner_teams.join('、')}`
+function renderActionLines(card) {
+  const objectLine = card.hard_facts.affected_processes.length
+    ? `观察对象：${card.hard_facts.affected_processes.join('、')}`
     : '';
-  const deadlineLine = card.hard_facts.action_deadline ? `观察窗口：${card.hard_facts.action_deadline}` : '';
-  return esc([ownerLine, deadlineLine, card.recommended_action].filter(Boolean).join('；'));
+  const deadlineLine = card.hard_facts.action_deadline ? `时间窗口：${card.hard_facts.action_deadline}` : '';
+  return briefParts([objectLine, deadlineLine, card.recommended_action]);
+}
+
+function renderFieldBlock(label, values = []) {
+  const lines = [`- **${label}**`];
+  const list = values.length ? values : ['原文未披露足够结构化信息'];
+  for (const value of list) lines.push(`  - ${value}`);
+  return lines;
 }
 
 function premiumCardFromItem(item, sectionModule) {
@@ -294,9 +384,9 @@ function premiumCardFromItem(item, sectionModule) {
     published_at: text(item.published_at),
     country: text(item.country || item.region || '未知'),
     facts: list(item.what_changed || item.facts || item.fact_summary || item.dispute_focus || item.market_access_change || item.regulatory_signal),
-    legal_signal: text(item.legal_obligation || item.compliance_meaning || item.violation_logic || item.infringement_logic || item.documents_needed || item.core_judgement),
-    business_impact: text(item.affected_business || item.business_impact || item.impact_on_brand_assets || item.affected_import_flow || item.why_it_matters || item.risk_pattern || item.business_lessons || item.penalty_or_result),
-    recommended_action: text(item.recommended_actions || item.next_observation || item.possible_follow_up),
+    legal_signal: text(item.legal_signal || item.legal_obligation || item.compliance_meaning || item.violation_logic || item.infringement_logic || item.documents_needed || item.core_judgement),
+    business_impact: text(item.business_impact || item.affected_business || item.impact_on_brand_assets || item.affected_import_flow || item.why_it_matters || item.risk_pattern || item.business_lessons || item.penalty_or_result),
+    recommended_action: text(item.next_observation || item.recommended_action || item.recommended_actions || item.possible_follow_up),
   };
   return {
     ...baseCard,
@@ -319,11 +409,9 @@ export function buildPremiumDingTalkMarkdown({ period = {}, cards = [] } = {}) {
   let number = 0;
   const modules = [...new Set(selected.map(card => card.module))]
     .sort((a, b) => {
-      const aHasChina = selected.some(card => card.module === a && isChinaCard(card));
-      const bHasChina = selected.some(card => card.module === b && isChinaCard(card));
-      const chinaDiff = Number(bHasChina) - Number(aHasChina);
-      if (chinaDiff) return chinaDiff;
-      return moduleRank(a) - moduleRank(b);
+      const aTop = Math.max(...selected.filter(card => card.module === a).map(card => card.score));
+      const bTop = Math.max(...selected.filter(card => card.module === b).map(card => card.score));
+      return bTop - aTop || moduleRank(a) - moduleRank(b);
     });
 
   for (const module of modules) {
@@ -338,10 +426,10 @@ export function buildPremiumDingTalkMarkdown({ period = {}, cards = [] } = {}) {
         '',
         `### ${number}. ${esc(card.title)}`,
         `- **来源**：${esc(card.source_name)} / ${esc(card.country)} / ${esc(card.published_at)} / [原文](${card.source_url})`,
-        `- **事实依据**：${renderFactLine(card)}`,
-        `- **法务观察**：${renderJudgementLine(card)}`,
-        `- **业务影响**：${renderImpactLine(card)}`,
-        `- **下一步观察建议**：${renderActionLine(card)}`,
+        ...renderFieldBlock('事实依据', renderFactLines(card)),
+        ...renderFieldBlock('法务观察', renderJudgementLines(card)),
+        ...renderFieldBlock('业务影响', renderImpactLines(card)),
+        ...renderFieldBlock('下一步观察建议', renderActionLines(card)),
       );
     }
   }
