@@ -119,6 +119,21 @@ function inferRiskTier(value) {
   return '持续监测';
 }
 
+function inferAffectedProcesses(value) {
+  const source = text(value);
+  const rules = [
+    [/标签|标识|包装标注|中文标签/i, '标签'],
+    [/备案|注册|备案资料|注册资料/i, '备案/注册'],
+    [/进口申报|报关|清关|口岸|海关|检验检疫|原产地/i, '进口申报/清关'],
+    [/达人|直播|脚本|种草|短视频|广告素材|详情页|功效宣称|宣传/i, '达人素材/广告宣传'],
+    [/商标|授权|品牌授权|包装装潢|礼盒/i, '商标授权/包装设计'],
+    [/SKU|批次|召回|下架|停止销售|抽检|不合格/i, 'SKU/批次管理'],
+    [/配方|成分|禁用|限用|标准|检验|质量放行/i, '配方/检验标准'],
+    [/平台店铺|电商|跨境|渠道|天猫|抖音|小红书|亚马逊/i, '平台店铺/渠道运营'],
+  ];
+  return uniqueValues(rules.filter(([pattern]) => pattern.test(source)).map(([, label]) => label));
+}
+
 function withInferredHardFacts(hardFacts, card) {
   const source = [
     card.title,
@@ -137,6 +152,7 @@ function withInferredHardFacts(hardFacts, card) {
     involved_party: involvedParty,
     signal_type: hardFacts.signal_type || inferSignalType(source),
     risk_tier: hardFacts.risk_tier || inferRiskTier(source),
+    affected_processes: hardFacts.affected_processes.length ? hardFacts.affected_processes : inferAffectedProcesses(source),
   };
 }
 

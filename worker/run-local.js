@@ -18,7 +18,7 @@ const kv = {
   },
 };
 
-const defaultArtifactOnly = process.env.GITHUB_EVENT_NAME === 'workflow_dispatch' ? '1' : '0';
+const defaultArtifactOnly = '0';
 const manualPreview = defaultArtifactOnly === '1' && process.env.ARTIFACT_ONLY !== '0';
 
 const env = {

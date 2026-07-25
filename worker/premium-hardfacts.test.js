@@ -77,8 +77,45 @@ function testPremiumMarkdownRendersNewHardFactsInFormalCard() {
   assert.doesNotMatch(markdown, /分级：|类型：|建议动作|Crawl4AI|我们|我/);
 }
 
+function testPremiumMarkdownInfersAffectedProcessesFromEvidence() {
+  const markdown = buildPremiumDingTalkMarkdown({
+    period: { start: '2026-07-19', end: '2026-07-25' },
+    cards: [{
+      title: '化妆品标准新规征求意见，明确标准执行和新旧衔接',
+      module: '新法律法规政策',
+      source_url: 'https://www.nmpa.gov.cn/xxgk/zhqyj/20260724.html',
+      source_name: '国家药品监督管理局',
+      source_type: 'official_site',
+      authority_type: 'regulator',
+      country: '中国',
+      published_at: '2026-07-24',
+      facts: ['国家药监局就化妆品标准管理规则征求意见，正文涉及标准执行、新旧标准衔接和企业参与标准制修订渠道。'],
+      legal_signal: '征求意见稿把化妆品标准执行、新旧衔接和企业参与标准制修订渠道写入制度安排。',
+      business_impact: '影响配方开发、检验依据、标签备案引用标准、质量放行和进口备案资料引用标准。',
+      recommended_action: '观察正式稿发布日期、反馈截止日、过渡期安排和企业参与标准制修订的申报入口。',
+      hard_facts: {
+        authority: '国家药品监督管理局',
+        document_number: '征求意见稿',
+        deadline: '2026年7月30日',
+        feedback_channel: '国家药监局政务服务门户意见征集栏目',
+      },
+    }],
+  });
+
+  assert.match(markdown, /化妆品标准新规征求意见/);
+  assert.match(markdown, /\n  - 影响流程：标签、备案\/注册、配方\/检验标准/);
+  assert.doesNotMatch(markdown, /涉及团队|法规团队|质量团队|建议动作/);
+}
+
+function testManualWorkflowRunsAreNotArtifactOnlyByDefault() {
+  const source = readFileSync(new URL('./run-local.js', import.meta.url), 'utf8');
+  assert.ok(source.includes("const defaultArtifactOnly = '0';"));
+}
+
 testHydrationExtractsActionableHardFacts();
 testFormalPromptsRequireAllPremiumHardFactFields();
 testPremiumMarkdownRendersNewHardFactsInFormalCard();
+testPremiumMarkdownInfersAffectedProcessesFromEvidence();
+testManualWorkflowRunsAreNotArtifactOnlyByDefault();
 
 console.log('premium hard facts tests passed');
