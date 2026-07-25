@@ -18,6 +18,8 @@ const kv = {
   },
 };
 
+const defaultArtifactOnly = process.env.GITHUB_EVENT_NAME === 'workflow_dispatch' ? '1' : '0';
+
 const env = {
   AI_API_KEY: process.env.AI_API_KEY,
   AI_API_BASE_URL: process.env.AI_API_BASE_URL || 'https://hk.testvideo.site/v1',
@@ -29,7 +31,7 @@ const env = {
   QUALITY_MODE: process.env.QUALITY_MODE || '0',
   REPORT_QUALITY_MODE: process.env.REPORT_QUALITY_MODE,
   CONTENT_QUALITY_MODE: process.env.CONTENT_QUALITY_MODE,
-  ARTIFACT_ONLY: process.env.ARTIFACT_ONLY || '0',
+  ARTIFACT_ONLY: process.env.ARTIFACT_ONLY || defaultArtifactOnly,
   SOURCE_ONLY_PROOF_REQUIRED: process.env.SOURCE_ONLY_PROOF_REQUIRED || '0',
   FULL_SOURCE_SCAN: process.env.FULL_SOURCE_SCAN || (process.env.QUALITY_MODE === '1' || process.env.REPORT_QUALITY_MODE === 'quality' || process.env.CONTENT_QUALITY_MODE === 'quality' ? '1' : '0'),
   WORKER_FETCH_SOURCE_BUDGET: process.env.WORKER_FETCH_SOURCE_BUDGET,
@@ -57,6 +59,11 @@ env.ON_REPORT_READY = async ({ report, markdown }) => {
   await mkdir('out', { recursive: true });
   await writeFile('out/latest-report.md', markdown, 'utf8');
   await writeFile('out/latest-report.json', JSON.stringify(report, null, 2), 'utf8');
+  if (env.ARTIFACT_ONLY === '1') {
+    console.log('=== BEGIN LATEST REPORT MARKDOWN ===');
+    console.log(markdown.trim());
+    console.log('=== END LATEST REPORT MARKDOWN ===');
+  }
 };
 
 if (!env.AI_API_KEY) {

@@ -4410,7 +4410,9 @@ function testArtifactOnlyModeIsDeliveryFree() {
   assert.match(source, /if \(artifactOnly\)/);
   assert.match(source, /stage: 'artifact-only',\s*status: 'done'/);
   const localSource = readFileSync(new URL('./run-local.js', import.meta.url), 'utf8');
+  assert.match(localSource, /defaultArtifactOnly = process\.env\.GITHUB_EVENT_NAME === 'workflow_dispatch' \? '1' : '0'/);
   assert.match(localSource, /ARTIFACT_ONLY: process\.env\.ARTIFACT_ONLY/);
+  assert.match(localSource, /BEGIN LATEST REPORT MARKDOWN/);
   assert.match(localSource, /SOURCE_ONLY_PROOF_REQUIRED: process\.env\.SOURCE_ONLY_PROOF_REQUIRED/);
 }
 
