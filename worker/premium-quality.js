@@ -19,6 +19,9 @@ const CONCRETE_PATTERNS = /(20\d{2}|发布|公布|通报|处罚|罚款|召回|�
 const OWNER_PATTERN = /法务|合规|法规|质量|研发|供应链|采购|电商|广告|品牌|市场|知识产权|IP|进出口|关务|注册|备案|产品|渠道|海外|本地团队/;
 const REPUBLISHER_HOST_PATTERN = /(?:^|\.)((?:sohu|163|sina|qq|toutiao|baijiahao|thepaper|jiemian|36kr)\.com|(?:baijiahao|mp)\.baidu\.com)$/i;
 const MEDIA_SOURCE_TYPES = new Set(['industry_media', 'media', 'wechat_lead', 'wechat_public_account']);
+const NAVIGATION_TITLE_PATTERN = /^(?:(?:欢迎访问|欢迎来到).+|(?:网站首页|首页|站点导航|登录|注册|搜索|联系我们|栏目|专题|新闻中心|通知公告|工作动态|化妆品|Cosmetics|Home|Welcome|Menu|Search)(?:$|[\s｜|:：_-].*))/i;
+const GENERIC_INFO_PAGE_PATTERN = /(?:安全使用|消费者提示|消费提示|使用提示|科普|问答|常见问题|指南页面|专题页|栏目页|监管入口|信息入口|Q&A|questions?\s+and\s+answers?|how\s+to\s+use|safe\s+use|cosmetics\s+safety)/i;
+const HARD_LEGAL_EVENT_PATTERN = /(?:文号|公告|通告|通报|征求意见|反馈截止|截止日期|截止|生效|实施|过渡期|新旧衔接|行政处罚|处罚决定|罚款|罚没|没收|违法所得|责令改正|吊销|停止销售|召回|警示信|warning\s+letter|判决|裁定|赔偿|侵权|冒用|假冒|刷单|虚假交易|商标|专利|著作权|海关|口岸|报关|清关|HS\s*编码|进口|出口|禁用|限用|15\s*个?工作日|serious\s+adverse\s+event|mandatory\s+report)/i;
 
 function text(value) {
   return String(value || '').replace(/\s+/g, ' ').trim();
@@ -102,6 +105,36 @@ function compactHardFacts(facts = {}, keys = []) {
   return keys
     .map(([key, label]) => facts[key] ? `${label}：${facts[key]}` : '')
     .filter(Boolean);
+}
+
+function objectiveHardFactCount(hardFacts = {}) {
+  return [
+    hardFacts.document_number,
+    hardFacts.authority,
+    hardFacts.penalty_amount,
+    hardFacts.legal_basis,
+    hardFacts.involved_party,
+    hardFacts.product_or_batch,
+    hardFacts.hs_code,
+    hardFacts.effective_date,
+    hardFacts.deadline,
+  ].filter(value => text(value)).length;
+}
+
+function hasHardLegalEvent(card) {
+  const hard = card.hard_facts || {};
+  const source = sourceTextForCard(card);
+  if (hard.document_number || hard.penalty_amount || hard.legal_basis || hard.effective_date || hard.deadline || hard.hs_code) return true;
+  if (objectiveHardFactCount(hard) >= 2 && HARD_LEGAL_EVENT_PATTERN.test(source)) return true;
+  return HARD_LEGAL_EVENT_PATTERN.test([card.title, card.facts].flat().join(' '));
+}
+
+function isNavigationOrGenericInformationPage(card) {
+  const title = text(card.title);
+  if (NAVIGATION_TITLE_PATTERN.test(title)) return true;
+  const source = sourceTextForCard(card);
+  if (!GENERIC_INFO_PAGE_PATTERN.test([title, source].join(' '))) return false;
+  return !hasHardLegalEvent(card);
 }
 
 function isHttpUrl(value) {
@@ -240,10 +273,7 @@ function scoreCard(card) {
   if (/监管|药监|市场监督|市场监管|法院|海关|委员会|总局|FDA|FTC|BPOM|MFDS|EUIPO|WIPO/i.test(text(card.source_name))) score += 25;
   if (/处罚|罚款|召回|判决|裁定|禁用|限用|生效|征求意见|备案|注册|进口|出口|海关/i.test([card.title, card.legal_signal, card.business_impact, card.recommended_action].join(' '))) score += 18;
   if (OWNER_PATTERN.test(text(card.recommended_action))) score += 12;
-  const hardFactCount = Object.entries(card.hard_facts || {})
-    .filter(([key]) => !['risk_tier', 'signal_type', 'affected_processes', 'owner_teams', 'action_deadline'].includes(key))
-    .filter(([, value]) => Array.isArray(value) ? value.length : text(value))
-    .length;
+  const hardFactCount = objectiveHardFactCount(card.hard_facts || {});
   score += Math.min(30, hardFactCount * 5);
   return score;
 }
@@ -269,6 +299,7 @@ export function validatePremiumEvidenceCard(card = {}) {
   if (!normalized.title) return { accepted: false, reason: 'missing-title', card: normalized };
   if (!isHttpUrl(normalized.source_url)) return { accepted: false, reason: 'missing-source-url', card: normalized };
   if (isNonAuthoritativeRepublisher(normalized)) return { accepted: false, reason: 'non-authoritative-source', card: normalized };
+  if (isNavigationOrGenericInformationPage(normalized)) return { accepted: false, reason: 'navigation-or-generic-page', card: normalized };
   if (!/^20\d{2}-\d{2}-\d{2}$/.test(normalized.published_at)) return { accepted: false, reason: 'missing-date', card: normalized };
   if (!normalized.facts.length || !CONCRETE_PATTERNS.test(normalized.facts.join(' '))) {
     return { accepted: false, reason: 'weak-facts', card: normalized };
@@ -415,7 +446,7 @@ export function buildPremiumDingTalkMarkdown({ period = {}, cards = [] } = {}) {
     `# 美妆法务资讯精品卡${start || end ? `（${start} 至 ${end}）` : ''}`,
     '',
     selected.length
-      ? `本期精选 ${selected.length} 条，优先覆盖新法律法规政策、广告处罚案例、知识产权保护或者侵权、进出口。`
+      ? `本期精选 ${selected.length} 条。`
       : '本期没有达到精品证据门槛的事项，宁缺毋滥。',
   ];
 
