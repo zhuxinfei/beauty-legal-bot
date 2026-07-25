@@ -4408,11 +4408,14 @@ function testArtifactOnlyModeIsDeliveryFree() {
   const source = readFileSync(new URL('./index.js', import.meta.url), 'utf8');
   assert.match(source, /const artifactOnly = isArtifactOnlyRun\(env\);/);
   assert.match(source, /if \(artifactOnly\)/);
+  assert.match(source, /detailLimit: Number\(env\.DETAIL_CANDIDATE_LIMIT \|\| Number\.MAX_SAFE_INTEGER\)/);
   assert.match(source, /stage: 'artifact-only',\s*status: 'done'/);
   const localSource = readFileSync(new URL('./run-local.js', import.meta.url), 'utf8');
   assert.match(localSource, /defaultArtifactOnly = process\.env\.GITHUB_EVENT_NAME === 'workflow_dispatch' \? '1' : '0'/);
   assert.match(localSource, /manualPreview \? '16' : process\.env\.ANALYSIS_CANDIDATE_LIMIT/);
   assert.match(localSource, /manualPreview \? '4' : process\.env\.REPORT_TARGET_ITEMS/);
+  assert.match(localSource, /FULL_SOURCE_SCAN: manualPreview \? '0'/);
+  assert.match(localSource, /WORKER_FETCH_SOURCE_BUDGET: manualPreview \? '8'/);
   assert.match(localSource, /ARTIFACT_ONLY: process\.env\.ARTIFACT_ONLY/);
   assert.match(localSource, /BEGIN LATEST REPORT MARKDOWN/);
   assert.match(localSource, /SOURCE_ONLY_PROOF_REQUIRED: process\.env\.SOURCE_ONLY_PROOF_REQUIRED/);

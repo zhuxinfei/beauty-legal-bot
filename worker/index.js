@@ -1147,7 +1147,7 @@ export async function runPipeline(env, requestUrl = 'https://beauty-legal-bot.wo
       sleepFn: env.SOURCE_RETRY_SLEEP,
       jitter: env.SOURCE_RETRY_JITTER,
       hydrateDetails: env.DETAIL_FETCH_ENABLED !== '0',
-      detailLimit: Number.MAX_SAFE_INTEGER,
+      detailLimit: Number(env.DETAIL_CANDIDATE_LIMIT || Number.MAX_SAFE_INTEGER),
       detailTimeoutMs: Number(env.DETAIL_FETCH_TIMEOUT_MS || DETAIL_FETCH_TIMEOUT_MS),
       detailConcurrency: Number(env.DETAIL_FETCH_CONCURRENCY || DETAIL_FETCH_CONCURRENCY),
       detailBrowserRecoveryLimit: Number(env.DETAIL_BROWSER_RECOVERY_LIMIT || DETAIL_BROWSER_RECOVERY_LIMIT),
