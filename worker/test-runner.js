@@ -992,6 +992,39 @@ function testPremiumGateAcceptsManualHardInformationSamples() {
   }).accepted, true);
 }
 
+function testPremiumMarkdownReplacesVaguePartyWithConcreteCompanyNames() {
+  const markdown = buildPremiumDingTalkMarkdown({
+    period: { start: '2026-07-24', end: '2026-07-24' },
+    cards: [{
+      title: '商家侵权玻色因商标并刷单，被市场监管部门罚款17万元',
+      module: '知识产权保护或者侵权',
+      source_url: 'https://amr.example.gov.cn/case/pro-xylane-20260724',
+      source_name: '市场监督管理局',
+      source_type: 'official_site',
+      authority_type: 'regulator',
+      published_at: '2026-07-24',
+      country: '中国',
+      facts: [
+        '市场监管部门披露广州妍瑟化妆品有限公司在美妆商品宣传中侵权使用玻色因相关商标，同时存在刷单行为，处罚金额17万元。',
+      ],
+      legal_signal: '同一经营行为同时暴露商标侵权和虚假交易两类合规风险。',
+      business_impact: '影响成分卖点命名、商标授权、平台店铺运营、达人素材和交易数据合规。',
+      recommended_action: '观察同类成分商标在商品标题、详情页、直播脚本和平台销量展示中的处罚扩散。',
+      hard_facts: {
+        authority: '市场监督管理局',
+        involved_party: '涉案商家',
+        penalty_amount: '17万元',
+        legal_basis: '商标法、反不正当竞争相关规则',
+        product_or_batch: '含玻色因卖点的美妆商品',
+        affected_processes: ['成分卖点命名', '商标授权', '平台店铺运营', '达人素材'],
+      },
+    }],
+  });
+  assert.match(markdown, /主体：广州妍瑟化妆品有限公司/);
+  assert.doesNotMatch(markdown, /主体：涉案商家/);
+  assert.doesNotMatch(markdown, /主体：.*平台店铺|主体：.*达人素材/);
+}
+
 function testWebhookMessagesPreferPremiumCardFormatWhenAvailable() {
   const messages = buildDingTalkWebhookMessages({
     premium_delivery: true,
@@ -1669,6 +1702,35 @@ function testHydratedRecordExtractsHardLegalFactsFromCrawl4AiText() {
   assert.equal(record.hard_facts.product_or_batch, '普通护肤 SKU，批号 B202607');
   assert.equal(record.hard_facts.signal_type, '风险案例');
   assert.equal(record.hard_facts.risk_tier, '立即处理');
+}
+
+function testHydratedRecordExtractsConcreteCompanyNamesFromCrawl4AiText() {
+  const record = normalizeHydratedRecord({
+    url: 'https://amr.example.gov.cn/case/pro-xylane',
+    title: '商标侵权及刷单行政处罚决定书',
+    source_name: '市场监督管理局',
+    published_at: '2026-07-24',
+    country: '中国',
+    module: '知识产权动态',
+    fit_markdown: [
+      '当事人：广州妍瑟化妆品有限公司。',
+      '广州妍瑟化妆品有限公司未经授权在美妆商品宣传中使用玻色因相关商标。',
+      '当事人另通过刷单虚构交易记录，合计罚款17万元。',
+    ].join('\n'),
+  });
+  assert.equal(record.hard_facts.involved_party, '广州妍瑟化妆品有限公司');
+
+  const multiPartyRecord = normalizeHydratedRecord({
+    url: 'https://amr.example.gov.cn/case/hermes',
+    title: '两家公司冒用爱马仕商标行政处罚决定书',
+    source_name: '市场监督管理局',
+    published_at: '2026-07-24',
+    country: '中国',
+    module: '知识产权动态',
+    fit_markdown: '市场监管部门披露广州赫姿化妆品有限公司、广州尚美生物科技有限公司冒用爱马仕商标，合计罚款63.5万元并没收侵权货品。影响商标授权、包装设计、达人素材和平台店铺。',
+  });
+  assert.equal(multiPartyRecord.hard_facts.involved_party, '广州赫姿化妆品有限公司、广州尚美生物科技有限公司');
+  assert.equal(multiPartyRecord.hard_facts.involved_party.includes('平台店铺'), false);
 }
 
 function testHydratedRecordExtractsAttachmentLinksForCrawl4AiSecondHop() {
@@ -4599,6 +4661,7 @@ testExtractArticleTextDoesNotSilentlyTruncateTheOriginalBody();
 await testHydrateCandidateDetailsFetchesArticleBodiesWithoutDroppingFailures();
 testHydratedRecordsOverrideWeakCandidateText();
 testHydratedRecordExtractsHardLegalFactsFromCrawl4AiText();
+testHydratedRecordExtractsConcreteCompanyNamesFromCrawl4AiText();
 testHydratedRecordExtractsAttachmentLinksForCrawl4AiSecondHop();
 testHydratedRecordMergesAttachmentTextForCrawl4AiSecondHopEvidence();
 testHydratedRecordDowngradesEmptyHydratedBody();
@@ -4737,5 +4800,6 @@ testPremiumDingTalkMarkdownSurfacesHardFieldsInsideExistingSections();
 testPremiumGateRequiresTypeSpecificHardFacts();
 testPremiumGateRejectsNavigationAndGenericInformationPages();
 testPremiumGateAcceptsManualHardInformationSamples();
+testPremiumMarkdownReplacesVaguePartyWithConcreteCompanyNames();
 testWebhookMessagesPreferPremiumCardFormatWhenAvailable();
 console.log('worker pure function tests ok');

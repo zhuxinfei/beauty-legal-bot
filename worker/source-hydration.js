@@ -37,6 +37,41 @@ function firstMatch(value, patterns) {
   return '';
 }
 
+function uniqueValues(values = []) {
+  const seen = new Set();
+  const result = [];
+  for (const value of values.map(text).filter(Boolean)) {
+    const key = value.replace(/\s+/g, '');
+    if (seen.has(key)) continue;
+    seen.add(key);
+    result.push(value);
+  }
+  return result;
+}
+
+function extractCompanyNames(value = '') {
+  const source = stripMarkdown(value);
+  const companyPattern = /([\u4e00-\u9fa5A-Za-z0-9（）()·]{2,40}(?:有限责任公司|股份有限公司|有限公司|个体工商户|工作室|商行|公司))/g;
+  const matches = [
+    ...Array.from(source.matchAll(new RegExp(`(?:^|[，,。；;\\s：:、])${companyPattern.source}`, 'g'))).map(match => ({ name: match[1], index: match.index })),
+    ...Array.from(source.matchAll(new RegExp(`(?:当事人|被处罚人|涉案主体|原告|被告|申请人|被申请人|披露|认定|处罚|罚没|没收)[：:\\s]*${companyPattern.source}`, 'g'))).map(match => ({ name: match[1], index: match.index })),
+  ]
+    .sort((a, b) => a.index - b.index)
+    .map(match => text(match.name).replace(/^(?:当事人|被处罚人|涉案主体|原告|被告|申请人|被申请人)[：:\s]*/, ''))
+    .filter(name => !/市场监督管理局|药品监督管理局|国家知识产权局|海关|人民法院|委员会|协会|监管部门/.test(name));
+  return uniqueValues(matches).slice(0, 4);
+}
+
+function extractInvolvedParty(source = '') {
+  const labelled = firstMatch(source, [
+    /(?:当事人|涉案主体|被处罚人|申请人|被告|原告)[：:\s]*([^。；;\n]{2,80})/,
+  ]);
+  const labelledCompanies = extractCompanyNames(labelled);
+  if (labelledCompanies.length) return labelledCompanies.join('、');
+  const companies = extractCompanyNames(source);
+  return companies.join('、');
+}
+
 function normalizeLink(urlValue, baseValue) {
   const raw = text(urlValue);
   if (!raw) return '';
@@ -129,9 +164,7 @@ function extractHardFactsFromText(value = '') {
       /(《[^》]{2,40}》第[一二三四五六七八九十百零\d]+条(?:第[一二三四五六七八九十百零\d]+款)?)/,
       /(依据《[^》]{2,40}》[^。；;\n]{0,30})/,
     ]).replace(/^依据/, ''),
-    involved_party: firstMatch(source, [
-      /(?:当事人|涉案主体|被处罚人|申请人|被告|原告)[：:\s]*([^。；;\n]{2,50})/,
-    ]),
+    involved_party: extractInvolvedParty(source),
     product_or_batch: firstMatch(source, [
       /(?:涉及产品|产品名称|产品\/批次|批号|批次)[：:\s]*([^。；;\n]{2,60})/,
     ]),

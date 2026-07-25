@@ -50,6 +50,36 @@ function list(value) {
   return (Array.isArray(value) ? value : [value]).map(text).filter(Boolean);
 }
 
+function uniqueValues(values = []) {
+  const seen = new Set();
+  const result = [];
+  for (const value of values.map(text).filter(Boolean)) {
+    const key = value.replace(/\s+/g, '');
+    if (seen.has(key)) continue;
+    seen.add(key);
+    result.push(value);
+  }
+  return result;
+}
+
+function extractCompanyNames(value = '') {
+  const source = text(value);
+  const companyPattern = /([\u4e00-\u9fa5A-Za-z0-9（）()·]{2,40}(?:有限责任公司|股份有限公司|有限公司|个体工商户|工作室|商行|公司))/g;
+  const matches = [
+    ...Array.from(source.matchAll(new RegExp(`(?:^|[，,。；;\\s：:、])${companyPattern.source}`, 'g'))).map(match => ({ name: match[1], index: match.index })),
+    ...Array.from(source.matchAll(new RegExp(`(?:当事人|被处罚人|涉案主体|原告|被告|申请人|被申请人|披露|认定|处罚|罚没|没收)[：:\\s]*${companyPattern.source}`, 'g'))).map(match => ({ name: match[1], index: match.index })),
+  ]
+    .sort((a, b) => a.index - b.index)
+    .map(match => text(match.name).replace(/^(?:当事人|被处罚人|涉案主体|原告|被告|申请人|被申请人)[：:\s]*/, ''))
+    .filter(name => !/市场监督管理局|药品监督管理局|国家知识产权局|海关|人民法院|委员会|协会|监管部门/.test(name));
+  return uniqueValues(matches).slice(0, 4);
+}
+
+function isVagueInvolvedParty(value = '') {
+  const source = text(value);
+  return !source || /^(?:涉案|相关|部分|多家|两家|若干|某些|有关)?(?:主体|商家|企业|公司|经营者|经营主体|美妆企业|化妆品企业)$/.test(source);
+}
+
 function normalizeHardFacts(value = {}) {
   const input = value && typeof value === 'object' ? value : {};
   return {
@@ -94,8 +124,13 @@ function withInferredHardFacts(hardFacts, card) {
     card.business_impact,
     card.recommended_action,
   ].flat().join(' ');
+  const companyNames = extractCompanyNames(source);
+  const involvedParty = isVagueInvolvedParty(hardFacts.involved_party) && companyNames.length
+    ? companyNames.join('、')
+    : hardFacts.involved_party;
   return {
     ...hardFacts,
+    involved_party: involvedParty,
     signal_type: hardFacts.signal_type || inferSignalType(source),
     risk_tier: hardFacts.risk_tier || inferRiskTier(source),
   };
