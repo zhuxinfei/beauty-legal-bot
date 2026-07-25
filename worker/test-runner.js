@@ -4610,7 +4610,9 @@ function testWeeklyWorkflowRunsLocalReportPipelineWithoutWorkerDeploy() {
   assert.ok(workflow.indexOf('node scripts/crawl4ai-hydrate.js') < workflow.indexOf('node worker/run-local.js'));
   const hydrateSource = readFileSync(new URL('../scripts/crawl4ai-hydrate.js', import.meta.url), 'utf8');
   assert.match(hydrateSource, /GITHUB_EVENT_NAME === 'workflow_dispatch'/);
-  assert.match(hydrateSource, /CRAWL4AI_PREVIEW_LIMIT \|\| 8/);
+  assert.match(hydrateSource, /CRAWL4AI_PREVIEW_LIMIT \|\| 4/);
+  assert.match(hydrateSource, /CRAWL4AI_PREVIEW_TIMEOUT_MS \|\| 12000/);
+  assert.match(hydrateSource, /CRAWL4AI_PREVIEW_ATTACHMENT_LIMIT \|\| 0/);
   assert.ok(workflow.includes('DETAIL_FETCH_ENABLED: 1'));
   assert.ok(workflow.includes('DETAIL_CANDIDATE_LIMIT: 48'));
   assert.ok(workflow.includes('REPORT_TARGET_ITEMS: 8'));

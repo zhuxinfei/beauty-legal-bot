@@ -227,8 +227,14 @@ async function main() {
 
   const loaded = await loadInput(resolve(input));
   const manualPreviewLimit = process.env.GITHUB_EVENT_NAME === 'workflow_dispatch'
-    ? Number(process.env.CRAWL4AI_PREVIEW_LIMIT || 8)
+    ? Number(process.env.CRAWL4AI_PREVIEW_LIMIT || 4)
     : 0;
+  const effectivePageTimeoutMs = manualPreviewLimit > 0
+    ? Math.min(Number(pageTimeoutMs) || 20000, Number(process.env.CRAWL4AI_PREVIEW_TIMEOUT_MS || 12000))
+    : pageTimeoutMs;
+  const effectiveAttachmentLimit = manualPreviewLimit > 0
+    ? Math.min(Number(attachmentLimit) || 0, Number(process.env.CRAWL4AI_PREVIEW_ATTACHMENT_LIMIT || 0))
+    : attachmentLimit;
   const effectiveLimit = manualPreviewLimit > 0
     ? Math.min(limit > 0 ? limit : loaded.length, manualPreviewLimit)
     : limit;
@@ -238,7 +244,7 @@ async function main() {
   }
   const env = { ...process.env };
   if (baseDir) env.CRAWL4_AI_BASE_DIRECTORY = baseDir;
-  const stdout = execFileSync(python, ['-c', buildPythonScript(spec, { pageTimeoutMs, attachmentLimit, outputPath: output ? resolve(output) : '' })], { encoding: 'utf8', env, maxBuffer: 1024 * 1024 * 200 });
+  const stdout = execFileSync(python, ['-c', buildPythonScript(spec, { pageTimeoutMs: effectivePageTimeoutMs, attachmentLimit: effectiveAttachmentLimit, outputPath: output ? resolve(output) : '' })], { encoding: 'utf8', env, maxBuffer: 1024 * 1024 * 200 });
 
   if (output) {
     const summary = stdout.trim() ? JSON.parse(stdout.trim()) : { records: spec.length, output: resolve(output) };
