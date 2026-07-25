@@ -226,7 +226,16 @@ async function main() {
   }
 
   const loaded = await loadInput(resolve(input));
-  const spec = limit > 0 ? loaded.slice(0, limit) : loaded;
+  const manualPreviewLimit = process.env.GITHUB_EVENT_NAME === 'workflow_dispatch'
+    ? Number(process.env.CRAWL4AI_PREVIEW_LIMIT || 8)
+    : 0;
+  const effectiveLimit = manualPreviewLimit > 0
+    ? Math.min(limit > 0 ? limit : loaded.length, manualPreviewLimit)
+    : limit;
+  const spec = effectiveLimit > 0 ? loaded.slice(0, effectiveLimit) : loaded;
+  if (manualPreviewLimit > 0) {
+    console.log(`Manual preview Crawl4AI limit: ${spec.length}/${loaded.length} sources`);
+  }
   const env = { ...process.env };
   if (baseDir) env.CRAWL4_AI_BASE_DIRECTORY = baseDir;
   const stdout = execFileSync(python, ['-c', buildPythonScript(spec, { pageTimeoutMs, attachmentLimit, outputPath: output ? resolve(output) : '' })], { encoding: 'utf8', env, maxBuffer: 1024 * 1024 * 200 });
