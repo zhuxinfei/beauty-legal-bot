@@ -1788,10 +1788,28 @@ function objectiveHardFacts(item = {}) {
   return {
     ...(item.hard_facts || {}),
     authority: item.hard_facts?.authority || item.authority || item.source_name || '',
+    violation_behavior: item.hard_facts?.violation_behavior || item.violation_behavior || '',
+    confiscation_result: item.hard_facts?.confiscation_result || item.confiscation_result || '',
     involved_party: item.hard_facts?.involved_party || item.parties || '',
     effective_date: item.hard_facts?.effective_date || item.effective_date || '',
     deadline: item.hard_facts?.deadline || item.feedback_deadline || item.next_deadline || '',
+    feedback_channel: item.hard_facts?.feedback_channel || item.feedback_channel || '',
   };
+}
+
+function mergeHardFactsPreferEvidence(...factObjects) {
+  const merged = {};
+  for (const facts of factObjects) {
+    if (!facts || typeof facts !== 'object') continue;
+    for (const [key, value] of Object.entries(facts)) {
+      if (Array.isArray(value)) {
+        if (value.length) merged[key] = value.filter(Boolean);
+      } else if (hasValue(value)) {
+        merged[key] = value;
+      }
+    }
+  }
+  return merged;
 }
 
 export function getRequiredFields(item) {
@@ -1971,9 +1989,11 @@ export function buildAnalysisPrompt({ candidates, leads = [], sources, period, t
 - 中文标题使用“主体 + 具体事项或结果”的自然新闻表达，不要逐词直译，不得只写公告编号、栏目名、“最新动态”或其他空泛标题。
 - 来源名优先采用官方或通行中文名称；无通行中文译名时保留原名，不得臆造中文译名。
 - 事实摘要直接写明主体、动作、对象以及原文已有的日期、金额、数量或处理结果，避免“发布相关要求”“介绍有关情况”等空泛转述。
+- 原文或 hard_facts 已能识别具体当事人、企业名、权利人或处罚机关时，标题和事实摘要必须使用具体名称；不得退回“商家”“两家公司”“涉案主体”“相关企业”等泛称。
 - display_title_zh 和 source_name_zh 是面向用户的中文显示文本；程序会保留原文 URL 作为证据，不要翻译 URL。
 - recommended_actions、owner_teams、core_judgement、why_it_matters、risk_level 等旧分析字段必须为空；不要替法务领导分派任务或作最终决策。
 - hard_facts 只能填原文明确出现或可从原文直接识别的字段；没有证据就留空字符串或空数组，不得补写。
+- hard_facts 必须尽量结构化保留硬字段：法规政策至少提取发布机关、文件名/文号、生效/截止/过渡期、反馈渠道；处罚/IP 案例至少提取处罚机关、涉案主体、违法行为、处罚金额、没收/处置结果、违法条款/依据；进出口至少提取国家/口岸/HS 编码/准入文件/清关影响。
 - 法规原文明确的生效日、反馈截止日和法定整改节点应保留在 effective_date、feedback_deadline、next_deadline。
 - 禁止“建议关注”“持续关注”“企业应留意”等空泛动作。
 ${moduleInstruction}
@@ -2018,12 +2038,15 @@ JSON 结构：
         "document_number": "文号或空",
         "authority": "处罚/发布/审理机关或空",
         "penalty_amount": "处罚金额或空",
+        "confiscation_result": "没收、罚没、销毁、下架、召回等处置结果或空",
         "legal_basis": "违法条款/依据或空",
+        "violation_behavior": "违法行为/违法事实/侵权行为或空",
         "involved_party": "涉案主体或空",
         "product_or_batch": "产品/批次或空",
         "hs_code": "HS 编码或空",
         "effective_date": "生效日期或空",
         "deadline": "反馈/整改/过渡期截止或空",
+        "feedback_channel": "意见反馈渠道、邮箱、联系人或邮寄地址；无则空",
         "affected_processes": ["标签", "备案", "进口申报", "达人素材", "商标授权等，按原文证据填写"],
         "action_deadline": "仅限原文明确时间窗口或空"
       },
@@ -2193,7 +2216,7 @@ function materializeCandidateBackedReport(report, candidates, targetModule) {
       region: candidate.region,
       published_at: candidate.published_at || '未知',
       updated_at: candidate.updated_at || '未知',
-      hard_facts: { ...(candidate.hard_facts || {}), ...(item.hard_facts || {}) },
+      hard_facts: mergeHardFactsPreferEvidence(candidate.hard_facts, item.hard_facts),
     }];
   });
   for (const [index, decision] of decisions) {
@@ -2293,6 +2316,7 @@ function buildRescueAnalysisPrompt(evidence, period) {
 - 中文标题使用“主体 + 具体事项或结果”的自然新闻表达，不要逐词直译，不得只写公告编号、栏目名或空泛的“最新动态”。
 - 来源名优先采用官方或通行中文名称；无通行中文译名时保留原名，不得臆造中文译名。
 - 事实摘要直接写明主体、动作、对象以及原文已有的日期、金额、数量或处理结果，避免空泛转述。
+- 原文或 hard_facts 已能识别具体当事人、企业名、权利人或处罚机关时，标题和事实摘要必须使用具体名称；不得退回“商家”“两家公司”“涉案主体”“相关企业”等泛称。
 - 不得输出核心判断、风险、业务影响、行动建议、责任团队或内部完成时间。
 - 必须在 reviewed_candidates 对每个 candidate_index 恰好返回一次 include 或 exclude，不得默认遗漏。
 - decision=include 必须恰好对应一条 item；decision=exclude 不得输出 item，且 reason 必须说明正文事实不符合哪条准入规则。
@@ -2312,12 +2336,15 @@ JSON 结构：
     "document_number":"文号或空",
     "authority":"处罚/发布/审理机关或空",
     "penalty_amount":"处罚金额或空",
+    "confiscation_result":"没收、罚没、销毁、下架、召回等处置结果或空",
     "legal_basis":"违法条款/依据或空",
+    "violation_behavior":"违法行为/违法事实/侵权行为或空",
     "involved_party":"涉案主体或空",
     "product_or_batch":"产品/批次或空",
     "hs_code":"HS 编码或空",
     "effective_date":"生效日期或空",
     "deadline":"反馈/整改/过渡期截止或空",
+    "feedback_channel":"意见反馈渠道、邮箱、联系人或邮寄地址；无则空",
     "affected_processes":["标签","备案","进口申报","达人素材","商标授权等，按原文证据填写"],
     "action_deadline":"仅限原文明确时间窗口或空"
   },
@@ -2358,7 +2385,7 @@ function rescueItemFromSelection(selection, candidate) {
     next_observation: observation,
     report_tier: selection.report_tier === 'watch' ? 'watch' : 'action',
     confidence: ['high', 'medium', 'low'].includes(selection.confidence) ? selection.confidence : (official ? 'high' : 'medium'),
-    hard_facts: { ...(candidate.hard_facts || {}), ...(selection.hard_facts || {}) },
+    hard_facts: mergeHardFactsPreferEvidence(candidate.hard_facts, selection.hard_facts),
   };
 }
 

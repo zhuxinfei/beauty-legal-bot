@@ -72,6 +72,29 @@ function extractInvolvedParty(source = '') {
   return companies.join('、');
 }
 
+function extractViolationBehavior(source = '') {
+  const labelled = firstMatch(source, [
+    /(?:违法事实|违法行为|主要违法事实|侵权行为|违法情形)[：:\s]*([^。；;\n]{6,120})/,
+  ]);
+  if (labelled) return labelled;
+  return firstMatch(source, [
+    /([^。；;\n]{4,120}(?:侵权|冒用|假冒|刷单|虚假交易|虚假宣传|未经授权|擅自使用)[^。；;\n]{0,80})/,
+  ]);
+}
+
+function extractConfiscationResult(source = '') {
+  return firstMatch(source, [
+    /((?:没收|罚没|销毁|责令下架|下架|停止销售|召回)[^。；;\n]{2,120})/,
+  ]);
+}
+
+function extractFeedbackChannel(source = '') {
+  return firstMatch(source, [
+    /(?:反馈渠道|反馈方式|意见反馈|提交方式|电子邮箱|邮箱|联系人|邮寄地址)[：:\s]*([^。；;\n]{4,120})/,
+    /((?:电子邮箱|邮箱|邮寄地址|联系人)[：:\s]*[^。；;\n]{4,120})/,
+  ]);
+}
+
 function normalizeLink(urlValue, baseValue) {
   const raw = text(urlValue);
   if (!raw) return '';
@@ -160,10 +183,12 @@ function extractHardFactsFromText(value = '') {
       /(?:罚款|处罚金额)[：:\s]*([0-9]+(?:\.[0-9]+)?\s*(?:万|亿)?元)/,
       /(罚款[0-9]+(?:\.[0-9]+)?\s*(?:万|亿)?元)/,
     ]).replace(/^罚款/, ''),
+    confiscation_result: extractConfiscationResult(source),
     legal_basis: firstMatch(source, [
       /(《[^》]{2,40}》第[一二三四五六七八九十百零\d]+条(?:第[一二三四五六七八九十百零\d]+款)?)/,
       /(依据《[^》]{2,40}》[^。；;\n]{0,30})/,
     ]).replace(/^依据/, ''),
+    violation_behavior: extractViolationBehavior(source),
     involved_party: extractInvolvedParty(source),
     product_or_batch: firstMatch(source, [
       /(?:涉及产品|产品名称|产品\/批次|批号|批次)[：:\s]*([^。；;\n]{2,60})/,
@@ -178,6 +203,7 @@ function extractHardFactsFromText(value = '') {
     deadline: firstMatch(source, [
       /(?:截止|截至|过渡期至|应于|须于)[：:\s]*(20\d{2}[-年]\d{1,2}[-月]\d{1,2}日?)/,
     ]),
+    feedback_channel: extractFeedbackChannel(source),
   };
   const compactSource = source.replace(/\s+/g, '');
   hardFacts.signal_type = classifySignalType(compactSource);
