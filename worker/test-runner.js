@@ -4594,6 +4594,19 @@ function testSelectSourcesForWorkerBudgetKeepsImportantCoverageUnderLimit() {
   }
 }
 
+function testPreviewSourceSelectionPrioritizesHardChinaLegalSources() {
+  const selected = selectSourcesForWorkerBudget(sourceCatalog.sources, 8);
+  const fetchable = selected.filter(source => source.source_type !== 'wechat_public_account' && !source.monitor_only);
+  assert.ok(fetchable.length <= 8);
+  assert.equal(fetchable.some(source => source.monitor_only), false);
+  assert.equal(fetchable[0].name.includes('中国政府网'), false);
+  assert.ok(fetchable.some(source => /市场监督|市场监管/.test(source.name)), 'missing market regulation source');
+  assert.ok(fetchable.some(source => /知识产权|商标/.test(source.name)), 'missing IP/trademark source');
+  assert.ok(fetchable.some(source => source.module === '新规及案例动态'), 'missing regulatory policy source');
+  assert.ok(fetchable.some(source => source.module === '进出口动态'), 'missing import/export source');
+  assert.ok(fetchable.filter(source => source.country === '中国').length >= 5);
+}
+
 function testWeeklyWorkflowRunsLocalReportPipelineWithoutWorkerDeploy() {
   const workflow = readFileSync(new URL('../.github/workflows/weekly.yml', import.meta.url), 'utf8');
   assert.ok(workflow.includes('node worker/run-local.js'));
@@ -4777,6 +4790,7 @@ testSplitSourcesSeparatesWechatLeads();
 testSourceLeadCandidateKeepsWeaklyFetchableModulesAnalyzable();
 testSourceCatalogUsesWorkbookModulesAndGlobalMarkets();
 testSelectSourcesForWorkerBudgetKeepsImportantCoverageUnderLimit();
+testPreviewSourceSelectionPrioritizesHardChinaLegalSources();
 testPromptIncludesProductQualityRecallModule();
 testWeeklyWorkflowRunsLocalReportPipelineWithoutWorkerDeploy();
 testDecisionMapPublicUrlCanOverrideWorkerAssetUrl();

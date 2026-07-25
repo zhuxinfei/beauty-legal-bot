@@ -52,6 +52,7 @@ const BEAUTY_KEYWORDS = [
 ];
 const INDIRECT_BEAUTY_ECOMMERCE_KEYWORDS = ['直播带货', '直播', '电商', '平台', '消费者保护', '跨境', '进口', '商标', '外观设计'];
 const HIGH_IMPACT_LEGAL_KEYWORDS = ['国家标准', '强制性标准', '征求意见', '管理办法', '监督管理条例', '行政处罚', '召回'];
+const SOURCE_PAGE_HARD_EVENT_PATTERN = /行政处罚|处罚决定|罚款|没收|违法所得|责令改正|典型案例|征求意见|反馈截止|公告|通告|发布|生效|实施|召回|抽检不合格|商标|专利|侵权|冒用|假冒|海关|进口|出口|通关|HS\s*编码/i;
 const NAVIGATION_TITLE_PATTERNS = [
   /^(?:欢迎访问|欢迎来到|welcome\s+to)/i,
   /^(?:网站|站点|平台)?(?:首页|主页|导航|登录|注册|联系我们|网站地图|搜索结果)$/i,
@@ -1637,9 +1638,24 @@ export function makeSourceLeadCandidate(source) {
 }
 
 export function splitSources(sources = sourceCatalog.sources) {
-  const leadSources = sources.filter(source => source.source_type === 'wechat_public_account');
-  const fetchableSources = sources.filter(source => source.source_type !== 'wechat_public_account');
+  const leadSources = sources.filter(source => source.source_type === 'wechat_public_account' || source.monitor_only);
+  const fetchableSources = sources.filter(source => source.source_type !== 'wechat_public_account' && !source.monitor_only);
   return { fetchableSources, leadSources };
+}
+
+function sourceHardIntelScore(source = {}) {
+  const text = `${source.name || ''} ${source.module || ''} ${(source.topics || []).join(' ')} ${source.url || ''}`;
+  let score = 0;
+  if (source.country === '中国') score += 1000;
+  if (source.authority_type === 'regulator') score += 180;
+  if (source.source_type === 'official_site') score += 80;
+  if (source.priority === 'high') score += 80;
+  if (/市场监督|市场监管|药品监督|药监|知识产权|商标|海关|法院|裁判|检察|广告监管/i.test(text)) score += 240;
+  if (/处罚|行政处罚|案例|违法|征求意见|公告|政策|法规|标准|知识产权|商标|专利|海关|进口|出口|进出口|通关/i.test(text)) score += 180;
+  if (/上海|广州|杭州|北京|浙江|广东|国家市场监督管理总局|国家知识产权局|商标局|海关总署|国家药品监督管理局/.test(text)) score += 90;
+  if (/中国政府网|首页|综合|资讯|动态|行业|协会|服务站/i.test(text)) score -= 160;
+  if (source.monitor_only) score -= 10000;
+  return score;
 }
 
 export function selectSourcesForWorkerBudget(sources = sourceCatalog.sources, fetchBudget = WORKER_FETCH_SOURCE_BUDGET) {
@@ -1654,16 +1670,21 @@ export function selectSourcesForWorkerBudget(sources = sourceCatalog.sources, fe
     }
   };
 
-  for (const module of REPORT_MODULES) {
-    const moduleSources = fetchableSources.filter(source => source.module === module);
-    const directHigh = moduleSources.find(source => source.priority === 'high');
+  for (const module of ['广告合规及处罚案例', '知识产权动态', '新规及案例动态', '进出口动态', '产品质量/召回与安全风险']) {
+    const moduleSources = fetchableSources
+      .filter(source => source.module === module)
+      .sort((a, b) => sourceHardIntelScore(b) - sourceHardIntelScore(a));
+    const directHigh = moduleSources[0];
     if (directHigh) add(directHigh);
   }
 
-  for (const country of ['欧盟', '美国', '印尼', '泰国', '越南', '日本', '韩国', '墨西哥', '意大利']) {
-    const marketSource = fetchableSources.find(source => source.country === country && source.priority === 'high')
-      || fetchableSources.find(source => source.country === country);
-    if (marketSource) add(marketSource);
+  if (fetchBudget > 8) {
+    for (const country of ['中国', '欧盟', '美国', '印尼', '泰国', '越南', '日本', '韩国', '墨西哥', '意大利']) {
+      const marketSource = fetchableSources
+        .filter(source => source.country === country)
+        .sort((a, b) => sourceHardIntelScore(b) - sourceHardIntelScore(a))[0];
+      if (marketSource) add(marketSource);
+    }
   }
 
   [...fetchableSources]
@@ -1672,7 +1693,8 @@ export function selectSourcesForWorkerBudget(sources = sourceCatalog.sources, fe
         + (source.authority_type === 'regulator' ? 30 : 0)
         + (source.authority_type === 'official' ? 20 : 0)
         + (source.country === '中国' ? 8 : 0)
-        + (['欧盟', '美国', '印尼', '泰国', '越南', '日本', '韩国', '墨西哥', '意大利'].includes(source.country) ? 6 : 0);
+        + (['欧盟', '美国', '印尼', '泰国', '越南', '日本', '韩国', '墨西哥', '意大利'].includes(source.country) ? 6 : 0)
+        + sourceHardIntelScore(source);
       return score(b) - score(a);
     })
     .forEach(add);
@@ -3001,7 +3023,8 @@ function extractSourceCandidatesFromHtml(source, html, finalUrl = source.url) {
   const pageText = htmlToText(html).slice(0, snippetLimit);
   const linkCandidates = links.map(link => makeCandidate(source, { ...link, snippet: pageText, image_url: imageUrl }));
   const sourceText = `${source.name} ${(source.topics || []).join(' ')} ${pageText}`;
-  const shouldKeepSourcePage = source.priority === 'high' || BEAUTY_KEYWORDS.some(keyword => sourceText.toLowerCase().includes(keyword.toLowerCase()));
+  const shouldKeepSourcePage = SOURCE_PAGE_HARD_EVENT_PATTERN.test(sourceText)
+    && BEAUTY_KEYWORDS.some(keyword => sourceText.toLowerCase().includes(keyword.toLowerCase()));
   const sourceCandidate = shouldKeepSourcePage
     ? [makeCandidate(source, {
       title: `${source.name}：${source.module}信息源入口`,
