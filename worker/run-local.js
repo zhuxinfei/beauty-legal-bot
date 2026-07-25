@@ -19,12 +19,13 @@ const kv = {
 };
 
 const defaultArtifactOnly = process.env.GITHUB_EVENT_NAME === 'workflow_dispatch' ? '1' : '0';
+const manualPreview = defaultArtifactOnly === '1' && process.env.ARTIFACT_ONLY !== '0';
 
 const env = {
   AI_API_KEY: process.env.AI_API_KEY,
   AI_API_BASE_URL: process.env.AI_API_BASE_URL || 'https://hk.testvideo.site/v1',
   AI_MODEL: process.env.AI_MODEL || 'gpt-5.5',
-  AI_MAX_TOKENS: process.env.AI_MAX_TOKENS,
+  AI_MAX_TOKENS: manualPreview ? '4000' : process.env.AI_MAX_TOKENS,
   DINGTALK_WEBHOOK_URL: process.env.DINGTALK_WEBHOOK_URL,
   DINGTALK_SECRET: process.env.DINGTALK_SECRET,
   FEISHU_WEBHOOK_URL: process.env.FEISHU_WEBHOOK_URL || 'https://example.com/skip-feishu',
@@ -35,15 +36,15 @@ const env = {
   SOURCE_ONLY_PROOF_REQUIRED: process.env.SOURCE_ONLY_PROOF_REQUIRED || '0',
   FULL_SOURCE_SCAN: process.env.FULL_SOURCE_SCAN || (process.env.QUALITY_MODE === '1' || process.env.REPORT_QUALITY_MODE === 'quality' || process.env.CONTENT_QUALITY_MODE === 'quality' ? '1' : '0'),
   WORKER_FETCH_SOURCE_BUDGET: process.env.WORKER_FETCH_SOURCE_BUDGET,
-  ANALYSIS_CANDIDATE_LIMIT: process.env.ANALYSIS_CANDIDATE_LIMIT,
-  ANALYSIS_LEAD_LIMIT: process.env.ANALYSIS_LEAD_LIMIT,
+  ANALYSIS_CANDIDATE_LIMIT: manualPreview ? '16' : process.env.ANALYSIS_CANDIDATE_LIMIT,
+  ANALYSIS_LEAD_LIMIT: manualPreview ? '8' : process.env.ANALYSIS_LEAD_LIMIT,
   REPORT_ITEMS_PER_MODULE: process.env.REPORT_ITEMS_PER_MODULE,
-  REPORT_TARGET_ITEMS: process.env.REPORT_TARGET_ITEMS || '8',
+  REPORT_TARGET_ITEMS: manualPreview ? '4' : process.env.REPORT_TARGET_ITEMS || '8',
   MIN_SOURCE_COVERAGE: process.env.MIN_SOURCE_COVERAGE || '0.9',
   MIN_CHINA_CRITICAL_COVERAGE: process.env.MIN_CHINA_CRITICAL_COVERAGE || '0.9',
   FORCE_DELIVERY: process.env.FORCE_DELIVERY || '0',
   DETAIL_FETCH_ENABLED: process.env.DETAIL_FETCH_ENABLED || '1',
-  DETAIL_CANDIDATE_LIMIT: process.env.DETAIL_CANDIDATE_LIMIT || '48',
+  DETAIL_CANDIDATE_LIMIT: manualPreview ? '18' : process.env.DETAIL_CANDIDATE_LIMIT || '48',
   DETAIL_FETCH_TIMEOUT_MS: process.env.DETAIL_FETCH_TIMEOUT_MS || '12000',
   DETAIL_FETCH_CONCURRENCY: process.env.DETAIL_FETCH_CONCURRENCY || '8',
   DETAIL_BROWSER_RECOVERY_LIMIT: process.env.DETAIL_BROWSER_RECOVERY_LIMIT || '18',
