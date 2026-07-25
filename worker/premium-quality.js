@@ -86,12 +86,15 @@ function normalizeHardFacts(value = {}) {
     document_number: text(input.document_number),
     authority: text(input.authority),
     penalty_amount: text(input.penalty_amount),
+    confiscation_result: text(input.confiscation_result),
     legal_basis: text(input.legal_basis),
+    violation_behavior: text(input.violation_behavior),
     involved_party: text(input.involved_party),
     product_or_batch: text(input.product_or_batch),
     hs_code: text(input.hs_code),
     effective_date: text(input.effective_date),
     deadline: text(input.deadline),
+    feedback_channel: text(input.feedback_channel),
     risk_tier: text(input.risk_tier),
     signal_type: text(input.signal_type),
     affected_processes: list(input.affected_processes),
@@ -125,8 +128,9 @@ function withInferredHardFacts(hardFacts, card) {
     card.recommended_action,
   ].flat().join(' ');
   const companyNames = extractCompanyNames(source);
-  const involvedParty = isVagueInvolvedParty(hardFacts.involved_party) && companyNames.length
-    ? companyNames.join('、')
+  const needsPartyDisclosure = ['广告处罚案例', '知识产权保护或者侵权'].includes(normalizeModule(card.module));
+  const involvedParty = isVagueInvolvedParty(hardFacts.involved_party)
+    ? (companyNames.length ? companyNames.join('、') : needsPartyDisclosure ? '原文未披露' : '')
     : hardFacts.involved_party;
   return {
     ...hardFacts,
@@ -147,12 +151,15 @@ function objectiveHardFactCount(hardFacts = {}) {
     hardFacts.document_number,
     hardFacts.authority,
     hardFacts.penalty_amount,
+    hardFacts.confiscation_result,
     hardFacts.legal_basis,
+    hardFacts.violation_behavior,
     hardFacts.involved_party,
     hardFacts.product_or_batch,
     hardFacts.hs_code,
     hardFacts.effective_date,
     hardFacts.deadline,
+    hardFacts.feedback_channel,
   ].filter(value => text(value)).length;
 }
 
@@ -416,11 +423,14 @@ function renderFactLines(card) {
     ['document_number', '文号'],
     ['involved_party', '主体'],
     ['product_or_batch', '产品/批次'],
+    ['violation_behavior', '违法行为'],
     ['penalty_amount', '金额'],
+    ['confiscation_result', '没收/处置'],
     ['legal_basis', '依据'],
     ['hs_code', 'HS编码'],
     ['effective_date', '生效'],
     ['deadline', '截止'],
+    ['feedback_channel', '反馈渠道'],
   ]);
   return briefParts([...hard, ...card.facts]);
 }
