@@ -418,6 +418,55 @@ export function selectPremiumEvidenceCards(cards = [], { maxItems = 8, minItems 
   return selected.slice(0, Math.max(minItems, Math.min(maxItems, selected.length)));
 }
 
+export function auditPremiumEvidenceCards(cards = []) {
+  const reasons = {};
+  const decisions = [];
+  for (const input of cards) {
+    const decision = validatePremiumEvidenceCard(input);
+    if (!decision.accepted) reasons[decision.reason] = (reasons[decision.reason] || 0) + 1;
+    decisions.push({
+      accepted: decision.accepted,
+      reason: decision.accepted ? '' : decision.reason,
+      score: decision.score || 0,
+      title: text(decision.card?.title || input.title),
+      module: normalizeModule(decision.card?.module || input.module),
+      card: decision.card,
+    });
+  }
+  return { input: cards.length, accepted: decisions.filter(item => item.accepted).length, reasons, decisions };
+}
+
+function fallbackScore(card) {
+  const hard = card.hard_facts || {};
+  let score = scoreCard(card);
+  if (hasHardLegalEvent(card)) score += 30;
+  if (objectiveHardFactCount(hard) >= 2) score += 20;
+  if (isChinaCard(card)) score += 15;
+  if (card.facts.length && card.legal_signal && card.business_impact && card.recommended_action) score += 15;
+  return score;
+}
+
+function fallbackEvidenceCards(cards = [], maxItems = 6) {
+  const seen = new Set();
+  return cards
+    .map(card => validatePremiumEvidenceCard(card).card)
+    .filter(card => card.title && isHttpUrl(card.source_url))
+    .filter(card => !isNonAuthoritativeRepublisher(card))
+    .filter(card => !isNavigationOrGenericInformationPage(card))
+    .filter(card => card.facts.length && CONCRETE_PATTERNS.test(card.facts.join(' ')))
+    .filter(card => card.legal_signal && card.business_impact && card.recommended_action)
+    .filter(card => hasHardLegalEvent(card) || objectiveHardFactCount(card.hard_facts || {}) >= 2)
+    .map(card => ({ ...card, score: fallbackScore(card), tier: 'watch' }))
+    .sort(compareSelectionCards)
+    .filter(card => {
+      const key = `${card.source_url.toLowerCase()}|${card.title.replace(/\s+/g, '')}`;
+      if (seen.has(key)) return false;
+      seen.add(key);
+      return true;
+    })
+    .slice(0, maxItems);
+}
+
 function esc(value) {
   return sanitizeBriefingText(value).replace(/\|/g, '\\|');
 }
@@ -499,8 +548,10 @@ function premiumCardFromItem(item, sectionModule) {
   };
 }
 
-export function buildPremiumDingTalkMarkdown({ period = {}, cards = [] } = {}) {
-  const selected = selectPremiumEvidenceCards(cards, { maxItems: cards.length || 8, minItems: 0 });
+export function buildPremiumDingTalkMarkdown({ period = {}, cards = [], preselected = false } = {}) {
+  const selected = preselected
+    ? [...cards]
+    : selectPremiumEvidenceCards(cards, { maxItems: cards.length || 8, minItems: 0 });
   const start = text(period.start);
   const end = text(period.end);
   const lines = [
@@ -546,12 +597,17 @@ export function buildPremiumDingTalkMessages(report, options = {}) {
   const reportCards = (report.sections || []).flatMap(section =>
     (section.items || []).map(item => premiumCardFromItem(item, section.module))
   );
-  const cards = cardsForPremiumDelivery(reportCards);
+  const premiumCards = cardsForPremiumDelivery(reportCards);
+  const cards = premiumCards.length ? premiumCards : fallbackEvidenceCards(reportCards, Number(options.maxItems || 6));
+  if (!premiumCards.length && reportCards.length) {
+    const audit = auditPremiumEvidenceCards(reportCards);
+    console.log(`[premium-card] strict gate accepted 0/${audit.input}; fallback=${cards.length}; reasons=${Object.entries(audit.reasons).map(([reason, count]) => `${reason}=${count}`).join(', ') || 'none'}`);
+  }
   if (!cards.length) return [];
   return [{
     id: 'weekly-report',
     title: `美妆法务资讯｜${text(report.period?.end || '本期')}`,
-    markdown: buildPremiumDingTalkMarkdown({ period: report.period || {}, cards }),
+    markdown: buildPremiumDingTalkMarkdown({ period: report.period || {}, cards, preselected: !premiumCards.length }),
     bytes: 0,
     itemCount: cards.length,
     displayedItemCount: cards.length,

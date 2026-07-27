@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import { buildAnalysisPrompt } from './index.js';
-import { buildPremiumDingTalkMarkdown } from './premium-quality.js';
+import { buildPremiumDingTalkMarkdown, buildPremiumDingTalkMessages } from './premium-quality.js';
 import { normalizeHydratedRecord } from './source-hydration.js';
 
 function testHydrationExtractsActionableHardFacts() {
@@ -112,10 +112,44 @@ function testManualWorkflowRunsAreNotArtifactOnlyByDefault() {
   assert.ok(source.includes("const defaultArtifactOnly = '0';"));
 }
 
+function testPremiumDeliveryFallsBackInsteadOfSendingEmptyCard() {
+  const messages = buildPremiumDingTalkMessages({
+    period: { start: '2026-07-20', end: '2026-07-26' },
+    sections: [{
+      module: '新规及案例动态',
+      items: [{
+        title: '化妆品标准新规征求意见，明确标准执行和新旧衔接',
+        source_url: 'https://www.nmpa.gov.cn/xxgk/zhqyj/20260724.html',
+        source_name: '国家药品监督管理局',
+        source_type: 'official_site',
+        authority_type: 'regulator',
+        published_at: '未知',
+        country: '中国',
+        fact_summary: ['国家药监局就化妆品标准管理规则征求意见，正文涉及标准执行、新旧标准衔接和企业参与标准制修订渠道。'],
+        legal_signal: '征求意见稿把化妆品标准执行、新旧衔接和企业参与标准制修订渠道写入制度安排。',
+        business_impact: '影响配方开发、检验依据、标签备案引用标准、质量放行和进口备案资料引用标准。',
+        next_observation: ['观察正式稿发布日期、反馈截止日、过渡期安排和企业参与标准制修订的申报入口。'],
+        hard_facts: {
+          authority: '国家药品监督管理局',
+          document_number: '征求意见稿',
+          deadline: '2026年7月30日',
+          feedback_channel: '国家药监局政务服务门户意见征集栏目',
+        },
+      }],
+    }],
+  });
+
+  assert.equal(messages.length, 1);
+  assert.match(messages[0].markdown, /本期精选 1 条/);
+  assert.match(messages[0].markdown, /化妆品标准新规征求意见/);
+  assert.doesNotMatch(messages[0].markdown, /本期没有达到精品证据门槛/);
+}
+
 testHydrationExtractsActionableHardFacts();
 testFormalPromptsRequireAllPremiumHardFactFields();
 testPremiumMarkdownRendersNewHardFactsInFormalCard();
 testPremiumMarkdownInfersAffectedProcessesFromEvidence();
 testManualWorkflowRunsAreNotArtifactOnlyByDefault();
+testPremiumDeliveryFallsBackInsteadOfSendingEmptyCard();
 
 console.log('premium hard facts tests passed');
