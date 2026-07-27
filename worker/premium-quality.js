@@ -699,7 +699,10 @@ export function buildPremiumDingTalkDelivery(report, options = {}) {
     candidateChinaItems: candidateCards.filter(isChinaCard).length,
     finalItems: cards.length,
     finalChinaItems: cards.filter(isChinaCard).length,
+    finalSampleGradeItems: cards.filter(isSampleGradeCard).length,
+    finalChinaSampleGradeItems: cards.filter(card => isChinaCard(card) && isSampleGradeCard(card)).length,
     requiredChinaItems: requiredChinaItemCount(candidateCards, maxItems),
+    requiredSampleGradeItems: Math.min(3, cards.length),
   };
   if (!cards.length) return { messages: [], cards, audit };
   return { messages: [{
@@ -727,6 +730,9 @@ export function assertPremiumChinaDelivery(audit = {}, { allowForeignOnly = fals
   }
   if (hasChinaInput && Number(audit.finalChinaItems || 0) < Number(audit.requiredChinaItems || 0) && !allowForeignOnly) {
     throw new Error(`Premium delivery China minimum failed: candidateChina=${audit.candidateChinaItems || 0}, requiredChina=${audit.requiredChinaItems || 0}, finalChina=${audit.finalChinaItems || 0}`);
+  }
+  if (Number(audit.finalSampleGradeItems || 0) < Number(audit.requiredSampleGradeItems || 0)) {
+    throw new Error(`Premium delivery hard-fact gate failed: requiredSampleGrade=${audit.requiredSampleGradeItems || 0}, finalSampleGrade=${audit.finalSampleGradeItems || 0}`);
   }
   return audit;
 }
@@ -828,6 +834,15 @@ function fallbackChinaCandidateCards(candidates = [], maxItems = 3) {
     .filter(candidate => text(candidate.detail_status) === 'hydrated' || candidateEvidenceText(candidate).length >= 80)
     .map(premiumCardFromCandidate);
   return fallbackEvidenceCards(cards, maxItems).filter(isChinaCard);
+}
+
+function isSampleGradeCard(card = {}) {
+  const hardCount = objectiveHardFactCount(card.hard_facts || {});
+  if (hardCount < 2) return false;
+  if (!hasHardLegalEvent(card)) return false;
+  if (isNavigationOrGenericInformationPage(card)) return false;
+  if (/Crawl4AI|欢迎访问|专题页|入口页|监管入口|安全使用|消费者提示/i.test(sourceTextForCard(card))) return false;
+  return true;
 }
 
 function requiredChinaItemCount(candidateCards = [], maxItems = 6) {

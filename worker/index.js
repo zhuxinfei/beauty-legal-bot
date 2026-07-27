@@ -1079,9 +1079,9 @@ async function prepareEditorialReportImage({ report, env, kv, requestUrl, date, 
   }
 }
 
-export async function notifyReport({ report, reportUrl: latestUrl, env, sendDingTalk = sendToDingTalk, sendFeishu = sendToFeishu }) {
+export async function notifyReport({ report, reportUrl: latestUrl, env, messages: preparedMessages = null, sendDingTalk = sendToDingTalk, sendFeishu = sendToFeishu }) {
   if (env.DINGTALK_WEBHOOK_URL) {
-    const messages = buildDingTalkWebhookMessages({ ...report, premium_delivery: true }, {
+    const messages = preparedMessages || buildDingTalkWebhookMessages({ ...report, premium_delivery: true }, {
       maxBytes: env.DINGTALK_MAX_BYTES,
     });
     const delivery = await sendDingTalkMessages({
@@ -1101,6 +1101,22 @@ export async function notifyReport({ report, reportUrl: latestUrl, env, sendDing
 
   const ok = await sendFeishu(env.FEISHU_WEBHOOK_URL, renderFeishuSummary(report, latestUrl));
   return { channel: 'feishu', ok };
+}
+
+function assertFinalDingTalkMarkdownQuality(markdown = '', audit = {}) {
+  if (!String(markdown || '').trim()) throw new Error('Final DingTalk markdown is empty');
+  if (/Crawl4AI|建议动作|法务判断|管理层摘要|来源链接|事实摘要/.test(markdown)) {
+    throw new Error('Final DingTalk markdown used legacy or forbidden wording');
+  }
+  if (!markdown.includes('- **事实依据**') || !markdown.includes('- **法务观察**') || !markdown.includes('- **业务影响**') || !markdown.includes('- **下一步观察建议**')) {
+    throw new Error('Final DingTalk markdown missing premium card sections');
+  }
+  if (Number(audit.finalChinaItems || 0) < Number(audit.requiredChinaItems || 0)) {
+    throw new Error(`Final DingTalk markdown China gate failed: required=${audit.requiredChinaItems || 0}, actual=${audit.finalChinaItems || 0}`);
+  }
+  if (Number(audit.finalSampleGradeItems || 0) < Number(audit.requiredSampleGradeItems || 0)) {
+    throw new Error(`Final DingTalk markdown hard-fact gate failed: required=${audit.requiredSampleGradeItems || 0}, actual=${audit.finalSampleGradeItems || 0}`);
+  }
 }
 
 async function recordLastRun(kv, patch) {
@@ -1238,13 +1254,14 @@ export async function runPipeline(env, requestUrl = 'https://beauty-legal-bot.wo
       ? "[stage 3/5] 生成单条原生 Markdown 报告..."
       : "[stage 3/5] 无准入事项，生成文字简报...");
     const generatedAt = new Date().toISOString();
-    const previewMessages = buildDingTalkWebhookMessages({ ...report, premium_delivery: true }, { maxBytes: env.DINGTALK_MAX_BYTES });
-    const markdown = previewMessages.map(message => message.markdown).join('\n\n---\n\n');
     const premiumDelivery = buildPremiumDingTalkDelivery(report, { candidates });
+    const previewMessages = premiumDelivery.messages;
+    const markdown = previewMessages.map(message => message.markdown).join('\n\n---\n\n');
     console.log(`[stage 3/5] 精品卡验收：中国候选 ${premiumDelivery.audit.candidateChinaItems}/${premiumDelivery.audit.candidateItems}，中国准入 ${premiumDelivery.audit.reportChinaItems}/${premiumDelivery.audit.reportItems}，中国入卡 ${premiumDelivery.audit.finalChinaItems}/${premiumDelivery.audit.finalItems}`);
     assertPremiumChinaDelivery(premiumDelivery.audit, {
       allowForeignOnly: env.ALLOW_FOREIGN_ONLY_DELIVERY === '1',
     });
+    assertFinalDingTalkMarkdownQuality(markdown, premiumDelivery.audit);
     if (typeof env.ON_REPORT_READY === 'function') {
       await env.ON_REPORT_READY({ report, markdown, generatedAt, failures, sourceResults, coverage });
     }
@@ -1270,6 +1287,7 @@ export async function runPipeline(env, requestUrl = 'https://beauty-legal-bot.wo
       report,
       reportUrl: '',
       env: { ...env, SOURCE_COVERAGE: coverage },
+      messages: previewMessages,
     });
     const ok = notification.ok;
     if (ok) await markSeen(fps, seen, kv);
@@ -3402,10 +3420,19 @@ async function runFinalizePhase(date, env, requestUrl) {
     return { stage: 'dedupe', status: 'skipped', message: '30-day duplicate' };
   }
 
+  const premiumDelivery = buildPremiumDingTalkDelivery(report, { candidates: candidatesMeta.candidates || [] });
+  const markdown = premiumDelivery.messages.map(message => message.markdown).join('\n\n---\n\n');
+  console.log(`[finalize] 精品卡验收：中国候选 ${premiumDelivery.audit.candidateChinaItems}/${premiumDelivery.audit.candidateItems}，中国准入 ${premiumDelivery.audit.reportChinaItems}/${premiumDelivery.audit.reportItems}，中国入卡 ${premiumDelivery.audit.finalChinaItems}/${premiumDelivery.audit.finalItems}`);
+  assertPremiumChinaDelivery(premiumDelivery.audit, {
+    allowForeignOnly: env.ALLOW_FOREIGN_ONLY_DELIVERY === '1',
+  });
+  assertFinalDingTalkMarkdownQuality(markdown, premiumDelivery.audit);
+
   const notification = await notifyReport({
     report,
     reportUrl: '',
     env: { ...env, SOURCE_COVERAGE: candidatesMeta.coverage },
+    messages: premiumDelivery.messages,
   });
   const ok = notification.ok;
   if (ok) await markSeen(fps, seen, kv);

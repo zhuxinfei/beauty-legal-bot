@@ -1362,6 +1362,8 @@ async function testPublishVersionedPngUploadsBeforeHealthCheck() {
 async function testPipelineSendsNativeMarkdownWithoutImageHooks() {
   const originalFetch = globalThis.fetch;
   const calls = [];
+  let readyMarkdown = '';
+  let sentMarkdown = '';
   const store = new Map();
   const kv = {
     async get(key) { return store.get(key) || null; },
@@ -1378,6 +1380,7 @@ async function testPipelineSendsNativeMarkdownWithoutImageHooks() {
     if (href.startsWith('https://oapi.dingtalk.com/robot/send')) {
       calls.push('send-dingtalk');
       const payload = JSON.parse(init.body);
+      sentMarkdown = payload.markdown.text;
       assert.ok(
         payload.markdown.text.includes('- **事实摘要**')
         || payload.markdown.text.includes('# 美妆法务资讯精品卡'),
@@ -1409,7 +1412,8 @@ async function testPipelineSendsNativeMarkdownWithoutImageHooks() {
       PUBLISH_EDITORIAL_REPORT: async () => {
         throw new Error('native Markdown pipeline must not publish an image');
       },
-      ON_REPORT_READY: async ({ report }) => {
+      ON_REPORT_READY: async ({ report, markdown }) => {
+        readyMarkdown = markdown;
         assert.equal(report.sections.length, 6);
         assert.ok(Array.isArray(report.display_sections));
         assert.ok(report.sections.flatMap(section => section.items).every(item => ['action', 'watch'].includes(item.report_tier)));
@@ -1420,6 +1424,7 @@ async function testPipelineSendsNativeMarkdownWithoutImageHooks() {
     globalThis.fetch = originalFetch;
   }
   assert.deepEqual(calls, ['send-dingtalk', 'mark-seen']);
+  assert.equal(sentMarkdown, readyMarkdown);
 }
 
 async function testPipelineIgnoresLegacyEditorialImageHooks() {
@@ -1507,7 +1512,9 @@ async function testPipelineNoUpdateSkipsEmptyDashboardPublication() {
     if (href.startsWith('https://oapi.dingtalk.com/robot/send')) {
       delivered = true;
       const payload = JSON.parse(init.body);
-      assert.ok(payload.markdown.text.includes('本期没有达到精品证据门槛的事项，宁缺毋滥。'));
+      assert.ok(payload.markdown.text.includes('# 美妆法务资讯精品卡'));
+      assert.ok(payload.markdown.text.includes('- **事实依据**'));
+      assert.equal(payload.markdown.text.includes('本期没有达到精品证据门槛的事项，宁缺毋滥。'), false);
       assert.equal(payload.markdown.text.includes('![美妆法务资讯长图]'), false);
       return new Response(JSON.stringify({ errcode: 0, errmsg: 'ok' }), { status: 200 });
     }
@@ -2858,7 +2865,8 @@ function testPipelineRequiresFullTextByDefaultAndUsesSplitPreview() {
   assert.ok(source.includes(".filter(candidate => candidate.detail_status === 'hydrated')"));
   assert.equal(source.includes("hydrateDetails: env.DETAIL_FETCH_ENABLED === '1'"), false);
   assert.equal(source.includes('.slice(0, linkLimit)'), false);
-  assert.ok(source.includes('const previewMessages = buildDingTalkWebhookMessages'));
+  assert.ok(source.includes('const previewMessages = premiumDelivery.messages'));
+  assert.equal(source.includes('const previewMessages = buildDingTalkWebhookMessages'), false);
   assert.equal(source.includes('const markdown = buildSingleDingTalkMessage(report).markdown'), false);
 }
 
