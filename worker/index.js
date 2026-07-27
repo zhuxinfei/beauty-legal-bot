@@ -33,6 +33,10 @@ import {
   mergeHydratedCandidates,
 } from './source-hydration.js';
 import { buildAuthoritySearchTasks } from './authority-resolver.js';
+import {
+  assertPremiumChinaDelivery,
+  buildPremiumDingTalkDelivery,
+} from './premium-quality.js';
 
 // ---------------------------------------------------------------------------
 // 配置
@@ -1234,6 +1238,11 @@ export async function runPipeline(env, requestUrl = 'https://beauty-legal-bot.wo
     const generatedAt = new Date().toISOString();
     const previewMessages = buildDingTalkWebhookMessages({ ...report, premium_delivery: true }, { maxBytes: env.DINGTALK_MAX_BYTES });
     const markdown = previewMessages.map(message => message.markdown).join('\n\n---\n\n');
+    const premiumDelivery = buildPremiumDingTalkDelivery(report, { candidates });
+    console.log(`[stage 3/5] 精品卡验收：中国候选 ${premiumDelivery.audit.candidateChinaItems}/${premiumDelivery.audit.candidateItems}，中国准入 ${premiumDelivery.audit.reportChinaItems}/${premiumDelivery.audit.reportItems}，中国入卡 ${premiumDelivery.audit.finalChinaItems}/${premiumDelivery.audit.finalItems}`);
+    assertPremiumChinaDelivery(premiumDelivery.audit, {
+      allowForeignOnly: env.ALLOW_FOREIGN_ONLY_DELIVERY === '1',
+    });
     if (typeof env.ON_REPORT_READY === 'function') {
       await env.ON_REPORT_READY({ report, markdown, generatedAt, failures, sourceResults, coverage });
     }
@@ -2840,6 +2849,16 @@ export async function analyzeReportByModule({
   return mergeModuleReports(reports, period, modules);
 }
 
+export function buildModuleAnalysisBatches(candidates = [], batchSize = 4) {
+  const prioritized = prioritizeCandidatesForAnalysis(candidates);
+  const china = prioritized.filter(candidate => candidate.country === '中国');
+  const nonChina = prioritized.filter(candidate => candidate.country !== '中国');
+  return [
+    ...chunkArray(china, batchSize),
+    ...chunkArray(nonChina, batchSize),
+  ].filter(batch => batch.length);
+}
+
 async function deepseekAnalyzeByModule({ apiKey, baseUrl, model, candidates, leads = [], sources = sourceCatalog.sources, period = getPeriod(), candidateLimit = DEFAULT_ANALYSIS_CANDIDATE_LIMIT, leadLimit = DEFAULT_ANALYSIS_LEAD_LIMIT, maxTokens = DEFAULT_AI_MAX_TOKENS, requireCandidateCoverage = true }) {
   if (!candidates.length && !leads.length) {
     return { period, summary: [], risk_alerts: [], sections: REPORT_MODULES.map(m => ({ module: m, items: [] })) };
@@ -2852,7 +2871,7 @@ async function deepseekAnalyzeByModule({ apiKey, baseUrl, model, candidates, lea
     analyze: async ({ module, candidates: moduleCandidates, sources: moduleSources }) => {
       if (!moduleCandidates.length) return { period, summary: [], risk_alerts: [], sections: [{ module, items: [] }] };
       const reports = [];
-      for (const batch of chunkArray(prioritizeCandidatesForAnalysis(moduleCandidates), 4)) {
+      for (const batch of buildModuleAnalysisBatches(moduleCandidates, 4)) {
         try {
           const batchReport = await deepseekAnalyze({
             apiKey,

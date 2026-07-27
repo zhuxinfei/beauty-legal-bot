@@ -676,7 +676,7 @@ export function buildPremiumDingTalkMarkdown({ period = {}, cards = [], preselec
   return `${lines.join('\n')}\n`;
 }
 
-export function buildPremiumDingTalkMessages(report, options = {}) {
+export function buildPremiumDingTalkDelivery(report, options = {}) {
   const reportCards = (report.sections || []).flatMap(section =>
     (section.items || []).map(item => premiumCardFromItem(item, section.module))
   );
@@ -686,8 +686,20 @@ export function buildPremiumDingTalkMessages(report, options = {}) {
     const audit = auditPremiumEvidenceCards(reportCards);
     console.log(`[premium-card] strict gate accepted 0/${audit.input}; fallback=${cards.length}; reasons=${Object.entries(audit.reasons).map(([reason, count]) => `${reason}=${count}`).join(', ') || 'none'}`);
   }
-  if (!cards.length) return [];
-  return [{
+  const candidateCards = (options.candidates || []).map(candidate => ({
+    country: text(candidate.country || candidate.region),
+    module: normalizeModule(candidate.module),
+  }));
+  const audit = {
+    reportItems: reportCards.length,
+    reportChinaItems: reportCards.filter(isChinaCard).length,
+    candidateItems: candidateCards.length,
+    candidateChinaItems: candidateCards.filter(isChinaCard).length,
+    finalItems: cards.length,
+    finalChinaItems: cards.filter(isChinaCard).length,
+  };
+  if (!cards.length) return { messages: [], cards, audit };
+  return { messages: [{
     id: 'weekly-report',
     title: `美妆法务资讯｜${text(report.period?.end || '本期')}`,
     markdown: buildPremiumDingTalkMarkdown({ period: report.period || {}, cards, preselected: true }),
@@ -695,7 +707,22 @@ export function buildPremiumDingTalkMessages(report, options = {}) {
     itemCount: cards.length,
     displayedItemCount: cards.length,
     omittedItemCount: 0,
-  }];
+  }], cards, audit };
+}
+
+export function buildPremiumDingTalkMessages(report, options = {}) {
+  return buildPremiumDingTalkDelivery(report, options).messages;
+}
+
+export function assertPremiumChinaDelivery(audit = {}, { allowForeignOnly = false } = {}) {
+  const hasChinaInput = Number(audit.candidateChinaItems || 0) > 0 || Number(audit.reportChinaItems || 0) > 0;
+  if (hasChinaInput && !Number(audit.finalItems || 0) && !allowForeignOnly) {
+    throw new Error(`Premium delivery item gate failed: candidateChina=${audit.candidateChinaItems || 0}, reportChina=${audit.reportChinaItems || 0}, finalItems=${audit.finalItems || 0}`);
+  }
+  if (hasChinaInput && !Number(audit.finalChinaItems || 0) && !allowForeignOnly) {
+    throw new Error(`Premium delivery China gate failed: candidateChina=${audit.candidateChinaItems || 0}, reportChina=${audit.reportChinaItems || 0}, finalChina=${audit.finalChinaItems || 0}`);
+  }
+  return audit;
 }
 
 function cardsForPremiumDelivery(cards) {

@@ -38,6 +38,8 @@ import {
 } from './content-quality.js';
 import {
   buildPremiumDingTalkMarkdown,
+  buildPremiumDingTalkDelivery,
+  assertPremiumChinaDelivery,
   selectPremiumEvidenceCards,
   validatePremiumEvidenceCard,
 } from './premium-quality.js';
@@ -101,6 +103,7 @@ import {
   filterReportToObservedSources,
   attachReportImages,
   collectCandidates,
+  buildModuleAnalysisBatches,
   fetchWithTimeout,
   selectSourcesForWorkerBudget,
   mapWithConcurrency,
@@ -1025,6 +1028,48 @@ function testPremiumMarkdownReplacesVaguePartyWithConcreteCompanyNames() {
   assert.doesNotMatch(markdown, /主体：.*平台店铺|主体：.*达人素材/);
 }
 
+function testPremiumDeliveryAuditRejectsForeignOnlyWhenChinaCandidatesExist() {
+  const report = {
+    period: { start: '2026-07-20', end: '2026-07-26' },
+    sections: [{
+      module: '产品质量/召回与安全风险',
+      items: [{
+        title: '美国 FDA 公布化妆品召回和安全警示',
+        source_url: 'https://www.fda.gov/safety/recalls/cosmetic-20260724',
+        source_name: '美国 FDA',
+        source_type: 'official_site',
+        authority_type: 'regulator',
+        published_at: '2026-07-24',
+        country: '美国',
+        fact_summary: ['美国 FDA 公布化妆品召回信息，涉及微生物污染、停止销售、召回批次和消费者退货安排。'],
+        legal_signal: '召回信息显示美国渠道对微生物污染化妆品继续采取批次召回和停止销售处置。',
+        business_impact: '影响美国渠道 SKU、批次召回、质量放行、平台店铺和售后沟通。',
+        next_observation: ['观察 FDA 后续召回进展、企业整改公告和同类产品警示扩散。'],
+        hard_facts: {
+          authority: '美国 FDA',
+          product_or_batch: '微生物污染化妆品批次',
+          confiscation_result: '停止销售并召回',
+          affected_processes: ['SKU/批次管理', '质量放行', '平台店铺'],
+        },
+      }],
+    }],
+  };
+
+  const delivery = buildPremiumDingTalkDelivery(report, {
+    candidates: [{ country: '中国', module: '知识产权动态' }],
+  });
+
+  assert.equal(delivery.audit.candidateChinaItems, 1);
+  assert.equal(delivery.audit.finalChinaItems, 0);
+  assert.throws(() => assertPremiumChinaDelivery(delivery.audit), /China gate failed/);
+  assert.throws(() => assertPremiumChinaDelivery({
+    candidateChinaItems: 1,
+    reportChinaItems: 0,
+    finalItems: 0,
+    finalChinaItems: 0,
+  }), /item gate failed/);
+}
+
 function testWebhookMessagesPreferPremiumCardFormatWhenAvailable() {
   const messages = buildDingTalkWebhookMessages({
     premium_delivery: true,
@@ -1451,6 +1496,7 @@ async function testPipelineNoUpdateSkipsEmptyDashboardPublication() {
       DETAIL_FETCH_ENABLED: '0',
       AI_MODEL: 'test-model',
       DINGTALK_WEBHOOK_URL: 'https://oapi.dingtalk.com/robot/send?access_token=test',
+      ALLOW_FOREIGN_ONLY_DELIVERY: '1',
       SEEN_NEWS: kv,
       CREATE_EDITORIAL_REPORT_PNG: async () => {
         rendered = true;
@@ -4158,6 +4204,19 @@ function testPrioritizeCandidatesForAnalysisPutsChinaEvidenceFirst() {
   assert.equal(ranked[0].country, '中国');
 }
 
+function testModuleAnalysisBatchesChinaCandidatesBeforeForeignCandidates() {
+  const candidates = [
+    { title: '美国 FDA 化妆品召回', country: '美国', source_type: 'official_site', authority_type: 'regulator', module: '产品质量/召回与安全风险', priority: 'high', snippet: '召回' },
+    { title: '欧盟 Safety Gate 化妆品通报', country: '欧盟', source_type: 'official_site', authority_type: 'regulator', module: '产品质量/召回与安全风险', priority: 'high', snippet: '召回' },
+    { title: '中国化妆品行政处罚决定书', country: '中国', source_type: 'official_site', authority_type: 'regulator', module: '广告合规及处罚案例', priority: 'high', snippet: '处罚 罚款 化妆品' },
+  ];
+
+  const batches = buildModuleAnalysisBatches(candidates, 2);
+
+  assert.equal(batches[0].every(candidate => candidate.country === '中国'), true);
+  assert.equal(batches.flat().map(candidate => candidate.country).join(','), '中国,美国,欧盟');
+}
+
 function testAnalysisPromptKeepsChinaEvidenceFirst() {
   const prompt = buildAnalysisPrompt({
     candidates: [
@@ -4647,7 +4706,9 @@ function testWeeklyWorkflowRunsLocalReportPipelineWithoutWorkerDeploy() {
   assert.ok(workflow.indexOf('node scripts/crawl4ai-hydrate.js') < workflow.indexOf('node worker/run-local.js'));
   const hydrateSource = readFileSync(new URL('../scripts/crawl4ai-hydrate.js', import.meta.url), 'utf8');
   assert.match(hydrateSource, /GITHUB_EVENT_NAME === 'workflow_dispatch'/);
-  assert.match(hydrateSource, /CRAWL4AI_PREVIEW_LIMIT \|\| 4/);
+  assert.match(hydrateSource, /CRAWL4AI_PREVIEW_LIMIT \|\| 24/);
+  assert.match(hydrateSource, /prioritizeHydrationSources/);
+  assert.match(hydrateSource, /MIN_CRAWL4AI_WITH_TEXT/);
   assert.match(hydrateSource, /CRAWL4AI_PREVIEW_TIMEOUT_MS \|\| 12000/);
   assert.match(hydrateSource, /CRAWL4AI_PREVIEW_ATTACHMENT_LIMIT \|\| 0/);
   assert.ok(workflow.includes('DETAIL_FETCH_ENABLED: 1'));
@@ -4802,6 +4863,7 @@ testAttachReportImagesUsesObservedCandidateImages();
 testEnterprisePromptRequiresGlobalLegalIntelligence();
 testCandidateFreshnessAndInfluenceRanking();
 testPrioritizeCandidatesForAnalysisPutsChinaEvidenceFirst();
+testModuleAnalysisBatchesChinaCandidatesBeforeForeignCandidates();
 testAnalysisPromptKeepsChinaEvidenceFirst();
 testFreshnessGateAcceptsCurrentWeekAndSevenDayBoundary();
 testFreshnessGateAllowsOnlyStructuredHistoricalExceptions();
@@ -4849,5 +4911,6 @@ testPremiumGateRequiresTypeSpecificHardFacts();
 testPremiumGateRejectsNavigationAndGenericInformationPages();
 testPremiumGateAcceptsManualHardInformationSamples();
 testPremiumMarkdownReplacesVaguePartyWithConcreteCompanyNames();
+testPremiumDeliveryAuditRejectsForeignOnlyWhenChinaCandidatesExist();
 testWebhookMessagesPreferPremiumCardFormatWhenAvailable();
 console.log('worker pure function tests ok');

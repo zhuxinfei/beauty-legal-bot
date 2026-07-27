@@ -219,6 +219,42 @@ async function loadInput(inputPath) {
   return records.filter(item => /^https?:\/\//i.test(String(item?.url || item?.source_url || '')));
 }
 
+function hydrationSourceScore(item = {}) {
+  const text = `${item.name || ''} ${item.source_name || ''} ${item.module || ''} ${(item.topics || []).join(' ')} ${item.url || item.source_url || ''}`;
+  let score = 0;
+  if (item.country === '中国') score += 10000;
+  if (item.authority_type === 'regulator') score += 1000;
+  if (item.source_type === 'official_site') score += 500;
+  if (item.priority === 'high') score += 300;
+  if (/药监|市场监督|市场监管|海关|法院|知识产权|标准|处罚|商标|进出口/.test(text)) score += 200;
+  if (item.monitor_only) score -= 100;
+  return score;
+}
+
+export function prioritizeHydrationSources(records = []) {
+  return [...records].sort((a, b) => hydrationSourceScore(b) - hydrationSourceScore(a));
+}
+
+function hydrationTextStats(records = []) {
+  const rows = Array.isArray(records) ? records : [];
+  return {
+    records: rows.length,
+    china: rows.filter(record => record.country === '中国').length,
+    withText: rows.filter(record => String(record.article_text || record.raw_markdown || record.fit_markdown || '').length > 0).length,
+    attachments: rows.reduce((sum, record) => sum + (Array.isArray(record.attachment_urls) ? record.attachment_urls.length : 0), 0),
+  };
+}
+
+function assertHydrationTextGate(records = []) {
+  const stats = hydrationTextStats(records);
+  const min = Number(process.env.MIN_CRAWL4AI_WITH_TEXT || 6);
+  console.error(`hydrated records=${stats.records}, china=${stats.china}, withText=${stats.withText}, attachments=${stats.attachments}`);
+  if (stats.records && stats.withText < min) {
+    throw new Error(`Crawl4AI withText below gate: ${stats.withText}/${stats.records}, min=${min}`);
+  }
+  return stats;
+}
+
 async function main() {
   const { input, output, python, baseDir, limit, pageTimeoutMs, attachmentLimit } = parseArgs(process.argv);
   if (!input) {
@@ -227,7 +263,7 @@ async function main() {
 
   const loaded = await loadInput(resolve(input));
   const manualPreviewLimit = process.env.GITHUB_EVENT_NAME === 'workflow_dispatch'
-    ? Number(process.env.CRAWL4AI_PREVIEW_LIMIT || 4)
+    ? Number(process.env.CRAWL4AI_PREVIEW_LIMIT || 24)
     : 0;
   const effectivePageTimeoutMs = manualPreviewLimit > 0
     ? Math.min(Number(pageTimeoutMs) || 20000, Number(process.env.CRAWL4AI_PREVIEW_TIMEOUT_MS || 12000))
@@ -238,7 +274,8 @@ async function main() {
   const effectiveLimit = manualPreviewLimit > 0
     ? Math.min(limit > 0 ? limit : loaded.length, manualPreviewLimit)
     : limit;
-  const spec = effectiveLimit > 0 ? loaded.slice(0, effectiveLimit) : loaded;
+  const prioritized = prioritizeHydrationSources(loaded);
+  const spec = effectiveLimit > 0 ? prioritized.slice(0, effectiveLimit) : prioritized;
   if (manualPreviewLimit > 0) {
     console.log(`Manual preview Crawl4AI limit: ${spec.length}/${loaded.length} sources`);
   }
@@ -248,9 +285,12 @@ async function main() {
 
   if (output) {
     const summary = stdout.trim() ? JSON.parse(stdout.trim()) : { records: spec.length, output: resolve(output) };
+    const payload = JSON.parse(await readFile(resolve(output), 'utf8'));
+    assertHydrationTextGate(payload.records || []);
     console.log(`Generated ${summary.output || resolve(output)} (${summary.records || spec.length} records)`);
   } else {
     const payload = normalizeHydratedPayload(stdout);
+    assertHydrationTextGate(payload);
     process.stdout.write(`${JSON.stringify({ records: payload }, null, 2)}\n`);
   }
 }
