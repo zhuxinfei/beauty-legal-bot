@@ -681,7 +681,9 @@ export function buildPremiumDingTalkDelivery(report, options = {}) {
     (section.items || []).map(item => premiumCardFromItem(item, section.module))
   );
   const premiumCards = cardsForPremiumDelivery(reportCards);
-  const cards = premiumCards.length ? premiumCards : fallbackEvidenceCards(reportCards, Number(options.maxItems || 6));
+  const maxItems = Number(options.maxItems || 6);
+  let cards = premiumCards.length ? premiumCards : fallbackEvidenceCards(reportCards, maxItems);
+  cards = backfillChinaFromCandidates(cards, options.candidates || [], maxItems);
   if (!premiumCards.length && reportCards.length) {
     const audit = auditPremiumEvidenceCards(reportCards);
     console.log(`[premium-card] strict gate accepted 0/${audit.input}; fallback=${cards.length}; reasons=${Object.entries(audit.reasons).map(([reason, count]) => `${reason}=${count}`).join(', ') || 'none'}`);
@@ -738,4 +740,102 @@ function backfillChinaCoverage(selected = [], sourceCards = []) {
     .find(card => !selectedKeys.has(`${card.source_url.toLowerCase()}|${card.title.replace(/\s+/g, '')}`));
   if (!chinaFallback) return selected;
   return [...selected, chinaFallback].sort(compareSelectionCards);
+}
+
+function candidateEvidenceText(candidate = {}) {
+  return text([
+    candidate.evidence_text,
+    candidate.article_text,
+    candidate.full_text,
+    candidate.body,
+    candidate.text,
+    candidate.snippet,
+    candidate.title,
+  ].filter(Boolean).join('。'));
+}
+
+function firstEvidenceSentence(value = '') {
+  const source = text(value);
+  const sentences = source
+    .split(/(?<=[。！？!?；;])\s*/)
+    .map(sentence => text(sentence))
+    .filter(sentence => sentence.length >= 16);
+  return sentences.find(sentence => HARD_LEGAL_EVENT_PATTERN.test(sentence))
+    || sentences[0]
+    || source.slice(0, 180);
+}
+
+function candidateLegalSignal(module, source) {
+  const signal = inferSignalType(source);
+  if (module === '新法律法规政策') return `${signal}：中国权威来源披露化妆品规则、标准、备案、注册或执行口径的具体变化。`;
+  if (module === '广告处罚案例') return `${signal}：中国监管信息披露化妆品广告、功效宣称、直播或虚假宣传相关执法风险。`;
+  if (module === '知识产权保护或者侵权') return `${signal}：中国来源披露商标、专利、著作权或品牌资产保护相关风险。`;
+  if (module === '进出口') return `${signal}：中国来源披露进口、出口、海关、清关或市场准入相关事项。`;
+  return `${signal}：中国来源披露与美妆经营、产品安全或监管执行相关的具体事项。`;
+}
+
+function candidateBusinessImpact(module, hardFacts = {}, source = '') {
+  const processes = hardFacts.affected_processes?.length
+    ? hardFacts.affected_processes
+    : inferAffectedProcesses(source);
+  if (processes.length) return `影响中国市场美妆业务的${processes.join('、')}。`;
+  if (module === '知识产权保护或者侵权') return '影响中国市场美妆品牌授权、商标使用、包装设计、达人素材和平台店铺审查。';
+  if (module === '进出口') return '影响中国市场美妆产品进口申报、清关资料、标签备案和供应链履约。';
+  return '影响中国市场美妆产品标签、备案注册、广告素材、平台上架和存量SKU管理。';
+}
+
+function candidateObservation(module, source = '') {
+  if (/征求意见|反馈截止|截止/.test(source)) return '观察正式稿发布日期、反馈截止日、过渡期安排和执行口径。';
+  if (/处罚|罚款|没收|侵权|冒用|假冒|商标/.test(source)) return '观察同类事项在处罚决定、行政复议、诉讼和平台治理中的后续公开。';
+  if (/海关|进口|出口|清关|HS\s*编码/i.test(source)) return '观察口岸执行口径、申报字段、HS编码适用和配套清关说明。';
+  if (module === '产品质量/召回与安全风险') return '观察后续抽检、召回、停止销售、整改公告和同类产品风险扩散。';
+  return '观察正式文件、执行口径、配套问答和后续监管公开。';
+}
+
+function premiumCardFromCandidate(candidate = {}) {
+  const source = candidateEvidenceText(candidate);
+  const module = normalizeModule(candidate.module);
+  const baseCard = {
+    title: text(candidate.title),
+    module,
+    source_url: text(candidate.source_url || candidate.url),
+    source_name: text(candidate.source_name || candidate.name),
+    source_type: text(candidate.source_type),
+    authority_type: text(candidate.authority_type),
+    published_at: text(candidate.published_at),
+    country: text(candidate.country || candidate.region || '未知'),
+    facts: [firstEvidenceSentence(source)].filter(Boolean),
+    legal_signal: candidateLegalSignal(module, source),
+    business_impact: '',
+    recommended_action: candidateObservation(module, source),
+    evidence_text: source,
+  };
+  const hardFacts = withInferredHardFacts(normalizeHardFacts(candidate.hard_facts), baseCard);
+  return {
+    ...baseCard,
+    business_impact: candidateBusinessImpact(module, hardFacts, source),
+    hard_facts: hardFacts,
+  };
+}
+
+function fallbackChinaCandidateCards(candidates = [], maxItems = 3) {
+  const cards = candidates
+    .filter(candidate => /中国/.test(text(candidate.country || candidate.region)) || candidate.china_relevant === true)
+    .filter(candidate => text(candidate.detail_status) === 'hydrated' || candidateEvidenceText(candidate).length >= 80)
+    .map(premiumCardFromCandidate);
+  return fallbackEvidenceCards(cards, maxItems).filter(isChinaCard);
+}
+
+function backfillChinaFromCandidates(cards = [], candidates = [], maxItems = 6) {
+  if (cards.some(isChinaCard)) return cards;
+  const selectedKeys = new Set(cards.map(card => `${card.source_url.toLowerCase()}|${card.title.replace(/\s+/g, '')}`));
+  const chinaFallback = fallbackChinaCandidateCards(candidates, Math.max(1, maxItems))
+    .find(card => !selectedKeys.has(`${card.source_url.toLowerCase()}|${card.title.replace(/\s+/g, '')}`));
+  if (!chinaFallback) return cards;
+  const combined = [...cards, chinaFallback].sort(compareSelectionCards);
+  if (combined.length <= maxItems) return combined;
+  const lastForeignIndex = [...combined].map((card, index) => ({ card, index })).reverse().find(item => !isChinaCard(item.card))?.index;
+  if (lastForeignIndex === undefined) return combined.slice(0, maxItems);
+  combined.splice(lastForeignIndex, 1);
+  return combined.slice(0, maxItems).sort(compareSelectionCards);
 }

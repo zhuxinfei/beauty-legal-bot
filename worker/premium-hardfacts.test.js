@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import { buildAnalysisPrompt } from './index.js';
-import { buildPremiumDingTalkMarkdown, buildPremiumDingTalkMessages } from './premium-quality.js';
+import { buildPremiumDingTalkDelivery, buildPremiumDingTalkMarkdown, buildPremiumDingTalkMessages, assertPremiumChinaDelivery } from './premium-quality.js';
 import { normalizeHydratedRecord } from './source-hydration.js';
 
 function testHydrationExtractsActionableHardFacts() {
@@ -390,6 +390,58 @@ function testPremiumDeliveryBackfillsQualifiedChinaItemWhenStrictSelectionIsFore
   assert.ok(markdown.indexOf('广州妍瑟化妆品有限公司侵权玻色因商标并刷单') < markdown.indexOf('美国 FDA 公布化妆品召回和安全警示'));
 }
 
+function testPremiumDeliveryBuildsChinaCardFromCandidateWhenAiReportDropsChina() {
+  const delivery = buildPremiumDingTalkDelivery({
+    period: { start: '2026-07-20', end: '2026-07-26' },
+    sections: [{
+      module: '产品质量/召回与安全风险',
+      items: [{
+        title: '美国 FDA 公布化妆品召回和安全警示',
+        source_url: 'https://www.fda.gov/safety/recalls/cosmetic-20260724',
+        source_name: '美国 FDA',
+        source_type: 'official_site',
+        authority_type: 'regulator',
+        published_at: '2026-07-24',
+        country: '美国',
+        fact_summary: ['美国 FDA 公布化妆品召回信息，涉及微生物污染、停止销售、召回批次和消费者退货安排。'],
+        legal_signal: '召回信息显示美国渠道对微生物污染化妆品继续采取批次召回和停止销售处置。',
+        business_impact: '影响美国渠道 SKU、批次召回、质量放行、平台店铺和售后沟通。',
+        next_observation: ['观察 FDA 后续召回进展、企业整改公告和同类产品警示扩散。'],
+        hard_facts: {
+          authority: '美国 FDA',
+          product_or_batch: '微生物污染化妆品批次',
+          confiscation_result: '停止销售并召回',
+          affected_processes: ['SKU/批次管理', '质量放行', '平台店铺'],
+        },
+      }],
+    }],
+  }, {
+    candidates: [{
+      title: '化妆品标准新规征求意见，明确标准执行和新旧衔接',
+      url: 'https://www.nmpa.gov.cn/xxgk/zhqyj/20260724.html',
+      source_name: '国家药品监督管理局',
+      source_type: 'official_site',
+      authority_type: 'regulator',
+      country: '中国',
+      module: '新规及案例动态',
+      published_at: '2026-07-24',
+      detail_status: 'hydrated',
+      article_text: '国家药监局就化妆品标准管理规则公开征求意见，征求意见稿明确化妆品强制性标准必须执行，被法规引用的推荐性标准内容同样必须执行。新标准过渡期一般不超过2年，实施前可选择执行新标准或原标准，影响标签备案、执行标准选择、配方开发和存量SKU过渡期管理。',
+      hard_facts: {
+        authority: '国家药品监督管理局',
+        document_number: '征求意见稿',
+        deadline: '2026年7月30日',
+        affected_processes: ['配方开发', '标签备案', '执行标准选择', '存量SKU过渡期管理'],
+      },
+    }],
+  });
+
+  assert.equal(delivery.audit.finalChinaItems, 1);
+  assert.doesNotThrow(() => assertPremiumChinaDelivery(delivery.audit));
+  assert.match(delivery.messages[0].markdown, /化妆品标准新规征求意见/);
+  assert.match(delivery.messages[0].markdown, /国家药品监督管理局/);
+}
+
 testHydrationExtractsActionableHardFacts();
 testFormalPromptsRequireAllPremiumHardFactFields();
 testPremiumMarkdownRendersNewHardFactsInFormalCard();
@@ -400,5 +452,6 @@ testManualBaselineGetsOnlyConcreteClarifications();
 testFormalReportItemUsesEvidenceTextForFinalQuality();
 testPremiumSelectionKeepsChinaAheadOfHigherScoredForeignItems();
 testPremiumDeliveryBackfillsQualifiedChinaItemWhenStrictSelectionIsForeignOnly();
+testPremiumDeliveryBuildsChinaCardFromCandidateWhenAiReportDropsChina();
 
 console.log('premium hard facts tests passed');
