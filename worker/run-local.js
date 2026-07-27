@@ -60,7 +60,7 @@ env.ON_REPORT_READY = async ({ report, markdown }) => {
   await mkdir('out', { recursive: true });
   await writeFile('out/latest-report.md', markdown, 'utf8');
   await writeFile('out/latest-report.json', JSON.stringify(report, null, 2), 'utf8');
-  if (env.ARTIFACT_ONLY === '1') {
+  if (env.PRINT_REPORT_MARKDOWN !== '0') {
     console.log('=== BEGIN LATEST REPORT MARKDOWN ===');
     console.log(markdown.trim());
     console.log('=== END LATEST REPORT MARKDOWN ===');

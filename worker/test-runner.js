@@ -4530,6 +4530,7 @@ function testArtifactOnlyModeIsDeliveryFree() {
   assert.match(localSource, /WORKER_FETCH_SOURCE_BUDGET: manualPreview \? '8'/);
   assert.match(localSource, /ARTIFACT_ONLY: process\.env\.ARTIFACT_ONLY/);
   assert.match(localSource, /BEGIN LATEST REPORT MARKDOWN/);
+  assert.match(localSource, /PRINT_REPORT_MARKDOWN !== '0'/);
   assert.match(localSource, /SOURCE_ONLY_PROOF_REQUIRED: process\.env\.SOURCE_ONLY_PROOF_REQUIRED/);
 }
 
