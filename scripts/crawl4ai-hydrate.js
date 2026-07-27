@@ -58,6 +58,7 @@ except Exception as exc:
 spec = json.loads(${JSON.stringify(JSON.stringify(spec))})
 base_directory = os.getenv("CRAWL4_AI_BASE_DIRECTORY", ${JSON.stringify('/private/tmp/beauty-legal-bot-crawl4ai')})
 attachment_limit = max(0, int(os.getenv("CRAWL4AI_ATTACHMENT_LIMIT", ${JSON.stringify(Number.isFinite(attachmentLimit) ? Math.max(0, attachmentLimit) : 3)})))
+detail_link_limit = max(0, int(os.getenv("CRAWL4AI_DETAIL_LINK_LIMIT", "4")))
 
 def text_value(value):
     return value if isinstance(value, str) else ""
@@ -78,6 +79,29 @@ def extract_attachment_urls(markdown, base_url):
         seen.add(absolute)
         normalized.append(absolute)
     return normalized[:attachment_limit]
+
+def extract_detail_urls(markdown, base_url):
+    source = text_value(markdown)
+    hard_pattern = re.compile(r"行政处罚|处罚决定|典型案例|征求意见|公告|通告|标准|新旧衔接|商标|专利|侵权|海关|进口|出口|HS\\s*编码|附件|pdf|xlsx?", re.I)
+    urls = []
+    for match in re.finditer(r"\\[([^\\]]{2,120})\\]\\(([^)]+)\\)", source, flags=re.I):
+        label = match.group(1) or ""
+        href = match.group(2) or ""
+        if hard_pattern.search(label) or hard_pattern.search(href):
+            urls.append((label, href))
+    for match in re.finditer(r"https?://[^\\s)]+", source, flags=re.I):
+        href = match.group(0)
+        if hard_pattern.search(href):
+            urls.append((href, href))
+    seen = set()
+    normalized = []
+    for label, raw in urls:
+        absolute = urljoin(base_url or "", raw)
+        if not absolute or absolute in seen:
+            continue
+        seen.add(absolute)
+        normalized.append({"url": absolute, "title": label})
+    return normalized[:detail_link_limit]
 
 async def crawl_one(crawler, url, item, module, config, attachment=False):
     result = await crawler.arun(url=url, config=config)
@@ -129,6 +153,12 @@ async def run():
                         cache_mode=CacheMode.BYPASS if hasattr(CacheMode, "BYPASS") else None,
                     )
                     record = await crawl_one(crawler, url, item, module, config)
+                    detail_links = extract_detail_urls("\\n".join([
+                        record.get("fit_markdown", ""),
+                        record.get("raw_markdown", ""),
+                        record.get("references_markdown", ""),
+                    ]), record.get("final_url") or url)
+                    record["detail_urls"] = [detail.get("url") for detail in detail_links if detail.get("url")]
                     attachment_records = []
                     for attachment_url in extract_attachment_urls("\\n".join([
                         record.get("fit_markdown", ""),
@@ -156,6 +186,67 @@ async def run():
                     record["attachment_urls"] = [attachment.get("url") for attachment in attachment_records if attachment.get("url")]
                     record["attachment_records"] = attachment_records
                     results.append(record)
+                    for detail in detail_links:
+                        detail_url = detail.get("url") or ""
+                        if not detail_url or detail_url == (record.get("final_url") or url):
+                            continue
+                        try:
+                            detail_item = dict(item)
+                            if detail.get("title"):
+                                detail_item["title"] = detail.get("title")
+                            detail_record = await crawl_one(crawler, detail_url, detail_item, module, config)
+                            detail_record["parent_url"] = record.get("final_url") or url
+                            detail_record["discovered_from"] = "lead_page"
+                            detail_attachment_records = []
+                            for attachment_url in extract_attachment_urls("\\n".join([
+                                detail_record.get("fit_markdown", ""),
+                                detail_record.get("raw_markdown", ""),
+                                detail_record.get("references_markdown", ""),
+                            ]), detail_record.get("final_url") or detail_url):
+                                try:
+                                    attachment_record = await crawl_one(crawler, attachment_url, item, module, config, attachment=True)
+                                    attachment_record["parent_url"] = detail_record.get("final_url") or detail_url
+                                    detail_attachment_records.append(attachment_record)
+                                except Exception as attachment_exc:
+                                    detail_attachment_records.append({
+                                        "url": attachment_url,
+                                        "final_url": attachment_url,
+                                        "title": "",
+                                        "article_text": "",
+                                        "raw_markdown": "",
+                                        "fit_markdown": "",
+                                        "references_markdown": "",
+                                        "crawl_status": "attachment_failed",
+                                        "quality_flags": [str(attachment_exc)],
+                                        "source_url": attachment_url,
+                                        "parent_url": detail_record.get("final_url") or detail_url,
+                                    })
+                            detail_record["attachment_urls"] = [attachment.get("url") for attachment in detail_attachment_records if attachment.get("url")]
+                            detail_record["attachment_records"] = detail_attachment_records
+                            results.append(detail_record)
+                        except Exception as detail_exc:
+                            results.append({
+                                "url": detail_url,
+                                "final_url": detail_url,
+                                "title": detail.get("title", "") or "",
+                                "published_at": item.get("published_at", "") or "",
+                                "country": item.get("country", "") or "",
+                                "region": item.get("region", "") or "",
+                                "module": module,
+                                "source_name": item.get("name", "") or item.get("source_name", "") or "",
+                                "raw_markdown": "",
+                                "fit_markdown": "",
+                                "references_markdown": "",
+                                "article_text": "",
+                                "snippet": "",
+                                "metadata": {},
+                                "extraction": {},
+                                "crawl_status": "failed",
+                                "quality_flags": [str(detail_exc)],
+                                "source_url": detail_url,
+                                "parent_url": record.get("final_url") or url,
+                                "discovered_from": "lead_page",
+                            })
                 except Exception as exc:
                     results.append({
                         "url": url,
@@ -245,10 +336,27 @@ function hydrationTextStats(records = []) {
   };
 }
 
+export function annotateHydratedRecords(records = []) {
+  return normalizeHydratedPayload({ records });
+}
+
+export function hydrationEvidenceStats(records = []) {
+  const rows = Array.isArray(records) ? records : [];
+  return {
+    hardFactReady: rows.filter(record => record.evidence_grade === 'hard_fact_ready').length,
+    chinaHardFactReady: rows.filter(record => record.evidence_grade === 'hard_fact_ready' && record.country === '中国').length,
+    leadOnly: rows.filter(record => record.evidence_grade === 'lead_only').length,
+    attachmentPending: rows.filter(record => record.evidence_grade === 'attachment_pending').length,
+    reject: rows.filter(record => record.evidence_grade === 'reject').length,
+  };
+}
+
 function assertHydrationTextGate(records = []) {
   const stats = hydrationTextStats(records);
+  const evidence = hydrationEvidenceStats(records);
   const min = Number(process.env.MIN_CRAWL4AI_WITH_TEXT || 6);
   console.error(`hydrated records=${stats.records}, china=${stats.china}, withText=${stats.withText}, attachments=${stats.attachments}`);
+  console.error(`hard_fact_ready=${evidence.hardFactReady}, china_hard_fact_ready=${evidence.chinaHardFactReady}, lead_only=${evidence.leadOnly}, attachment_pending=${evidence.attachmentPending}, reject=${evidence.reject}`);
   if (stats.records && stats.withText < min) {
     throw new Error(`Crawl4AI withText below gate: ${stats.withText}/${stats.records}, min=${min}`);
   }
@@ -286,10 +394,12 @@ async function main() {
   if (output) {
     const summary = stdout.trim() ? JSON.parse(stdout.trim()) : { records: spec.length, output: resolve(output) };
     const payload = JSON.parse(await readFile(resolve(output), 'utf8'));
-    assertHydrationTextGate(payload.records || []);
+    const annotated = annotateHydratedRecords(payload.records || []);
+    await writeFile(resolve(output), `${JSON.stringify({ records: annotated }, null, 2)}\n`);
+    assertHydrationTextGate(annotated);
     console.log(`Generated ${summary.output || resolve(output)} (${summary.records || spec.length} records)`);
   } else {
-    const payload = normalizeHydratedPayload(stdout);
+    const payload = annotateHydratedRecords(JSON.parse(stdout).records || []);
     assertHydrationTextGate(payload);
     process.stdout.write(`${JSON.stringify({ records: payload }, null, 2)}\n`);
   }

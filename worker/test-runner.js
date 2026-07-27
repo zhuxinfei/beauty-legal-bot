@@ -4743,6 +4743,7 @@ function testWeeklyWorkflowRunsLocalReportPipelineWithoutWorkerDeploy() {
   assert.match(hydrateSource, /MIN_CRAWL4AI_WITH_TEXT/);
   assert.match(hydrateSource, /CRAWL4AI_PREVIEW_TIMEOUT_MS \|\| 12000/);
   assert.match(hydrateSource, /CRAWL4AI_PREVIEW_ATTACHMENT_LIMIT \|\| 0/);
+  assert.match(hydrateSource, /CRAWL4AI_DETAIL_LINK_LIMIT/);
   assert.ok(workflow.includes('DETAIL_FETCH_ENABLED: 1'));
   assert.ok(workflow.includes('DETAIL_CANDIDATE_LIMIT: 48'));
   assert.ok(workflow.includes('REPORT_TARGET_ITEMS: 8'));
@@ -4753,7 +4754,10 @@ function testWeeklyWorkflowRunsLocalReportPipelineWithoutWorkerDeploy() {
   assert.equal(workflow.includes('wrangler kv key put'), false);
   assert.ok(workflow.includes('DINGTALK_WEBHOOK_URL: ${{ secrets.DINGTALK_WEBHOOK_URL }}'));
   assert.ok(workflow.includes('DINGTALK_SECRET: ${{ secrets.DINGTALK_SECRET }}'));
-  assert.ok(workflow.includes("FORCE_DELIVERY: ${{ github.event_name == 'workflow_dispatch' && '1' || '0' }}"));
+  assert.ok(workflow.includes('artifact_only:'));
+  assert.ok(workflow.includes("ARTIFACT_ONLY: ${{ github.event_name == 'workflow_dispatch' && inputs.artifact_only != 'false' && '1' || '0' }}"));
+  assert.ok(workflow.includes("FORCE_DELIVERY: ${{ github.event_name == 'workflow_dispatch' && inputs.artifact_only == 'false' && '1' || '0' }}"));
+  assert.ok(workflow.includes('actions/upload-artifact@v4'));
   for (const documentSetting of [
     'DINGTALK_DOC_URL',
     'DINGTALK_CLIENT_ID',

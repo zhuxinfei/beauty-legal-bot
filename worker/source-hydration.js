@@ -1,4 +1,5 @@
 import { readFile } from 'node:fs/promises';
+import { extractHardFacts, gradeEvidence } from './hard-fact-extractor.js';
 
 function text(value) {
   return String(value || '').replace(/\s+/g, ' ').trim();
@@ -51,13 +52,15 @@ function uniqueValues(values = []) {
 
 function extractCompanyNames(value = '') {
   const source = stripMarkdown(value);
-  const companyPattern = /([\u4e00-\u9fa5A-Za-z0-9（）()·]{2,40}(?:有限责任公司|股份有限公司|有限公司|个体工商户|工作室|商行|公司))/g;
+  const companyPattern = /([\u4e00-\u9fa5A-Za-z0-9（）()·]{2,40}?(?:有限责任公司|股份有限公司|有限公司|个体工商户|工作室|商行|公司))/g;
   const matches = [
     ...Array.from(source.matchAll(new RegExp(`(?:^|[，,。；;\\s：:、])${companyPattern.source}`, 'g'))).map(match => ({ name: match[1], index: match.index })),
     ...Array.from(source.matchAll(new RegExp(`(?:当事人|被处罚人|涉案主体|原告|被告|申请人|被申请人|披露|认定|处罚|罚没|没收)[：:\\s]*${companyPattern.source}`, 'g'))).map(match => ({ name: match[1], index: match.index })),
   ]
     .sort((a, b) => a.index - b.index)
-    .map(match => text(match.name).replace(/^(?:当事人|被处罚人|涉案主体|原告|被告|申请人|被申请人)[：:\s]*/, ''))
+    .map(match => text(match.name)
+      .replace(/^.*?(?:披露|通报|认定|处罚)/, '')
+      .replace(/^(?:当事人|被处罚人|涉案主体|原告|被告|申请人|被申请人)[：:\s]*/, ''))
     .filter(name => !/市场监督管理局|药品监督管理局|国家知识产权局|海关|人民法院|委员会|协会|监管部门/.test(name));
   return uniqueValues(matches).slice(0, 4);
 }
@@ -142,6 +145,8 @@ function normalizeAttachmentRecord(record = {}, baseUrl = '') {
     references_markdown: text(record.references_markdown),
     attachment_urls: extractAttachmentUrls([fitMarkdown, rawMarkdown, text(record.references_markdown)].join('\n'), finalUrl || sourceUrl || baseUrl),
     crawl_status: text(record.crawl_status || 'hydrated'),
+    extraction_status: text(record.extraction_status || record.crawl_status || 'hydrated'),
+    extraction_error: text(record.extraction_error || ''),
     quality_flags: Array.isArray(record.quality_flags) ? record.quality_flags.map(text).filter(Boolean) : [],
   };
 }
@@ -212,7 +217,16 @@ function extractHardFactsFromText(value = '') {
 }
 
 function normalizeHardFacts(record = {}, articleText = '') {
-  const extracted = extractHardFactsFromText(articleText);
+  const extracted = {
+    ...extractHardFactsFromText(articleText),
+    ...extractHardFacts(articleText, {
+      title: record.title,
+      source_name: record.source_name || record.name,
+      source_url: record.source_url || record.url,
+      module: record.module,
+      country: record.country || record.region,
+    }),
+  };
   const provided = record.hard_facts || record.extraction?.hard_facts || record.extraction?.legal_facts || {};
   const merged = {
     ...extracted,
@@ -279,6 +293,21 @@ export function normalizeHydratedRecord(record = {}) {
     ...attachmentRecords.flatMap(item => [item.source_url, item.final_url, item.url, ...(item.attachment_urls || [])]),
   ].map(url => normalizeLink(url, finalUrl || sourceUrl)).filter(Boolean);
 
+  const hardFacts = normalizeHardFacts(record, articleText);
+  const computedEvidence = gradeEvidence({
+    text: articleText,
+    hard_facts: hardFacts,
+    source_url: finalUrl || sourceUrl,
+    title: text(record.title),
+    source_name: text(record.source_name || record.name),
+    country: text(record.country || record.region || '未知'),
+  });
+  const providedQuotes = record.evidence_quotes || record.extraction?.evidence_quotes || {};
+  const evidenceQuotes = {
+    ...(computedEvidence.evidence_quotes || {}),
+    ...Object.fromEntries(Object.entries(providedQuotes || {}).map(([key, value]) => [key, text(value)]).filter(([, value]) => value)),
+  };
+
   return {
     ...record,
     url: finalUrl || sourceUrl,
@@ -300,7 +329,10 @@ export function normalizeHydratedRecord(record = {}) {
     snippet: text(record.snippet || stripMarkdown(articleText).slice(0, 1200)),
     metadata: record.metadata || {},
     extraction: record.extraction || {},
-    hard_facts: normalizeHardFacts(record, articleText),
+    hard_facts: hardFacts,
+    evidence_grade: text(record.evidence_grade || record.extraction?.evidence_grade || computedEvidence.evidence_grade),
+    evidence_reason: text(record.evidence_reason || record.extraction?.evidence_reason || computedEvidence.evidence_reason),
+    evidence_quotes: evidenceQuotes,
     crawl_status: crawlStatus,
     quality_flags: normalizedQualityFlags,
     hydration_source: text(record.hydration_source || 'crawl4ai'),
@@ -355,6 +387,11 @@ export function mergeHydratedCandidates(candidates = [], hydratedRecords = []) {
       metadata: record.metadata || candidate.metadata || {},
       extraction: record.extraction || candidate.extraction || {},
       hard_facts: record.hard_facts || candidate.hard_facts || {},
+      evidence_grade: record.evidence_grade || candidate.evidence_grade || '',
+      evidence_reason: record.evidence_reason || candidate.evidence_reason || '',
+      evidence_quotes: record.evidence_quotes || candidate.evidence_quotes || {},
+      attachment_urls: record.attachment_urls || candidate.attachment_urls || [],
+      attachment_records: record.attachment_records || candidate.attachment_records || [],
       crawl_status: record.crawl_status || candidate.crawl_status || 'hydrated',
       quality_flags: mergedQualityFlags,
       hydration_source: record.hydration_source || candidate.hydration_source || 'crawl4ai',
@@ -370,6 +407,11 @@ export function mergeHydratedCandidates(candidates = [], hydratedRecords = []) {
       records: normalizedRecords.length,
       hydrated,
       unmatched,
+      hardFactReady: normalizedRecords.filter(record => record.evidence_grade === 'hard_fact_ready').length,
+      chinaHardFactReady: normalizedRecords.filter(record => record.evidence_grade === 'hard_fact_ready' && record.country === '中国').length,
+      leadOnly: normalizedRecords.filter(record => record.evidence_grade === 'lead_only').length,
+      attachmentPending: normalizedRecords.filter(record => record.evidence_grade === 'attachment_pending').length,
+      reject: normalizedRecords.filter(record => record.evidence_grade === 'reject').length,
     },
   };
 }

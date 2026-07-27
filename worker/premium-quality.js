@@ -1,3 +1,5 @@
+import { extractHardFacts } from './hard-fact-extractor.js';
+
 const MODULE_ORDER = [
   '新法律法规政策',
   '广告处罚案例',
@@ -64,13 +66,15 @@ function uniqueValues(values = []) {
 
 function extractCompanyNames(value = '') {
   const source = text(value);
-  const companyPattern = /([\u4e00-\u9fa5A-Za-z0-9（）()·]{2,40}(?:有限责任公司|股份有限公司|有限公司|个体工商户|工作室|商行|公司))/g;
+  const companyPattern = /([\u4e00-\u9fa5A-Za-z0-9（）()·]{2,40}?(?:有限责任公司|股份有限公司|有限公司|个体工商户|工作室|商行|公司))/g;
   const matches = [
     ...Array.from(source.matchAll(new RegExp(`(?:^|[，,。；;\\s：:、])${companyPattern.source}`, 'g'))).map(match => ({ name: match[1], index: match.index })),
     ...Array.from(source.matchAll(new RegExp(`(?:当事人|被处罚人|涉案主体|原告|被告|申请人|被申请人|披露|认定|处罚|罚没|没收)[：:\\s]*${companyPattern.source}`, 'g'))).map(match => ({ name: match[1], index: match.index })),
   ]
     .sort((a, b) => a.index - b.index)
-    .map(match => text(match.name).replace(/^(?:当事人|被处罚人|涉案主体|原告|被告|申请人|被申请人)[：:\s]*/, ''))
+    .map(match => text(match.name)
+      .replace(/^.*?(?:披露|通报|认定|处罚)/, '')
+      .replace(/^(?:当事人|被处罚人|涉案主体|原告|被告|申请人|被申请人)[：:\s]*/, ''))
     .filter(name => !/市场监督管理局|药品监督管理局|国家知识产权局|海关|人民法院|委员会|协会|监管部门/.test(name));
   return uniqueValues(matches).slice(0, 4);
 }
@@ -688,7 +692,8 @@ export function buildPremiumDingTalkDelivery(report, options = {}) {
     const audit = auditPremiumEvidenceCards(reportCards);
     console.log(`[premium-card] strict gate accepted 0/${audit.input}; fallback=${cards.length}; reasons=${Object.entries(audit.reasons).map(([reason, count]) => `${reason}=${count}`).join(', ') || 'none'}`);
   }
-  const candidateCards = (options.candidates || []).map(candidate => ({
+  const eligibleCandidates = (options.candidates || []).filter(isPremiumCandidateEligible);
+  const candidateCards = eligibleCandidates.map(candidate => ({
     country: text(candidate.country || candidate.region),
     module: normalizeModule(candidate.module),
   }));
@@ -805,6 +810,13 @@ function candidateObservation(module, source = '') {
 function premiumCardFromCandidate(candidate = {}) {
   const source = candidateEvidenceText(candidate);
   const module = normalizeModule(candidate.module);
+  const extractedFacts = extractHardFacts(source, {
+    title: candidate.title,
+    source_name: candidate.source_name || candidate.name,
+    source_url: candidate.source_url || candidate.url,
+    module,
+    country: candidate.country || candidate.region,
+  });
   const baseCard = {
     title: text(candidate.title),
     module,
@@ -820,7 +832,10 @@ function premiumCardFromCandidate(candidate = {}) {
     recommended_action: candidateObservation(module, source),
     evidence_text: source,
   };
-  const hardFacts = withInferredHardFacts(normalizeHardFacts(candidate.hard_facts), baseCard);
+  const hardFacts = withInferredHardFacts(normalizeHardFacts({
+    ...(candidate.hard_facts || {}),
+    ...extractedFacts,
+  }), baseCard);
   return {
     ...baseCard,
     business_impact: candidateBusinessImpact(module, hardFacts, source),
@@ -830,10 +845,19 @@ function premiumCardFromCandidate(candidate = {}) {
 
 function fallbackChinaCandidateCards(candidates = [], maxItems = 3) {
   const cards = candidates
+    .filter(isPremiumCandidateEligible)
     .filter(candidate => /中国/.test(text(candidate.country || candidate.region)) || candidate.china_relevant === true)
     .filter(candidate => text(candidate.detail_status) === 'hydrated' || candidateEvidenceText(candidate).length >= 80)
     .map(premiumCardFromCandidate);
   return fallbackEvidenceCards(cards, maxItems).filter(isChinaCard);
+}
+
+function isPremiumCandidateEligible(candidate = {}) {
+  const grade = text(candidate.evidence_grade);
+  if (grade && grade !== 'hard_fact_ready') return false;
+  if (grade === 'hard_fact_ready') return true;
+  const card = premiumCardFromCandidate(candidate);
+  return isSampleGradeCard(card);
 }
 
 function isSampleGradeCard(card = {}) {

@@ -3208,7 +3208,7 @@ export async function collectCandidates(sources = sourceCatalog.sources, onProgr
     const hydration = mergeHydratedCandidates(hydratedCandidates, options.hydrationRecords);
     hydratedCandidates = hydration.candidates;
     hydrationAudit = hydration.audit;
-    console.log(`[stage 1/5] Crawl4AI 提纯：输入 ${hydrationAudit.input}，记录 ${hydrationAudit.records}，覆盖 ${hydrationAudit.hydrated}，未命中 ${hydrationAudit.unmatched}`);
+    console.log(`[stage 1/5] Crawl4AI 提纯：输入 ${hydrationAudit.input}，记录 ${hydrationAudit.records}，覆盖 ${hydrationAudit.hydrated}，未命中 ${hydrationAudit.unmatched}，hard_fact_ready ${hydrationAudit.hardFactReady || 0}，china_hard_fact_ready ${hydrationAudit.chinaHardFactReady || 0}，lead_only ${hydrationAudit.leadOnly || 0}，attachment_pending ${hydrationAudit.attachmentPending || 0}，reject ${hydrationAudit.reject || 0}`);
   }
   return { candidates: hydratedCandidates, leads, authoritySearchTasks, failures, sourceResults, coverage, detailAudit, hydrationAudit };
 }
