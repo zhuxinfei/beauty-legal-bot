@@ -269,14 +269,14 @@ function moduleRank(module) {
 }
 
 function comparePremiumCards(a, b) {
-  return b.score - a.score
-    || Number(isChinaCard(b)) - Number(isChinaCard(a))
+  return Number(isChinaCard(b)) - Number(isChinaCard(a))
+    || b.score - a.score
     || moduleRank(a.module) - moduleRank(b.module);
 }
 
 function compareSelectionCards(a, b) {
-  return b.score - a.score
-    || Number(isChinaCard(b)) - Number(isChinaCard(a))
+  return Number(isChinaCard(b)) - Number(isChinaCard(a))
+    || b.score - a.score
     || moduleRank(a.module) - moduleRank(b.module);
 }
 
@@ -646,9 +646,11 @@ export function buildPremiumDingTalkMarkdown({ period = {}, cards = [], preselec
   let number = 0;
   const modules = [...new Set(selected.map(card => card.module))]
     .sort((a, b) => {
+      const aHasChina = selected.some(card => card.module === a && isChinaCard(card));
+      const bHasChina = selected.some(card => card.module === b && isChinaCard(card));
       const aTop = Math.max(...selected.filter(card => card.module === a).map(card => card.score));
       const bTop = Math.max(...selected.filter(card => card.module === b).map(card => card.score));
-      return bTop - aTop || moduleRank(a) - moduleRank(b);
+      return Number(bHasChina) - Number(aHasChina) || bTop - aTop || moduleRank(a) - moduleRank(b);
     });
 
   for (const module of modules) {
