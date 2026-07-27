@@ -80,21 +80,27 @@ function isVagueInvolvedParty(value = '') {
   return !source || /^(?:涉案|相关|部分|多家|两家|若干|某些|有关)?(?:主体|商家|企业|公司|经营者|经营主体|美妆企业|化妆品企业)$/.test(source);
 }
 
+function hardText(value) {
+  const source = text(value);
+  if (!source || /见原文|未知|待核验|未披露|未明确|待明确|空$/.test(source)) return '';
+  return source;
+}
+
 function normalizeHardFacts(value = {}) {
   const input = value && typeof value === 'object' ? value : {};
   return {
-    document_number: text(input.document_number),
-    authority: text(input.authority),
-    penalty_amount: text(input.penalty_amount),
-    confiscation_result: text(input.confiscation_result),
-    legal_basis: text(input.legal_basis),
-    violation_behavior: text(input.violation_behavior),
-    involved_party: text(input.involved_party),
-    product_or_batch: text(input.product_or_batch),
-    hs_code: text(input.hs_code),
-    effective_date: text(input.effective_date),
-    deadline: text(input.deadline),
-    feedback_channel: text(input.feedback_channel),
+    document_number: hardText(input.document_number),
+    authority: hardText(input.authority),
+    penalty_amount: hardText(input.penalty_amount),
+    confiscation_result: hardText(input.confiscation_result),
+    legal_basis: hardText(input.legal_basis),
+    violation_behavior: hardText(input.violation_behavior),
+    involved_party: hardText(input.involved_party),
+    product_or_batch: hardText(input.product_or_batch),
+    hs_code: hardText(input.hs_code),
+    effective_date: hardText(input.effective_date),
+    deadline: hardText(input.deadline),
+    feedback_channel: hardText(input.feedback_channel),
     risk_tier: text(input.risk_tier),
     signal_type: text(input.signal_type),
     affected_processes: list(input.affected_processes),
@@ -292,7 +298,8 @@ function validateTypeHardFacts(card) {
   const module = normalizeModule(card.module);
 
   if (module === '新法律法规政策') {
-    if (!hard.effective_date && !hard.deadline && !hard.action_deadline) {
+    const hasPolicyNode = Boolean(hard.effective_date || hard.deadline || hard.action_deadline || hard.document_number || hard.feedback_channel);
+    if (!hasPolicyNode) {
       return 'policy-missing-effective-or-deadline';
     }
     if (!/(办法|规定|公告|标准|新规|名单|管理|征求意见|生效|实施|过渡期|条款|执行|备案|注册|禁用|限用)/.test(source)) {
@@ -482,6 +489,28 @@ function briefParts(parts = []) {
     .map(esc);
 }
 
+function isRedundantFactLine(value, hardFacts = {}) {
+  const line = text(value);
+  if (!line) return true;
+  const hardValues = [
+    hardFacts.involved_party,
+    hardFacts.violation_behavior,
+    hardFacts.penalty_amount,
+    hardFacts.confiscation_result,
+    hardFacts.legal_basis,
+    hardFacts.product_or_batch,
+  ].map(text).filter(Boolean);
+  const covered = hardValues.filter(value => line.includes(value) || value.includes(line));
+  if (covered.length >= 2) return true;
+  const hasPenaltyResult = hardFacts.penalty_amount && line.includes(hardFacts.penalty_amount);
+  const hasViolation = hardFacts.violation_behavior && (
+    line.includes(hardFacts.violation_behavior)
+    || /侵权|冒用|假冒|刷单|虚假交易|虚假宣传|违法/.test(line)
+  );
+  const hasDisposition = hardFacts.confiscation_result && /没收|罚没|销毁|下架|召回|停止销售/.test(line);
+  return Boolean(hasPenaltyResult && (hasViolation || hasDisposition));
+}
+
 function renderFactLines(card) {
   const hard = compactHardFacts(card.hard_facts, [
     ['authority', '机关'],
@@ -497,7 +526,8 @@ function renderFactLines(card) {
     ['deadline', '截止'],
     ['feedback_channel', '反馈渠道'],
   ]);
-  return briefParts([...hard, ...card.facts]);
+  const facts = card.facts.filter(value => !isRedundantFactLine(value, card.hard_facts));
+  return briefParts([...hard, ...facts]);
 }
 
 function renderJudgementLines(card) {
@@ -512,11 +542,7 @@ function renderImpactLines(card) {
 }
 
 function renderActionLines(card) {
-  const objectLine = card.hard_facts.affected_processes.length
-    ? `观察对象：${card.hard_facts.affected_processes.join('、')}`
-    : '';
-  const deadlineLine = card.hard_facts.action_deadline ? `时间窗口：${card.hard_facts.action_deadline}` : '';
-  return briefParts([objectLine, deadlineLine, card.recommended_action]);
+  return briefParts([card.recommended_action]);
 }
 
 function renderFieldBlock(label, values = []) {
@@ -524,6 +550,24 @@ function renderFieldBlock(label, values = []) {
   const list = values.length ? values : ['原文未披露足够结构化信息'];
   for (const value of list) lines.push(`  - ${value}`);
   return lines;
+}
+
+function concretePartyForTitle(card) {
+  const party = text(card.hard_facts?.involved_party);
+  if (!party || isVagueInvolvedParty(party) || party === '原文未披露') return '';
+  return party;
+}
+
+function displayTitle(card) {
+  const title = text(card.title);
+  const party = concretePartyForTitle(card);
+  if (!party) return title;
+  return title
+    .replace(/^两家美妆企业/, party)
+    .replace(/^涉案商家/, party)
+    .replace(/^商家/, party)
+    .replace(/^相关企业/, party)
+    .replace(/^两家公司/, party);
 }
 
 function premiumCardFromItem(item, sectionModule) {
@@ -580,7 +624,7 @@ export function buildPremiumDingTalkMarkdown({ period = {}, cards = [], preselec
       number += 1;
       lines.push(
         '',
-        `### ${number}. ${esc(card.title)}`,
+        `### ${number}. ${esc(displayTitle(card))}`,
         `- **来源**：${esc(card.source_name)} / ${esc(card.country)} / ${esc(card.published_at)} / [原文](${card.source_url})`,
         ...renderFieldBlock('事实依据', renderFactLines(card)),
         ...renderFieldBlock('法务观察', renderJudgementLines(card)),

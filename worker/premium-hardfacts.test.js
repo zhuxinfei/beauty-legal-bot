@@ -145,11 +145,100 @@ function testPremiumDeliveryFallsBackInsteadOfSendingEmptyCard() {
   assert.doesNotMatch(messages[0].markdown, /本期没有达到精品证据门槛/);
 }
 
+function testManualBaselineGetsOnlyConcreteClarifications() {
+  const markdown = buildPremiumDingTalkMarkdown({
+    period: { start: '2026-07-24', end: '2026-07-24' },
+    cards: [
+      {
+        title: '两家美妆企业冒用爱马仕商标，合计罚63.5万元并没收大量货品',
+        module: '知识产权保护或者侵权',
+        source_url: 'https://amr.example.gov.cn/case/hermes-20260724',
+        source_name: '市场监督管理局',
+        source_type: 'official_site',
+        authority_type: 'regulator',
+        country: '中国',
+        published_at: '2026-07-24',
+        facts: ['市场监管部门披露两家美妆企业冒用爱马仕商标，合计罚款63.5万元，并没收大量侵权货品。'],
+        legal_signal: '高知名度商标被用于美妆产品或包装时，行政处罚会同时指向罚款和货品处置。',
+        business_impact: '影响香水、彩妆、礼盒 SKU 的商标授权、包装设计、达人素材和平台店铺审查。',
+        recommended_action: '观察高知名度商标在包装装潢、礼盒搭配、详情页展示和达人素材中的行政处罚扩散。',
+        hard_facts: {
+          authority: '市场监督管理局',
+          involved_party: '广州赫姿化妆品有限公司、广州尚美生物科技有限公司',
+          product_or_batch: '侵权货品',
+          violation_behavior: '冒用爱马仕商标',
+          penalty_amount: '63.5万元',
+          confiscation_result: '没收大量侵权货品',
+          legal_basis: '《商标法》',
+          affected_processes: ['商标授权', '包装设计', '达人素材', '平台店铺'],
+        },
+      },
+      {
+        title: '商家侵权玻色因商标并刷单，被市场监管部门罚款17万元',
+        module: '知识产权保护或者侵权',
+        source_url: 'https://amr.example.gov.cn/case/pro-xylane-20260724',
+        source_name: '市场监督管理局',
+        source_type: 'official_site',
+        authority_type: 'regulator',
+        country: '中国',
+        published_at: '2026-07-24',
+        facts: ['市场监管部门披露商家在美妆商品宣传中侵权使用玻色因相关商标，同时存在刷单行为，处罚金额17万元。'],
+        legal_signal: '同一经营行为同时暴露商标侵权和虚假交易两类合规风险。',
+        business_impact: '影响成分卖点命名、商标授权、平台店铺运营、达人素材和交易数据合规。',
+        recommended_action: '观察同类成分商标在商品标题、详情页、直播脚本和平台销量展示中的处罚扩散。',
+        hard_facts: {
+          authority: '市场监督管理局',
+          involved_party: '广州妍瑟化妆品有限公司',
+          product_or_batch: '含玻色因卖点的美妆商品',
+          violation_behavior: '侵权使用玻色因相关商标，同时存在刷单行为',
+          penalty_amount: '17万元',
+          legal_basis: '商标法、反不正当竞争相关规则',
+          affected_processes: ['成分卖点命名', '商标授权', '平台店铺运营', '达人素材'],
+        },
+      },
+      {
+        title: '化妆品标准新规征求意见，明确标准执行、新旧衔接及企业参与渠道',
+        module: '新法律法规政策',
+        source_url: 'https://www.nmpa.gov.cn/xxgk/zhqyj/20260724.html',
+        source_name: '国家药品监督管理局',
+        source_type: 'official_site',
+        authority_type: 'regulator',
+        country: '中国',
+        published_at: '2026-07-24',
+        facts: ['国家药监局就化妆品标准管理相关规则公开征求意见，征求意见稿明确标准执行、新旧标准衔接和企业参与标准制修订渠道。'],
+        legal_signal: '征求意见稿把标准执行、新旧衔接和企业参与渠道纳入制度化安排。',
+        business_impact: '影响化妆品配方开发、标签备案、执行标准选择、存量 SKU 过渡期管理和标准制修订参与。',
+        recommended_action: '观察正式稿发布日期、反馈截止日、过渡期安排和企业参与标准制修订的申报入口。',
+        hard_facts: {
+          authority: '国家药品监督管理局',
+          document_number: '征求意见稿',
+          deadline: '意见反馈截止日见原文',
+          affected_processes: ['配方开发', '标签备案', '执行标准选择', '存量 SKU 过渡期管理'],
+        },
+      },
+    ],
+  });
+
+  assert.match(markdown, /广州赫姿化妆品有限公司、广州尚美生物科技有限公司冒用爱马仕商标/);
+  assert.match(markdown, /主体：广州赫姿化妆品有限公司、广州尚美生物科技有限公司/);
+  assert.match(markdown, /违法行为：冒用爱马仕商标/);
+  assert.match(markdown, /没收\/处置：没收大量侵权货品/);
+  assert.match(markdown, /广州妍瑟化妆品有限公司侵权玻色因商标并刷单/);
+  assert.match(markdown, /违法行为：侵权使用玻色因相关商标，同时存在刷单行为/);
+  assert.doesNotMatch(markdown, /截止：意见反馈截止日见原文/);
+  assert.doesNotMatch(markdown, /观察对象：/);
+  assert.doesNotMatch(markdown, /市场监管部门披露两家美妆企业冒用爱马仕商标/);
+  assert.doesNotMatch(markdown, /市场监管部门披露商家在美妆商品宣传中侵权使用玻色因相关商标/);
+  assert.match(markdown, /化妆品标准新规征求意见/);
+  assert.match(markdown, /征求意见稿明确标准执行、新旧标准衔接和企业参与标准制修订渠道/);
+}
+
 testHydrationExtractsActionableHardFacts();
 testFormalPromptsRequireAllPremiumHardFactFields();
 testPremiumMarkdownRendersNewHardFactsInFormalCard();
 testPremiumMarkdownInfersAffectedProcessesFromEvidence();
 testManualWorkflowRunsAreNotArtifactOnlyByDefault();
 testPremiumDeliveryFallsBackInsteadOfSendingEmptyCard();
+testManualBaselineGetsOnlyConcreteClarifications();
 
 console.log('premium hard facts tests passed');
