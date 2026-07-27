@@ -96,6 +96,7 @@ const DEFAULT_ANALYSIS_CANDIDATE_LIMIT = 140;
 const QUALITY_ANALYSIS_CANDIDATE_LIMIT = 220;
 const DEFAULT_ANALYSIS_LEAD_LIMIT = 120;
 const QUALITY_ANALYSIS_LEAD_LIMIT = 180;
+const DEFAULT_ANALYSIS_BATCHES_PER_MODULE = 2;
 const DEFAULT_REPORT_ITEMS_PER_MODULE = 8;
 const QUALITY_REPORT_ITEMS_PER_MODULE = 12;
 const TYPE_REQUIRED_FIELDS = {
@@ -1215,6 +1216,7 @@ export async function runPipeline(env, requestUrl = 'https://beauty-legal-bot.wo
         leadLimit,
         maxTokens,
         requireCandidateCoverage: requireFullText,
+        maxBatchesPerModule: Number(env.ANALYSIS_BATCHES_PER_MODULE || DEFAULT_ANALYSIS_BATCHES_PER_MODULE),
       }),
       analyzeRescue: ({ report: existingReport } = {}) => deepseekRescueAnalyze({
         apiKey: aiKey,
@@ -2859,7 +2861,7 @@ export function buildModuleAnalysisBatches(candidates = [], batchSize = 4) {
   ].filter(batch => batch.length);
 }
 
-async function deepseekAnalyzeByModule({ apiKey, baseUrl, model, candidates, leads = [], sources = sourceCatalog.sources, period = getPeriod(), candidateLimit = DEFAULT_ANALYSIS_CANDIDATE_LIMIT, leadLimit = DEFAULT_ANALYSIS_LEAD_LIMIT, maxTokens = DEFAULT_AI_MAX_TOKENS, requireCandidateCoverage = true }) {
+async function deepseekAnalyzeByModule({ apiKey, baseUrl, model, candidates, leads = [], sources = sourceCatalog.sources, period = getPeriod(), candidateLimit = DEFAULT_ANALYSIS_CANDIDATE_LIMIT, leadLimit = DEFAULT_ANALYSIS_LEAD_LIMIT, maxTokens = DEFAULT_AI_MAX_TOKENS, requireCandidateCoverage = true, maxBatchesPerModule = DEFAULT_ANALYSIS_BATCHES_PER_MODULE }) {
   if (!candidates.length && !leads.length) {
     return { period, summary: [], risk_alerts: [], sections: REPORT_MODULES.map(m => ({ module: m, items: [] })) };
   }
@@ -2871,7 +2873,9 @@ async function deepseekAnalyzeByModule({ apiKey, baseUrl, model, candidates, lea
     analyze: async ({ module, candidates: moduleCandidates, sources: moduleSources }) => {
       if (!moduleCandidates.length) return { period, summary: [], risk_alerts: [], sections: [{ module, items: [] }] };
       const reports = [];
-      for (const batch of buildModuleAnalysisBatches(moduleCandidates, 4)) {
+      const batches = buildModuleAnalysisBatches(moduleCandidates, 4)
+        .slice(0, Math.max(1, Number(maxBatchesPerModule) || DEFAULT_ANALYSIS_BATCHES_PER_MODULE));
+      for (const batch of batches) {
         try {
           const batchReport = await deepseekAnalyze({
             apiKey,
@@ -3342,6 +3346,7 @@ async function runAnalysisPhase(date, env, additionalCandidates = []) {
       leadLimit: qualityOptions.leadLimit,
       maxTokens: qualityOptions.maxTokens,
       requireCandidateCoverage: true,
+      maxBatchesPerModule: Number(env.ANALYSIS_BATCHES_PER_MODULE || DEFAULT_ANALYSIS_BATCHES_PER_MODULE),
     }),
     analyzeRescue: () => deepseekRescueAnalyze({
       apiKey: aiKey,
