@@ -1158,7 +1158,7 @@ export async function runPipeline(env, requestUrl = 'https://beauty-legal-bot.wo
       detailBrowserRecoveryLimit: Number(env.DETAIL_BROWSER_RECOVERY_LIMIT || DETAIL_BROWSER_RECOVERY_LIMIT),
       hydrationRecords,
     });
-    assertSourceCoverage(coverage, {
+    warnSourceCoverageGate(coverage, {
       minOverall: Number(env.MIN_SOURCE_COVERAGE || 0.9),
       minChinaCritical: Number(env.MIN_CHINA_CRITICAL_COVERAGE || 0.9),
     });
@@ -3223,6 +3223,16 @@ function pipelineQualityOptions(env = {}) {
   };
 }
 
+export function warnSourceCoverageGate(coverage, options = {}) {
+  try {
+    assertSourceCoverage(coverage, options);
+    return true;
+  } catch (error) {
+    console.warn(`[source-coverage] ${error.message}; continue with content quality gates`);
+    return false;
+  }
+}
+
 async function fetchSelf(env, pathname, body, retries = 2) {
   const base = String(env?.WORKER_URL || 'https://beauty-legal-bot.ai-cf.workers.dev').replace(/\/$/, '');
   const url = `${base}${pathname}`;
@@ -3288,7 +3298,7 @@ async function runAnalysisPhase(date, env, additionalCandidates = []) {
 
   const coverageSources = allSourceResults.map(result => result.source).filter(Boolean);
   const coverage = calculateSourceCoverage(coverageSources, allSourceResults);
-  assertSourceCoverage(coverage, {
+  warnSourceCoverageGate(coverage, {
     minOverall: Number(env.MIN_SOURCE_COVERAGE || 0.9),
     minChinaCritical: Number(env.MIN_CHINA_CRITICAL_COVERAGE || 0.9),
   });

@@ -117,6 +117,7 @@ import {
   classifyFreshness,
   filterCandidatesByFreshness,
   runPipeline,
+  warnSourceCoverageGate,
   isArtifactOnlyRun,
 } from './index.js';
 
@@ -1203,6 +1204,29 @@ function testSourceCoverageGatesChinaCriticalAndOverallCoverage() {
   assert.equal(monitoredCoverage.chinaCritical, 1);
   assert.equal(monitoredCoverage.monitoredTotal, 1);
   assert.deepEqual(monitoredCoverage.monitoredFailedSources, ['中国受控监测源']);
+}
+
+function testPipelineSourceCoverageGateWarnsWithoutBlocking() {
+  const sources = [
+    { name: '中国关键一', country: '中国', priority: 'high' },
+    { name: '中国关键二', country: '中国', priority: 'high' },
+    ...Array.from({ length: 8 }, (_, index) => ({ name: `海外${index + 1}`, country: '美国', priority: 'medium' })),
+  ];
+  const results = sources.map((source, index) => ({
+    source,
+    status: index === 0 ? 'failed' : 'ok',
+    candidate_count: index === 0 ? 0 : 1,
+  }));
+  const coverage = calculateSourceCoverage(sources, results);
+  const originalWarn = console.warn;
+  const warnings = [];
+  console.warn = message => warnings.push(message);
+  try {
+    assert.equal(warnSourceCoverageGate(coverage), false);
+  } finally {
+    console.warn = originalWarn;
+  }
+  assert.match(warnings.join('\n'), /continue with content quality gates/);
 }
 
 async function testBrowserSourceFetcherReusesBrowserAndClosesPages() {
@@ -4742,6 +4766,7 @@ testClassifySourceFetchFailures();
 await testRecoverPublicSourceRetriesAndRecordsAttempts();
 await testRecoverPublicSourceUsesBrowserThenOfficialAlternate();
 testSourceCoverageGatesChinaCriticalAndOverallCoverage();
+testPipelineSourceCoverageGateWarnsWithoutBlocking();
 await testBrowserSourceFetcherReusesBrowserAndClosesPages();
 await testBrowserSourceFetcherUsesGovernmentSiteCompatibleNavigation();
 await testBrowserSourceFetcherRejectsAccessControlPages();
