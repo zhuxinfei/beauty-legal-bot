@@ -442,6 +442,60 @@ function testPremiumDeliveryBuildsChinaCardFromCandidateWhenAiReportDropsChina()
   assert.match(delivery.messages[0].markdown, /国家药品监督管理局/);
 }
 
+function testPremiumDeliveryRequiresMultipleChinaCardsWhenCandidatesAreAvailable() {
+  const foreignItems = Array.from({ length: 5 }, (_, index) => ({
+    title: `美国 FDA 化妆品监管事项 ${index + 1}`,
+    source_url: `https://www.fda.gov/cosmetics/${index + 1}`,
+    source_name: '美国 FDA',
+    source_type: 'official_site',
+    authority_type: 'regulator',
+    published_at: '2026-07-24',
+    country: '美国',
+    fact_summary: [`美国 FDA 披露化妆品监管事项 ${index + 1}，涉及企业义务、标签、报告、召回和渠道处置。`],
+    legal_signal: '美国渠道化妆品监管事项。',
+    business_impact: '影响美国渠道 SKU、标签、召回、质量放行和平台店铺。',
+    next_observation: ['观察 FDA 后续正式文件和执行口径。'],
+    hard_facts: {
+      authority: '美国 FDA',
+      effective_date: '2026-07-24',
+      affected_processes: ['美国渠道', '标签', '质量放行'],
+    },
+  }));
+  const chinaCandidates = [
+    ['化妆品标准新规征求意见，明确标准执行和新旧衔接', '国家药品监督管理局', '国家药监局就化妆品标准管理规则公开征求意见，明确强制性标准执行、新旧标准衔接、反馈截止日和企业参与标准制修订渠道，影响标签备案、执行标准选择、配方开发和存量SKU过渡期管理。'],
+    ['广州市监局披露商家侵权玻色因商标并刷单处罚17万元', '广州市市场监督管理局', '广州市市场监管部门披露广州妍瑟化妆品有限公司侵权使用玻色因相关商标并存在刷单行为，处罚金额17万元，影响成分卖点命名、商标授权、平台店铺运营和达人素材。'],
+    ['海关发布进口化妆品申报资料核验要求', '海关总署', '海关发布进口化妆品申报资料核验要求，涉及中文标签、备案注册资料、原产地文件、HS编码和口岸清关资料，影响进口申报、清关、供应链履约和存量SKU资料复核。'],
+  ].map(([title, sourceName, articleText], index) => ({
+    title,
+    url: `https://gov.example.cn/beauty/${index + 1}`,
+    source_name: sourceName,
+    source_type: 'official_site',
+    authority_type: 'regulator',
+    country: '中国',
+    module: index === 1 ? '知识产权动态' : index === 2 ? '进出口动态' : '新规及案例动态',
+    published_at: '2026-07-24',
+    detail_status: 'hydrated',
+    article_text: articleText,
+    hard_facts: {
+      authority: sourceName,
+      affected_processes: ['标签备案', '商标授权', '进口申报'],
+    },
+  }));
+
+  const delivery = buildPremiumDingTalkDelivery({
+    period: { start: '2026-07-20', end: '2026-07-26' },
+    sections: [{ module: '产品质量/召回与安全风险', items: foreignItems }],
+  }, { candidates: chinaCandidates, maxItems: 6 });
+
+  assert.equal(delivery.audit.requiredChinaItems, 3);
+  assert.equal(delivery.audit.finalChinaItems, 3);
+  assert.doesNotThrow(() => assertPremiumChinaDelivery(delivery.audit));
+  const markdown = delivery.messages[0].markdown;
+  assert.ok(markdown.indexOf('化妆品标准新规征求意见') < markdown.indexOf('美国 FDA 化妆品监管事项'));
+  assert.match(markdown, /广州市监局披露商家侵权玻色因商标并刷单处罚17万元/);
+  assert.match(markdown, /海关发布进口化妆品申报资料核验要求/);
+}
+
 testHydrationExtractsActionableHardFacts();
 testFormalPromptsRequireAllPremiumHardFactFields();
 testPremiumMarkdownRendersNewHardFactsInFormalCard();
@@ -453,5 +507,6 @@ testFormalReportItemUsesEvidenceTextForFinalQuality();
 testPremiumSelectionKeepsChinaAheadOfHigherScoredForeignItems();
 testPremiumDeliveryBackfillsQualifiedChinaItemWhenStrictSelectionIsForeignOnly();
 testPremiumDeliveryBuildsChinaCardFromCandidateWhenAiReportDropsChina();
+testPremiumDeliveryRequiresMultipleChinaCardsWhenCandidatesAreAvailable();
 
 console.log('premium hard facts tests passed');

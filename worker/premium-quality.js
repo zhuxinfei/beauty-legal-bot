@@ -699,6 +699,7 @@ export function buildPremiumDingTalkDelivery(report, options = {}) {
     candidateChinaItems: candidateCards.filter(isChinaCard).length,
     finalItems: cards.length,
     finalChinaItems: cards.filter(isChinaCard).length,
+    requiredChinaItems: requiredChinaItemCount(candidateCards, maxItems),
   };
   if (!cards.length) return { messages: [], cards, audit };
   return { messages: [{
@@ -723,6 +724,9 @@ export function assertPremiumChinaDelivery(audit = {}, { allowForeignOnly = fals
   }
   if (hasChinaInput && !Number(audit.finalChinaItems || 0) && !allowForeignOnly) {
     throw new Error(`Premium delivery China gate failed: candidateChina=${audit.candidateChinaItems || 0}, reportChina=${audit.reportChinaItems || 0}, finalChina=${audit.finalChinaItems || 0}`);
+  }
+  if (hasChinaInput && Number(audit.finalChinaItems || 0) < Number(audit.requiredChinaItems || 0) && !allowForeignOnly) {
+    throw new Error(`Premium delivery China minimum failed: candidateChina=${audit.candidateChinaItems || 0}, requiredChina=${audit.requiredChinaItems || 0}, finalChina=${audit.finalChinaItems || 0}`);
   }
   return audit;
 }
@@ -826,16 +830,45 @@ function fallbackChinaCandidateCards(candidates = [], maxItems = 3) {
   return fallbackEvidenceCards(cards, maxItems).filter(isChinaCard);
 }
 
+function requiredChinaItemCount(candidateCards = [], maxItems = 6) {
+  const chinaCandidates = candidateCards.filter(isChinaCard).length;
+  if (!chinaCandidates) return 0;
+  return Math.min(3, maxItems, chinaCandidates);
+}
+
+function cardSelectionKey(card = {}) {
+  return `${text(card.source_url || card.url).toLowerCase()}|${text(card.title).replace(/\s+/g, '')}`;
+}
+
 function backfillChinaFromCandidates(cards = [], candidates = [], maxItems = 6) {
-  if (cards.some(isChinaCard)) return cards;
-  const selectedKeys = new Set(cards.map(card => `${card.source_url.toLowerCase()}|${card.title.replace(/\s+/g, '')}`));
-  const chinaFallback = fallbackChinaCandidateCards(candidates, Math.max(1, maxItems))
-    .find(card => !selectedKeys.has(`${card.source_url.toLowerCase()}|${card.title.replace(/\s+/g, '')}`));
-  if (!chinaFallback) return cards;
-  const combined = [...cards, chinaFallback].sort(compareSelectionCards);
-  if (combined.length <= maxItems) return combined;
-  const lastForeignIndex = [...combined].map((card, index) => ({ card, index })).reverse().find(item => !isChinaCard(item.card))?.index;
-  if (lastForeignIndex === undefined) return combined.slice(0, maxItems);
-  combined.splice(lastForeignIndex, 1);
+  const requiredChinaItems = requiredChinaItemCount(
+    candidates.map(candidate => ({ country: text(candidate.country || candidate.region) })),
+    maxItems
+  );
+  if (!requiredChinaItems || cards.filter(isChinaCard).length >= requiredChinaItems) {
+    return cards.sort(compareSelectionCards).slice(0, maxItems);
+  }
+
+  const selectedKeys = new Set(cards.map(cardSelectionKey));
+  const chinaFallbacks = fallbackChinaCandidateCards(candidates, Math.max(requiredChinaItems, maxItems))
+    .filter(card => !selectedKeys.has(cardSelectionKey(card)));
+  if (!chinaFallbacks.length) return cards.sort(compareSelectionCards).slice(0, maxItems);
+
+  let combined = [...cards];
+  for (const chinaCard of chinaFallbacks) {
+    if (combined.filter(isChinaCard).length >= requiredChinaItems) break;
+    combined.push(chinaCard);
+    selectedKeys.add(cardSelectionKey(chinaCard));
+  }
+
+  combined = combined.sort(compareSelectionCards);
+  while (combined.length > maxItems) {
+    const removableIndex = [...combined]
+      .map((card, index) => ({ card, index }))
+      .reverse()
+      .find(item => !isChinaCard(item.card))?.index;
+    if (removableIndex === undefined) break;
+    combined.splice(removableIndex, 1);
+  }
   return combined.slice(0, maxItems).sort(compareSelectionCards);
 }
