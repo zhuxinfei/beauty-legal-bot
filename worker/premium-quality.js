@@ -690,7 +690,7 @@ export function buildPremiumDingTalkMessages(report, options = {}) {
   return [{
     id: 'weekly-report',
     title: `美妆法务资讯｜${text(report.period?.end || '本期')}`,
-    markdown: buildPremiumDingTalkMarkdown({ period: report.period || {}, cards, preselected: !premiumCards.length }),
+    markdown: buildPremiumDingTalkMarkdown({ period: report.period || {}, cards, preselected: true }),
     bytes: 0,
     itemCount: cards.length,
     displayedItemCount: cards.length,
@@ -699,5 +699,16 @@ export function buildPremiumDingTalkMessages(report, options = {}) {
 }
 
 function cardsForPremiumDelivery(cards) {
-  return selectPremiumEvidenceCards(cards, { maxItems: cards.length || 0, minItems: 0 });
+  const selected = selectPremiumEvidenceCards(cards, { maxItems: cards.length || 0, minItems: 0 });
+  return backfillChinaCoverage(selected, cards);
+}
+
+function backfillChinaCoverage(selected = [], sourceCards = []) {
+  if (!selected.length || selected.some(isChinaCard)) return selected;
+  const selectedKeys = new Set(selected.map(card => `${card.source_url.toLowerCase()}|${card.title.replace(/\s+/g, '')}`));
+  const chinaFallback = fallbackEvidenceCards(sourceCards, sourceCards.length || 1)
+    .filter(isChinaCard)
+    .find(card => !selectedKeys.has(`${card.source_url.toLowerCase()}|${card.title.replace(/\s+/g, '')}`));
+  if (!chinaFallback) return selected;
+  return [...selected, chinaFallback].sort(compareSelectionCards);
 }

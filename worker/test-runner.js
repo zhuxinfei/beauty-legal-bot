@@ -1367,7 +1367,7 @@ async function testPipelineIgnoresLegacyEditorialImageHooks() {
   globalThis.fetch = async (url, init = {}) => {
     const href = String(url);
     if (href.includes('/chat/completions')) {
-      return new Response(JSON.stringify({ choices: [{ message: { content: JSON.stringify(objectiveBriefFixture()) } }] }), { status: 200 });
+      return new Response(JSON.stringify({ choices: [{ message: { content: JSON.stringify(sampleReport) } }] }), { status: 200 });
     }
     if (href.startsWith('https://oapi.dingtalk.com/robot/send')) {
       calls.push('send-dingtalk');
@@ -4056,6 +4056,27 @@ function testFilterReportToObservedSourcesKeepsCanonicalUrlVariants() {
   assert.equal(filtered.sections[0].items[0].source_url, originalUrl);
 }
 
+function testFilterReportToObservedSourcesKeepsConfiguredAuthoritySourceUrls() {
+  const report = {
+    ...structuredClone(sampleReport),
+    sections: [{
+      module: '广告合规及处罚案例',
+      items: [{
+        ...sampleReport.sections[1].items[0],
+        source_url: 'https://scjgj.sh.gov.cn/',
+      }],
+    }],
+  };
+
+  const filtered = filterReportToObservedSources(report, {
+    candidates: [],
+    sources: [{ url: 'http://scjgj.sh.gov.cn/' }],
+  });
+
+  assert.equal(filtered.sections[0].items.length, 1);
+  assert.equal(filtered.sections[0].items[0].source_url, 'http://scjgj.sh.gov.cn/');
+}
+
 function testEmptySingleCardIsExplicitAndNeverShowsDashboard() {
   const report = {
     period: { start: '2026-07-10', end: '2026-07-16' },
@@ -4773,6 +4794,7 @@ await testModuleAnalysisKeepsAnchoredChineseTranslationWithoutEveryNumber();
 testNormalizeModuleReportForcesTargetWorkbookModule();
 testFilterReportToObservedSourcesDropsFabricatedUrls();
 testFilterReportToObservedSourcesKeepsCanonicalUrlVariants();
+testFilterReportToObservedSourcesKeepsConfiguredAuthoritySourceUrls();
 testEmptySingleCardIsExplicitAndNeverShowsDashboard();
 testDecisionMapRequiresAtLeastOneActionItem();
 testManualForceDeliveryBypassesDuplicateSkip();

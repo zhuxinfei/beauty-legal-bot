@@ -2651,9 +2651,34 @@ function normalizeSourceUrl(url) {
   }
 }
 
+function sourceIdentityKey(url) {
+  const raw = String(url || '').trim();
+  if (!/^https?:\/\//i.test(raw)) return normalizeSourceUrl(raw);
+  try {
+    const parsed = new URL(raw);
+    parsed.hash = '';
+    for (const key of [...parsed.searchParams.keys()]) {
+      if (/^(?:utm_.+|fbclid|gclid|spm|from|source)$/i.test(key)) parsed.searchParams.delete(key);
+    }
+    parsed.searchParams.sort();
+    const pathname = parsed.pathname.replace(/\/$/, '') || '/';
+    return `${parsed.hostname.toLowerCase()}${pathname}${parsed.search || ''}`.replace(/\/$/, '');
+  } catch {
+    return normalizeSourceUrl(raw);
+  }
+}
+
 export function filterReportToObservedSources(report, { candidates = [], sources = [] } = {}) {
   const observedUrls = candidates.map(candidate => candidate.url || candidate.source_url).filter(Boolean);
-  const allowed = new Map(observedUrls.map(url => [normalizeSourceUrl(url), String(url).trim()]));
+  const sourceCatalogUrls = sources.map(source => source.url).filter(Boolean);
+  const allowed = new Map([
+    ...observedUrls.map(url => [normalizeSourceUrl(url), String(url).trim()]),
+    ...sourceCatalogUrls.map(url => [normalizeSourceUrl(url), String(url).trim()]),
+  ]);
+  const allowedByIdentity = new Map([
+    ...observedUrls.map(url => [sourceIdentityKey(url), String(url).trim()]),
+    ...sourceCatalogUrls.map(url => [sourceIdentityKey(url), String(url).trim()]),
+  ]);
 
   return {
     ...report,
@@ -2662,7 +2687,7 @@ export function filterReportToObservedSources(report, { candidates = [], sources
       items: (section.items || []).flatMap(item => {
         const url = normalizeSourceUrl(item.source_url);
         if (!url || /xxx|example\.com|placeholder|待补充/i.test(url)) return [];
-        const observedUrl = allowed.get(url);
+        const observedUrl = allowed.get(url) || allowedByIdentity.get(sourceIdentityKey(item.source_url));
         return observedUrl ? [{ ...item, source_url: observedUrl }] : [];
       }),
     })),

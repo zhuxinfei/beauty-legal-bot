@@ -329,6 +329,67 @@ function testPremiumSelectionKeepsChinaAheadOfHigherScoredForeignItems() {
   assert.ok(markdown.indexOf('化妆品标准新规征求意见') < markdown.indexOf('美国 FDA 公布化妆品召回和安全警示'));
 }
 
+function testPremiumDeliveryBackfillsQualifiedChinaItemWhenStrictSelectionIsForeignOnly() {
+  const messages = buildPremiumDingTalkMessages({
+    period: { start: '2026-07-20', end: '2026-07-26' },
+    sections: [
+      {
+        module: '产品质量/召回与安全风险',
+        items: [{
+          title: '美国 FDA 公布化妆品召回和安全警示',
+          source_url: 'https://www.fda.gov/safety/recalls/cosmetic-20260724',
+          source_name: '美国 FDA',
+          source_type: 'official_site',
+          authority_type: 'regulator',
+          published_at: '2026-07-24',
+          country: '美国',
+          fact_summary: ['美国 FDA 公布化妆品召回信息，涉及微生物污染、停止销售、召回批次和消费者退货安排。'],
+          legal_signal: '召回信息显示美国渠道对微生物污染化妆品继续采取批次召回和停止销售处置。',
+          business_impact: '影响美国渠道 SKU、批次召回、质量放行、平台店铺和售后沟通。',
+          next_observation: ['观察 FDA 后续召回进展、企业整改公告和同类产品警示扩散。'],
+          hard_facts: {
+            authority: '美国 FDA',
+            product_or_batch: '微生物污染化妆品批次',
+            confiscation_result: '停止销售并召回',
+            affected_processes: ['SKU/批次管理', '质量放行', '平台店铺'],
+          },
+        }],
+      },
+      {
+        module: '知识产权动态',
+        items: [{
+          title: '商家侵权玻色因商标并刷单，被市场监管部门罚款17万元',
+          source_url: 'https://amr.example.gov.cn/case/pro-xylane-20260724',
+          source_name: '市场监督管理局',
+          source_type: 'official_site',
+          authority_type: 'regulator',
+          published_at: '未知',
+          country: '中国',
+          fact_summary: ['市场监管部门披露商家在美妆商品宣传中侵权使用玻色因相关商标，同时存在刷单行为，处罚金额17万元。'],
+          legal_signal: '同一经营行为同时暴露商标侵权和虚假交易两类合规风险。',
+          business_impact: '影响成分卖点命名、商标授权、平台店铺运营、达人素材和交易数据合规。',
+          next_observation: ['观察同类成分商标在商品标题、详情页、直播脚本和平台销量展示中的处罚扩散。'],
+          evidence_excerpt: '当事人：广州妍瑟化妆品有限公司。违法事实：侵权使用玻色因相关商标，同时存在刷单行为。处罚金额17万元。依据商标法、反不正当竞争相关规则。',
+          hard_facts: {
+            authority: '市场监督管理局',
+            involved_party: '涉案商家',
+            product_or_batch: '含玻色因卖点的美妆商品',
+            penalty_amount: '17万元',
+            legal_basis: '商标法、反不正当竞争相关规则',
+            affected_processes: ['成分卖点命名', '商标授权', '平台店铺运营', '达人素材'],
+          },
+        }],
+      },
+    ],
+  });
+
+  assert.equal(messages.length, 1);
+  const markdown = messages[0].markdown;
+  assert.match(markdown, /广州妍瑟化妆品有限公司侵权玻色因商标并刷单/);
+  assert.match(markdown, /主体：广州妍瑟化妆品有限公司/);
+  assert.ok(markdown.indexOf('广州妍瑟化妆品有限公司侵权玻色因商标并刷单') < markdown.indexOf('美国 FDA 公布化妆品召回和安全警示'));
+}
+
 testHydrationExtractsActionableHardFacts();
 testFormalPromptsRequireAllPremiumHardFactFields();
 testPremiumMarkdownRendersNewHardFactsInFormalCard();
@@ -338,5 +399,6 @@ testPremiumDeliveryFallsBackInsteadOfSendingEmptyCard();
 testManualBaselineGetsOnlyConcreteClarifications();
 testFormalReportItemUsesEvidenceTextForFinalQuality();
 testPremiumSelectionKeepsChinaAheadOfHigherScoredForeignItems();
+testPremiumDeliveryBackfillsQualifiedChinaItemWhenStrictSelectionIsForeignOnly();
 
 console.log('premium hard facts tests passed');
