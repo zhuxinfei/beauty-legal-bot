@@ -140,14 +140,45 @@ function inferAffectedProcesses(value) {
   return uniqueValues(rules.filter(([pattern]) => pattern.test(source)).map(([, label]) => label));
 }
 
+function firstMatch(value, patterns) {
+  const source = String(value || '');
+  for (const pattern of patterns) {
+    const match = source.match(pattern);
+    if (match?.[1]) return text(match[1]).replace(/[。；;，,]$/, '');
+  }
+  return '';
+}
+
+function inferViolationBehavior(value) {
+  const source = text(value);
+  return firstMatch(source, [
+    /(?:违法事实|违法行为|主要违法事实|侵权行为|违法情形)[：:\s]*([^。；;\n]{6,120})/,
+    /([^。；;\n]{4,120}(?:侵权|冒用|假冒|刷单|虚假交易|虚假宣传|未经授权|擅自使用)[^。；;\n]{0,80})/,
+  ]);
+}
+
+function inferConfiscationResult(value) {
+  return firstMatch(value, [
+    /((?:没收|罚没|销毁|责令下架|下架|停止销售|召回)[^。；;\n]{2,120})/,
+  ]);
+}
+
+function inferFeedbackChannel(value) {
+  return firstMatch(value, [
+    /(?:反馈渠道|反馈方式|意见反馈|提交方式|电子邮箱|邮箱|联系人|邮寄地址)[：:\s]*([^。；;\n]{4,120})/,
+    /((?:电子邮箱|邮箱|邮寄地址|联系人)[：:\s]*[^。；;\n]{4,120})/,
+  ]);
+}
+
 function withInferredHardFacts(hardFacts, card) {
   const source = [
+    card.evidence_text,
     card.title,
     card.facts,
     card.legal_signal,
     card.business_impact,
     card.recommended_action,
-  ].flat().join(' ');
+  ].flat().join('。');
   const companyNames = extractCompanyNames(source);
   const needsPartyDisclosure = ['广告处罚案例', '知识产权保护或者侵权'].includes(normalizeModule(card.module));
   const involvedParty = isVagueInvolvedParty(hardFacts.involved_party)
@@ -159,6 +190,9 @@ function withInferredHardFacts(hardFacts, card) {
     signal_type: hardFacts.signal_type || inferSignalType(source),
     risk_tier: hardFacts.risk_tier || inferRiskTier(source),
     affected_processes: hardFacts.affected_processes.length ? hardFacts.affected_processes : inferAffectedProcesses(source),
+    violation_behavior: hardFacts.violation_behavior || inferViolationBehavior(source),
+    confiscation_result: hardFacts.confiscation_result || inferConfiscationResult(source),
+    feedback_channel: hardFacts.feedback_channel || inferFeedbackChannel(source),
   };
 }
 
@@ -284,12 +318,13 @@ function impactSignalScore(card) {
 
 function sourceTextForCard(card) {
   return [
+    card.evidence_text,
     card.title,
     card.facts,
     card.legal_signal,
     card.business_impact,
     card.recommended_action,
-  ].flat().join(' ');
+  ].flat().join('。');
 }
 
 function validateTypeHardFacts(card) {
@@ -358,6 +393,7 @@ export function validatePremiumEvidenceCard(card = {}) {
     legal_signal: text(card.legal_signal),
     business_impact: text(card.business_impact),
     recommended_action: text(card.recommended_action),
+    evidence_text: text(card.evidence_text),
     hard_facts: withInferredHardFacts(normalizeHardFacts(card.hard_facts), card),
   };
 
@@ -585,6 +621,7 @@ function premiumCardFromItem(item, sectionModule) {
     legal_signal: text(item.legal_signal || item.legal_obligation || item.compliance_meaning || item.violation_logic || item.infringement_logic || item.documents_needed || item.core_judgement),
     business_impact: text(item.business_impact || item.affected_business || item.impact_on_brand_assets || item.affected_import_flow || item.why_it_matters || item.risk_pattern || item.business_lessons || item.penalty_or_result),
     recommended_action: text(item.next_observation || item.recommended_action || item.recommended_actions || item.possible_follow_up),
+    evidence_text: text(item.evidence_excerpt || item.article_text || item.full_text || item.snippet),
   };
   return {
     ...baseCard,

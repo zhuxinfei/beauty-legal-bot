@@ -233,6 +233,47 @@ function testManualBaselineGetsOnlyConcreteClarifications() {
   assert.match(markdown, /征求意见稿明确标准执行、新旧标准衔接和企业参与标准制修订渠道/);
 }
 
+function testFormalReportItemUsesEvidenceTextForFinalQuality() {
+  const messages = buildPremiumDingTalkMessages({
+    period: { start: '2026-07-20', end: '2026-07-26' },
+    sections: [{
+      module: '知识产权动态',
+      items: [{
+        title: '两家美妆企业冒用爱马仕商标，合计罚63.5万元并没收大量货品',
+        source_url: 'https://amr.example.gov.cn/case/hermes-20260724',
+        source_name: '市场监督管理局',
+        source_type: 'official_site',
+        authority_type: 'regulator',
+        published_at: '2026-07-24',
+        country: '中国',
+        fact_summary: ['市场监管部门披露两家美妆企业冒用爱马仕商标，合计罚款63.5万元，并没收大量侵权货品。'],
+        legal_signal: '高知名度商标被用于美妆产品或包装时，行政处罚会同时指向罚款和货品处置。',
+        business_impact: '影响香水、彩妆、礼盒 SKU 的商标授权、包装设计、达人素材和平台店铺审查。',
+        next_observation: ['观察高知名度商标在包装装潢、礼盒搭配、详情页展示和达人素材中的行政处罚扩散。'],
+        evidence_excerpt: '处罚机关：市场监督管理局。当事人：广州赫姿化妆品有限公司、广州尚美生物科技有限公司。违法事实：在香水、彩妆、礼盒商品上冒用爱马仕商标。罚款63.5万元，没收大量侵权货品。依据《商标法》。',
+        hard_facts: {
+          authority: '市场监督管理局',
+          involved_party: '两家美妆企业',
+          product_or_batch: '侵权货品',
+          penalty_amount: '63.5万元',
+          legal_basis: '《商标法》',
+          affected_processes: ['商标授权', '包装设计', '达人素材', '平台店铺'],
+        },
+      }],
+    }],
+  });
+
+  assert.equal(messages.length, 1);
+  const markdown = messages[0].markdown;
+  assert.match(markdown, /广州赫姿化妆品有限公司、广州尚美生物科技有限公司冒用爱马仕商标/);
+  assert.match(markdown, /主体：广州赫姿化妆品有限公司、广州尚美生物科技有限公司/);
+  assert.match(markdown, /违法行为：在香水、彩妆、礼盒商品上冒用爱马仕商标/);
+  assert.match(markdown, /没收\/处置：没收大量侵权货品/);
+  assert.doesNotMatch(markdown, /主体：两家美妆企业/);
+  assert.doesNotMatch(markdown, /市场监管部门披露两家美妆企业冒用爱马仕商标/);
+  assert.doesNotMatch(markdown, /观察对象：/);
+}
+
 testHydrationExtractsActionableHardFacts();
 testFormalPromptsRequireAllPremiumHardFactFields();
 testPremiumMarkdownRendersNewHardFactsInFormalCard();
@@ -240,5 +281,6 @@ testPremiumMarkdownInfersAffectedProcessesFromEvidence();
 testManualWorkflowRunsAreNotArtifactOnlyByDefault();
 testPremiumDeliveryFallsBackInsteadOfSendingEmptyCard();
 testManualBaselineGetsOnlyConcreteClarifications();
+testFormalReportItemUsesEvidenceTextForFinalQuality();
 
 console.log('premium hard facts tests passed');
