@@ -61,6 +61,7 @@ spec = json.loads(${JSON.stringify(JSON.stringify(spec))})
 base_directory = os.getenv("CRAWL4_AI_BASE_DIRECTORY", ${JSON.stringify('/private/tmp/beauty-legal-bot-crawl4ai')})
 attachment_limit = max(0, int(os.getenv("CRAWL4AI_ATTACHMENT_LIMIT", ${JSON.stringify(Number.isFinite(attachmentLimit) ? Math.max(0, attachmentLimit) : 3)})))
 detail_link_limit = max(0, int(os.getenv("CRAWL4AI_DETAIL_LINK_LIMIT", "12")))
+crawl_timeout_seconds = max(8, int(os.getenv("CRAWL4AI_CRAWL_TIMEOUT_SECONDS", "${Math.ceil(Math.max(5000, Number(pageTimeoutMs) || 20000) / 1000) + 8}")))
 
 def text_value(value):
     return value if isinstance(value, str) else ""
@@ -107,7 +108,7 @@ def extract_detail_urls(markdown, base_url):
     return normalized[:detail_link_limit]
 
 async def crawl_one(crawler, url, item, module, config, attachment=False):
-    result = await crawler.arun(url=url, config=config)
+    result = await asyncio.wait_for(crawler.arun(url=url, config=config), timeout=crawl_timeout_seconds)
     metadata = getattr(result, "metadata", {}) or {}
     extraction = getattr(result, "extraction", None) or getattr(result, "extracted_content", None) or {}
     markdown = getattr(result, "markdown", "") or ""
@@ -393,6 +394,12 @@ async function main() {
   }
   const env = { ...process.env };
   if (baseDir) env.CRAWL4_AI_BASE_DIRECTORY = baseDir;
+  if (manualPreviewLimit > 0) {
+    const currentDetailLimit = Number(env.CRAWL4AI_DETAIL_LINK_LIMIT || 12);
+    const previewDetailLimit = Number(env.CRAWL4AI_PREVIEW_DETAIL_LINK_LIMIT || 3);
+    env.CRAWL4AI_DETAIL_LINK_LIMIT = String(Math.min(currentDetailLimit, previewDetailLimit));
+    env.CRAWL4AI_CRAWL_TIMEOUT_SECONDS = String(Math.ceil(effectivePageTimeoutMs / 1000) + 5);
+  }
   const stdout = execFileSync(python, ['-c', buildPythonScript(spec, { pageTimeoutMs: effectivePageTimeoutMs, attachmentLimit: effectiveAttachmentLimit, outputPath: output ? resolve(output) : '' })], { encoding: 'utf8', env, maxBuffer: 1024 * 1024 * 200 });
 
   if (output) {
