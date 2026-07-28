@@ -921,6 +921,18 @@ export async function sendDingTalkMessages({
   let sent = 0;
   let retries = 0;
   for (const message of messages || []) {
+    const gateError = validateFormalDingTalkMessage(message);
+    if (gateError) {
+      console.error(`钉钉推送失败: ${message.id}: ${gateError}`);
+      return {
+        ok: false,
+        sent,
+        total: messages.length,
+        retries,
+        failedMessageId: message.id,
+        error: gateError,
+      };
+    }
     let lastResult = { ok: false, retryable: false, error: 'unknown delivery error' };
     for (let attempt = 1; attempt <= maxAttempts; attempt++) {
       const rawResult = await delivery(message);
@@ -959,6 +971,25 @@ export async function sendDingTalkMessages({
     failedMessageId: '',
     error: '',
   };
+}
+
+function validateFormalDingTalkMessage(message = {}) {
+  const title = String(message.title || '');
+  const markdown = String(message.markdown || '').trim();
+  const isFormalBeautyReport = title.includes('美妆法务资讯') || markdown.startsWith('# 美妆法务资讯');
+  if (!isFormalBeautyReport) return '';
+  if (!markdown) return 'Final DingTalk markdown is empty';
+  if (/本期没有达到精品证据门槛|本周无高置信更新|本期五个重点板块未发现达到准入标准/.test(markdown)) {
+    return 'Final DingTalk markdown is an empty placeholder';
+  }
+  if (!/^###\s+\d+\./m.test(markdown)) return 'Final DingTalk markdown missing premium content items';
+  const requiredSections = ['- **事实依据**', '- **法务观察**', '- **业务影响**', '- **下一步观察建议**'];
+  const missing = requiredSections.filter(section => !markdown.includes(section));
+  if (missing.length) return `Final DingTalk markdown missing premium content sections: ${missing.join(', ')}`;
+  if (/Crawl4AI|建议动作|法务判断|管理层摘要|来源链接|事实摘要/.test(markdown)) {
+    return 'Final DingTalk markdown used legacy or forbidden wording';
+  }
+  return '';
 }
 
 async function parseJsonResponse(resp, label) {
