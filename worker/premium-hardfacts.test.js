@@ -642,6 +642,52 @@ function testPortalPageCannotEnterPremiumCardEvenWithInjectedBeautyTerms() {
   assert.equal(delivery.messages.length, 0);
 }
 
+function testSamrPortalDumpCannotEnterPremiumCardWithMixedIndustries() {
+  const delivery = buildPremiumDingTalkDelivery({
+    period: { start: '2026-07-22', end: '2026-07-28' },
+    sections: [{
+      module: '广告处罚案例',
+      items: [{
+        title: '国家市场监督管理总局',
+        source_url: 'https://www.samr.gov.cn/',
+        source_name: '国家市场监督管理总局',
+        source_type: 'official_site',
+        authority_type: 'regulator',
+        published_at: '2026-07-25',
+        country: '中国',
+        fact_summary: [
+          '市场监管总局依法对携程集团有限公司实施垄断行为作出行政处罚并责令其全面整改 07-25。市场监管总局公布四起旅游行业不正当竞争典型案件 07-22。北京大兴开展暑期旅游产品质量监督抽查。食品抽检不合格情况的通报。北京市电动自行车产品目录。10家航空公司。',
+          '新闻 时政要闻 总局 地方 媒体聚焦 司局介绍 政策法规 通知公告 召回查询 特殊食品信息查询平台 国产进口保健食品注册管理信息系统。',
+        ],
+        legal_signal: '风险案例：中国监管信息披露化妆品广告、功效宣称、直播或虚假宣传相关执法风险。',
+        business_impact: '影响中国市场美妆业务的配方开发、标签备案、执行标准选择、存量SKU过渡期管理。',
+        next_observation: ['观察正式稿发布日期、反馈截止日、过渡期安排和执行口径。'],
+        evidence_excerpt: [
+          '新闻 时政要闻 总局 地方 媒体聚焦 司局介绍 政策法规 通知公告。',
+          '市场监管总局依法对携程集团有限公司实施垄断行为作出行政处罚并责令其全面整改。',
+          '市场监管总局公布四起旅游行业不正当竞争典型案件。',
+          '食品抽检不合格情况的通报。北京市电动自行车产品目录。10家航空公司。',
+          '召回查询 缺陷线索报告 特殊食品信息查询平台 国产进口保健食品注册管理信息系统。',
+        ].join(' '),
+        hard_facts: {
+          authority: '国家市场监督管理总局',
+          document_number: '征求意见稿',
+          involved_party: '市场监管总局依法对携程集团有限公司、推动平台企业赋能个体工商户、肇庆小鹏新能源投资有限公司、斯泰兰蒂斯（上海）汽车有限公司、捷尼赛思汽车销售（上海）有限公司',
+          product_or_batch: '食品抽检不合格情况的通报；北京市电动自行车产品目录',
+          violation_behavior: '执法趋势：中国监管信息披露化妆品广告、功效宣称、直播或虚假宣传相关执法风险',
+          penalty_amount: '51.79亿元',
+          confiscation_result: '召回查询；特殊食品信息查询平台；保健食品注册管理信息系统',
+          legal_basis: '《中华人民共和国电子商务法（修正草案征求意见稿）》、《金融产品网络营销管理办法》、《殡葬领域明码标价规定（试行）》',
+          affected_processes: ['配方开发', '标签备案', '执行标准选择', '存量SKU过渡期管理'],
+        },
+      }],
+    }],
+  }, { candidates: [], maxItems: 6 });
+
+  assert.equal(delivery.audit.finalItems, 0);
+  assert.equal(delivery.messages.length, 0);
+}
+
 testHydrationExtractsActionableHardFacts();
 testFormalPromptsRequireAllPremiumHardFactFields();
 testPremiumMarkdownRendersNewHardFactsInFormalCard();
@@ -658,5 +704,6 @@ testLeadOnlyChinaCandidatesDoNotTriggerOrBackfillPremiumCard();
 testNonBeautyPlatformPenaltyCannotEnterPremiumCard();
 testAiInjectedBeautyWordingCannotMakeNonBeautyPenaltyRelevant();
 testPortalPageCannotEnterPremiumCardEvenWithInjectedBeautyTerms();
+testSamrPortalDumpCannotEnterPremiumCardWithMixedIndustries();
 
 console.log('premium hard facts tests passed');

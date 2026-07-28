@@ -113,6 +113,29 @@ function testLeadOnlyAndGenericPagesCannotEnterPremiumEvidence() {
   assert.equal(grade.evidence_grade, 'lead_only');
 }
 
+function testPortalDumpWithMixedIndustriesIsRejectedBeforeAiAnalysis() {
+  const text = [
+    '新闻 时政要闻 总局 地方 媒体聚焦 司局介绍 政策法规 通知公告。',
+    '市场监管总局依法对携程集团有限公司实施垄断行为作出行政处罚并责令其全面整改。',
+    '携程为何被处51.79亿元重罚 专家详解。',
+    '市场监管总局公布四起旅游行业不正当竞争典型案件。',
+    '食品抽检不合格情况的通报。北京市电动自行车产品目录。10家航空公司。',
+    '召回查询 缺陷线索报告 特殊食品信息查询平台 国产进口保健食品注册管理信息系统。',
+  ].join(' ');
+  const facts = extractHardFacts(text, { source_name: '国家市场监督管理总局', module: '广告处罚案例' });
+  const grade = gradeEvidence({
+    text,
+    hard_facts: facts,
+    source_url: 'https://www.samr.gov.cn/',
+    title: '国家市场监督管理总局',
+    source_name: '国家市场监督管理总局',
+    country: '中国',
+  });
+
+  assert.notEqual(grade.evidence_grade, 'hard_fact_ready');
+  assert.match(grade.evidence_reason, /portal|mixed-industry|navigation/);
+}
+
 function testHydrationRecordCarriesEvidenceGradeAndQuotes() {
   const record = normalizeHydratedRecord({
     source_url: 'https://amr.example.gov.cn/case/pro-xylane-20260724',
@@ -171,6 +194,7 @@ testProXylaneCaseExtractsTrademarkAndBrushing();
 testPolicyExtractsDeadlineFeedbackAndTransition();
 testCustomsExtractsHsCodeAndImportProcess();
 testLeadOnlyAndGenericPagesCannotEnterPremiumEvidence();
+testPortalDumpWithMixedIndustriesIsRejectedBeforeAiAnalysis();
 testHydrationRecordCarriesEvidenceGradeAndQuotes();
 testHydrationMergeAuditReportsEvidenceGrades();
 

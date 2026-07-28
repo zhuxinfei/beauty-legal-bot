@@ -240,6 +240,36 @@ function isLeadPage({ title = '', text: textValue = '', source_url = '' } = {}) 
     && !/行政处罚|处罚决定|罚款|没收|征求意见|公告20\d{2}年第\d+号|HS\s*编码|商品编码|侵权|冒用|假冒/.test(combined);
 }
 
+function isRootOrIndexUrl(value = '') {
+  try {
+    const url = new URL(String(value || ''));
+    const path = url.pathname.replace(/\/+/g, '/');
+    return path === '/' || /^\/(?:index\.html?)?$/i.test(path) || /\/(?:xw|ggjgs|zwgk|hdjl|bsfw|xxgk)\/(?:index\.html?)?$/i.test(path);
+  } catch {
+    return false;
+  }
+}
+
+function isPortalDump({ title = '', text: textValue = '', source_url = '', source_name = '' } = {}) {
+  const source = stripMarkdown(`${title} ${source_name} ${textValue}`);
+  const navHits = [
+    /新闻|时政要闻|媒体聚焦|司局介绍|政策法规|通知公告/,
+    /首页|站点导航|搜索|联系我们|地方|总局/,
+    /召回查询|缺陷线索|信息查询平台|注册管理信息系统/,
+    /1\s+2\s+3\s+4\s+5/,
+  ].filter(pattern => pattern.test(source)).length;
+  const mixedIndustryHits = [
+    /携程|酒店预订|旅游行业|平台经济|反垄断/,
+    /食品抽检|保健食品|特殊食品|婴幼儿配方乳粉/,
+    /电动自行车|汽车|航空公司|基础教育|金融产品|殡葬/,
+  ].filter(pattern => pattern.test(source)).length;
+  const manyDatedLinks = (source.match(/\b(?:0?[1-9]|1[0-2])-[0-3]?\d\b/g) || []).length >= 6;
+  const titleIsAgency = title && source_name && text(title) === text(source_name);
+  return (navHits >= 2 && (isRootOrIndexUrl(source_url) || titleIsAgency || manyDatedLinks))
+    || (navHits >= 1 && mixedIndustryHits >= 2)
+    || (mixedIndustryHits >= 2 && titleIsAgency);
+}
+
 function quoteForField(source, value) {
   const needle = text(value);
   if (!needle) return '';
@@ -276,6 +306,9 @@ export function gradeEvidence({ text: textValue = '', hard_facts: hardFacts = {}
   const facts = hardFacts && typeof hardFacts === 'object' ? hardFacts : {};
   if (!source && !text(title)) {
     return { evidence_grade: 'reject', evidence_reason: 'empty-evidence', evidence_quotes: {} };
+  }
+  if (isPortalDump({ title, text: source, source_url, source_name })) {
+    return { evidence_grade: 'reject', evidence_reason: 'portal-or-mixed-industry-dump', evidence_quotes: evidenceQuotes(source, facts) };
   }
   if (isLeadPage({ title, text: source, source_url })) {
     return { evidence_grade: 'lead_only', evidence_reason: 'lead-or-navigation-page', evidence_quotes: evidenceQuotes(source, facts) };
