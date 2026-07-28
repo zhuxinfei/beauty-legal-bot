@@ -768,8 +768,8 @@ export function buildPremiumDingTalkDelivery(report, options = {}) {
   const reportCards = (report.sections || []).flatMap(section =>
     (section.items || []).map(item => premiumCardFromItem(item, section.module))
   );
-  const premiumCards = cardsForPremiumDelivery(reportCards);
-  const maxItems = Number(options.maxItems || 6);
+  const maxItems = Number(options.maxItems || 18);
+  const premiumCards = cardsForPremiumDelivery(reportCards, maxItems);
   let cards = premiumCards.length ? premiumCards : fallbackEvidenceCards(reportCards, maxItems);
   cards = backfillChinaFromCandidates(cards, options.candidates || [], maxItems);
   if (!premiumCards.length && reportCards.length) {
@@ -791,6 +791,17 @@ export function buildPremiumDingTalkDelivery(report, options = {}) {
     backfillableCandidateCards.map(card => ({ country: card.country })),
     maxItems
   );
+  if (cards.length < maxItems) {
+    const selectedKeys = new Set(cards.map(cardSelectionKey));
+    for (const candidateCard of backfillableCandidateCards) {
+      if (cards.length >= maxItems) break;
+      const key = cardSelectionKey(candidateCard);
+      if (selectedKeys.has(key)) continue;
+      cards.push(candidateCard);
+      selectedKeys.add(key);
+    }
+    cards.sort(compareSelectionCards);
+  }
   const audit = {
     reportItems: reportCards.length,
     reportChinaItems: reportCards.filter(isChinaCard).length,
@@ -838,9 +849,9 @@ export function assertPremiumChinaDelivery(audit = {}, { allowForeignOnly = fals
   return audit;
 }
 
-function cardsForPremiumDelivery(cards) {
-  const selected = selectPremiumEvidenceCards(cards, { maxItems: cards.length || 0, minItems: 0 });
-  return backfillChinaCoverage(selected, cards, cards.length || 0);
+function cardsForPremiumDelivery(cards, maxItems = 18) {
+  const selected = selectPremiumEvidenceCards(cards, { maxItems, minItems: 0 });
+  return backfillChinaCoverage(selected, cards, maxItems);
 }
 
 function backfillChinaCoverage(selected = [], sourceCards = [], maxItems = 6) {

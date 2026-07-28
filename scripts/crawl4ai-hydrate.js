@@ -51,6 +51,8 @@ from urllib.parse import urljoin
 
 try:
     from crawl4ai import AsyncWebCrawler, BrowserConfig, CrawlerRunConfig, CacheMode
+    from crawl4ai.markdown_generation_strategy import DefaultMarkdownGenerator
+    from crawl4ai.content_filter_strategy import PruningContentFilter
 except Exception as exc:
     print(json.dumps({"error": f"crawl4ai import failed: {exc}"}))
     raise SystemExit(1)
@@ -150,6 +152,7 @@ async def run():
                         wait_for_images=False,
                         remove_consent_popups=True,
                         adjust_viewport_to_content=True,
+                        markdown_generator=DefaultMarkdownGenerator(content_filter=PruningContentFilter()),
                         page_timeout=${JSON.stringify(Math.max(5000, Number(pageTimeoutMs) || 20000))},
                         cache_mode=CacheMode.BYPASS if hasattr(CacheMode, "BYPASS") else None,
                     )

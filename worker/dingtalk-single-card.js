@@ -191,10 +191,15 @@ function messageFromEditorial(editorial, byteLimit, index, total) {
   };
 }
 
-export function buildDingTalkMessages(report, { maxBytes = 18000 } = {}) {
+export function buildDingTalkMessages(report, { maxBytes = 18000, candidates = [], sources = [], maxItems } = {}) {
   const byteLimit = Math.max(1200, Number(maxBytes || 18000));
   if (report?.premium_delivery === true) {
-    const premiumMessages = buildPremiumDingTalkMessages(report, { maxBytes: byteLimit });
+    const premiumMessages = buildPremiumDingTalkMessages(report, {
+      maxBytes: byteLimit,
+      candidates,
+      sources,
+      maxItems,
+    });
     return premiumMessages.length ? premiumMessages : [{
       id: 'weekly-report',
       title: `美妆法务资讯｜${report.period?.end || '本期'}`,

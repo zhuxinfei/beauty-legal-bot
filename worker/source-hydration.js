@@ -276,7 +276,15 @@ export function normalizeHydratedRecord(record = {}) {
     .map(item => [item.title, item.article_text].filter(Boolean).join('\n'))
     .filter(Boolean)
     .join('\n\n');
-  const articleText = [primaryArticleText, attachmentText].filter(Boolean).join('\n\n');
+  const extractedMarkdown = text(
+    record.extraction?.markdown
+      || record.extraction?.fit_markdown
+      || record.extraction?.markdown_with_citations
+      || record.extraction?.text
+      || record.extraction?.summary
+      || ''
+  );
+  const articleText = [primaryArticleText, extractedMarkdown, attachmentText].filter(Boolean).join('\n\n');
   const qualityFlags = Array.isArray(record.quality_flags)
     ? record.quality_flags.map(text).filter(Boolean)
     : text(record.quality_flags)

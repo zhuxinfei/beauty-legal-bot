@@ -689,6 +689,8 @@ function renderDingTalkModuleDelivery(report, module, maxBytes) {
 export function buildDingTalkWebhookMessages(report, options = {}) {
   return buildDingTalkMessages(report, {
     maxBytes: options.maxBytes,
+    candidates: options.candidates || report.candidates || [],
+    sources: options.sources || report.sources || [],
   });
 }
 
@@ -2594,52 +2596,67 @@ function signalTypeForModule(module) {
 }
 
 function buildSignalItem(candidate, module) {
+  const premium = premiumCardFromCandidate(candidate);
   const topics = (candidate.topics || []).filter(Boolean);
-  const titleCore = String(candidate.title || `${candidate.source_name}：${module}行业线索`).replace(/：.*行业线索$/, '');
+  const sourceTeam = signalBusinessImpact(module)[0];
+  const sourceName = premium.source_name || candidate.source_name || candidate.name || '行业来源';
+  const title = premium.title && !isNavigationTitle(premium.title)
+    ? premium.title
+    : `${sourceName}：${module}待核验情报线索`;
+  const hard = premium.hard_facts || {};
   const base = {
+    ...premium,
     type: signalTypeForModule(module),
     module,
-    region: candidate.region || '全球',
-    country: candidate.country || '全球',
-    title: `${titleCore}：${module}待核验情报线索`,
-    source_name: candidate.source_name || candidate.name || '行业来源',
-    source_url: candidate.url || candidate.source_url || candidate.source_name || '微信公众号',
+    region: premium.region || candidate.region || '全球',
+    country: premium.country || candidate.country || '全球',
+    title,
+    source_name: sourceName,
+    source_url: premium.source_url || candidate.url || candidate.source_url || candidate.source_name || '微信公众号',
     source_type: signalSourceType(candidate),
-    published_at: candidate.published_at || '未知',
+    published_at: premium.published_at || candidate.published_at || '未知',
     relevance: module === '美妆动态' || module === '新规及案例动态' ? 'direct' : 'indirect',
-    industry_impact: candidate.priority === 'high' ? 'high' : 'medium',
-    business_impact: signalBusinessImpact(module),
-    market_scope: [`${candidate.country || '相关市场'} ${topics.join('、') || module}`],
-    risk_level: candidate.priority === 'high' ? 'medium' : 'low',
-    core_judgement: `当前仅能确认${candidate.source_name || candidate.name || '该来源'}出现${module}相关信号；在取得公开原文前，不能把它作为确定规则执行，但应核验其是否影响集团相关市场和业务流程。`,
-    why_it_matters: `该来源属于${module}信息源，涉及${topics.join('、') || '监管和行业变化'}；即使本周未抓到可直接引用的明细页，也适合作为法务周报的待核验线索，帮助相关团队提前排查业务影响。`,
-    recommended_actions: [
-      `建议法务团队以${candidate.source_name || candidate.name || '该来源'}为入口，核验是否有与集团在售品类、渠道或目标市场相关的最新原文。`,
-      `建议${signalBusinessImpact(module)[0]}团队结合${candidate.country || '相关市场'}业务清单，先排查是否存在标签、宣称、清关、平台上架或品牌授权方面的潜在影响。`,
-    ],
-    owner_teams: ['法务', signalBusinessImpact(module)[0]].filter(Boolean),
-    confidence: candidate.source_type === 'official_site' ? 'medium' : 'low',
-    regulatory_signal: [`${candidate.source_name || candidate.name || '该来源'}提供${module}方向的周度监测线索，主题包括${topics.join('、') || module}。`],
-    compliance_meaning: ['该条为自动补全的待核验情报，不替代正式原文判断；用于提示团队不要遗漏该分类下的重要信息源。'],
-    possible_follow_up: [`建议下次周报继续优先抓取该来源，并在发现原文后升级为正式法规、案例或进出口条目。`],
+    industry_impact: candidate.priority === 'high' || hard.risk_tier === '立即处理' ? 'high' : 'medium',
+    business_impact: premium.business_impact || signalBusinessImpact(module),
+    market_scope: premium.market_scope || [`${candidate.country || '相关市场'} ${topics.join('、') || module}`],
+    risk_level: hard.risk_tier === '立即处理' ? 'high' : candidate.priority === 'high' ? 'medium' : 'low',
+    core_judgement: premium.core_judgement || `当前仅能确认${sourceName}出现${module}相关信号；在取得公开原文前，不能把它作为确定规则执行，但应核验其是否影响集团相关市场和业务流程。`,
+    why_it_matters: premium.why_it_matters || `该来源属于${module}信息源，涉及${topics.join('、') || '监管和行业变化'}；即使本周未抓到可直接引用的明细页，也适合作为法务周报的待核验线索，帮助相关团队提前排查业务影响。`,
+    recommended_actions: premium.recommended_actions?.length
+      ? premium.recommended_actions
+      : [
+          `建议法务团队以${sourceName}为入口，核验是否有与集团在售品类、渠道或目标市场相关的最新原文。`,
+          `建议${sourceTeam}团队结合${candidate.country || '相关市场'}业务清单，先排查是否存在标签、宣称、清关、平台上架或品牌授权方面的潜在影响。`,
+        ],
+    owner_teams: premium.owner_teams?.length ? premium.owner_teams : ['法务', sourceTeam].filter(Boolean),
+    confidence: premium.confidence || (candidate.source_type === 'official_site' ? 'medium' : 'low'),
+    regulatory_signal: premium.regulatory_signal?.length
+      ? premium.regulatory_signal
+      : [`${sourceName}提供${module}方向的周度监测线索，主题包括${topics.join('、') || module}。`],
+    compliance_meaning: premium.compliance_meaning?.length
+      ? premium.compliance_meaning
+      : ['该条为自动补全的待核验情报，不替代正式原文判断；用于提示团队不要遗漏该分类下的重要信息源。'],
+    possible_follow_up: premium.possible_follow_up?.length
+      ? premium.possible_follow_up
+      : [`建议下次周报继续优先抓取该来源，并在发现原文后升级为正式法规、案例或进出口条目。`],
   };
 
   if (base.type === 'IP') {
     return {
       ...base,
-      dispute_focus: ['品牌名称、商标使用、外观设计或跨境维权动态。'],
-      protected_element: topics.join('、') || '商标和品牌资产',
-      infringement_logic: ['需结合原文判断是否涉及抢注、近似混淆、未授权使用或平台侵权投诉。'],
-      impact_on_brand_assets: ['可能影响集团自有品牌在目标市场的注册、使用证据留存和平台维权。'],
+      dispute_focus: premium.dispute_focus?.length ? premium.dispute_focus : ['品牌名称、商标使用、外观设计或跨境维权动态。'],
+      protected_element: premium.protected_element || topics.join('、') || '商标和品牌资产',
+      infringement_logic: premium.infringement_logic?.length ? premium.infringement_logic : ['需结合原文判断是否涉及抢注、近似混淆、未授权使用或平台侵权投诉。'],
+      impact_on_brand_assets: premium.impact_on_brand_assets?.length ? premium.impact_on_brand_assets : ['可能影响集团自有品牌在目标市场的注册、使用证据留存和平台维权。'],
     };
   }
 
   if (base.type === '进出口') {
     return {
       ...base,
-      market_access_change: ['待核验是否涉及进口准入、清关文件、口岸抽检、跨境电商正面清单或认证要求变化。'],
-      affected_import_flow: ['商品准入评估', '清关资料准备', '平台上架节奏', '供应链履约'],
-      documents_needed: ['建议核验产品备案/注册资料、中文标签、成分表、原产地及清关单证是否需要更新。'],
+      market_access_change: premium.market_access_change?.length ? premium.market_access_change : ['待核验是否涉及进口准入、清关文件、口岸抽检、跨境电商正面清单或认证要求变化。'],
+      affected_import_flow: premium.affected_import_flow?.length ? premium.affected_import_flow : ['商品准入评估', '清关资料准备', '平台上架节奏', '供应链履约'],
+      documents_needed: premium.documents_needed?.length ? premium.documents_needed : ['建议核验产品备案/注册资料、中文标签、成分表、原产地及清关单证是否需要更新。'],
     };
   }
 
@@ -2683,9 +2700,9 @@ export function enrichReportWithSourceSignals(report, { candidates = [], sources
       .filter(candidate => !seen.has(candidate.url || candidate.source_url || candidate.title));
     const signals = [...moduleCandidates, ...moduleSources]
       .sort((a, b) => scoreCandidate(b) - scoreCandidate(a))
-      .slice(0, Math.max(0, 3 - existing.length))
+      .slice(0, Math.max(0, 4 - existing.length))
       .map(candidate => buildSignalItem(candidate, module));
-    return { module, items: [...existing, ...signals].slice(0, 3) };
+    return { module, items: [...existing, ...signals].slice(0, 4) };
   });
 
   const itemCount = sections.flatMap(section => section.items || []).length;
@@ -3443,7 +3460,10 @@ async function runFinalizePhase(date, env, requestUrl) {
     itemsPerModule: qualityOptions.itemsPerModule,
   });
   logReportAudit(console, '分阶段终审', processed.audit);
-  const report = processed.report;
+  const report = enrichReportWithSourceSignals(processed.report, {
+    candidates: candidatesMeta.candidates || [],
+    sources: candidatesMeta.sources || sourceCatalog.sources,
+  });
   validateReport(report);
 
   const { isDup, seen, fps } = await isDuplicateFingerprints(extractReportFingerprints(report), kv);
@@ -3451,7 +3471,10 @@ async function runFinalizePhase(date, env, requestUrl) {
     return { stage: 'dedupe', status: 'skipped', message: '30-day duplicate' };
   }
 
-  const premiumDelivery = buildPremiumDingTalkDelivery(report, { candidates: candidatesMeta.candidates || [] });
+  const premiumDelivery = buildPremiumDingTalkDelivery(report, {
+    candidates: candidatesMeta.candidates || [],
+    sources: candidatesMeta.sources || sourceCatalog.sources,
+  });
   const markdown = premiumDelivery.messages.map(message => message.markdown).join('\n\n---\n\n');
   console.log(`[finalize] 精品卡验收：中国候选 ${premiumDelivery.audit.candidateChinaItems}/${premiumDelivery.audit.candidateItems}，中国准入 ${premiumDelivery.audit.reportChinaItems}/${premiumDelivery.audit.reportItems}，中国入卡 ${premiumDelivery.audit.finalChinaItems}/${premiumDelivery.audit.finalItems}`);
   assertPremiumChinaDelivery(premiumDelivery.audit, {
