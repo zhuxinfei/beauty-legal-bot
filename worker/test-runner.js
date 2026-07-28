@@ -1128,6 +1128,36 @@ function testPremiumDeliveryBackfillsSourceOnlyCardsWhenAiRejectsAllItems() {
   assert.doesNotThrow(() => assertPremiumChinaDelivery(delivery.audit));
   assert.match(delivery.messages[0].markdown, /来源信号/);
   assert.match(delivery.messages[0].markdown, /本期精选 18 条/);
+
+  const mixedDelivery = buildPremiumDingTalkDelivery({
+    period: { start: '2026-07-20', end: '2026-07-26' },
+    sections: [{
+      module: '产品质量/召回与安全风险',
+      items: [{
+        title: '美国 FDA 公布化妆品召回和安全警示',
+        source_url: 'https://www.fda.gov/safety/recalls/cosmetic-20260724',
+        source_name: '美国 FDA',
+        source_type: 'official_site',
+        authority_type: 'regulator',
+        published_at: '2026-07-24',
+        country: '美国',
+        fact_summary: ['美国 FDA 公布化妆品召回信息，涉及微生物污染、停止销售、召回批次和消费者退货安排。'],
+        legal_signal: '召回信息显示美国渠道对微生物污染化妆品继续采取批次召回和停止销售处置。',
+        business_impact: '影响美国渠道 SKU、批次召回、质量放行、平台店铺和售后沟通。',
+        next_observation: ['观察 FDA 后续召回进展、企业整改公告和同类产品警示扩散。'],
+        hard_facts: {
+          authority: '美国 FDA',
+          product_or_batch: '微生物污染化妆品批次',
+          confiscation_result: '停止销售并召回',
+          affected_processes: ['SKU/批次管理', '质量放行', '平台店铺'],
+        },
+      }],
+    }],
+  }, { candidates, maxItems: 18 });
+
+  assert.equal(mixedDelivery.audit.finalItems, 18);
+  assert.ok(mixedDelivery.audit.finalChinaItems >= 3);
+  assert.doesNotThrow(() => assertPremiumChinaDelivery(mixedDelivery.audit));
 }
 
 function testWebhookMessagesPreferPremiumCardFormatWhenAvailable() {

@@ -781,9 +781,7 @@ export function buildPremiumDingTalkDelivery(report, options = {}) {
     eligibleCandidates.map(premiumCardFromCandidate),
     Math.max(eligibleCandidates.length, maxItems)
   );
-  const sourceOnlyCandidateCards = cards.length
-    ? []
-    : sourceOnlyFallbackCards(options.candidates || [], maxItems);
+  const sourceOnlyCandidateCards = sourceOnlyFallbackCards(options.candidates || [], maxItems);
   const candidateCards = [...eligibleCandidates, ...sourceOnlyCandidateCards].map(candidate => ({
     country: text(candidate.country || candidate.region),
     module: normalizeModule(candidate.module),
