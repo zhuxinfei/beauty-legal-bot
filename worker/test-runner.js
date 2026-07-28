@@ -1098,6 +1098,38 @@ function testPremiumDeliveryAuditRejectsForeignOnlyWhenChinaCandidatesExist() {
   }), /item gate failed/);
 }
 
+function testPremiumDeliveryBackfillsSourceOnlyCardsWhenAiRejectsAllItems() {
+  const modules = ['新规及案例动态', '广告合规及处罚案例', '知识产权动态', '进出口动态', '产品质量/召回与安全风险'];
+  const candidates = Array.from({ length: 18 }, (_, index) => {
+    const module = modules[index % modules.length];
+    return {
+      title: `中国化妆品监管部门发布第${index + 1}项化妆品合规通报`,
+      source_url: `https://samr.example.gov.cn/notice/20260724-${index + 1}`,
+      source_name: index % 2 === 0 ? '国家市场监管总局' : '国家药监局',
+      source_type: 'official_site',
+      authority_type: 'regulator',
+      country: '中国',
+      module,
+      published_at: '2026-07-24',
+      detail_status: 'hydrated',
+      article_text: `2026年7月24日，中国监管部门发布化妆品合规通报，第${index + 1}项涉及化妆品标签、备案、功效宣称、进口清关、商标授权或抽检整改。监管要求企业核查在售SKU、标签、广告素材和平台店铺。`,
+      snippet: `2026年7月24日，中国监管部门发布化妆品合规通报，第${index + 1}项涉及化妆品标签、备案、功效宣称、进口清关、商标授权或抽检整改。`,
+    };
+  });
+
+  const delivery = buildPremiumDingTalkDelivery({
+    period: { start: '2026-07-20', end: '2026-07-26' },
+    sections: [],
+  }, { candidates, maxItems: 18 });
+
+  assert.equal(delivery.audit.finalItems, 18);
+  assert.equal(delivery.audit.finalChinaItems, 18);
+  assert.equal(delivery.audit.sourceOnlyFallbackItems, 18);
+  assert.doesNotThrow(() => assertPremiumChinaDelivery(delivery.audit));
+  assert.match(delivery.messages[0].markdown, /来源信号/);
+  assert.match(delivery.messages[0].markdown, /本期精选 18 条/);
+}
+
 function testWebhookMessagesPreferPremiumCardFormatWhenAvailable() {
   const messages = buildDingTalkWebhookMessages({
     premium_delivery: true,
@@ -4997,5 +5029,6 @@ testPremiumGateRejectsNavigationAndGenericInformationPages();
 testPremiumGateAcceptsManualHardInformationSamples();
 testPremiumMarkdownReplacesVaguePartyWithConcreteCompanyNames();
 testPremiumDeliveryAuditRejectsForeignOnlyWhenChinaCandidatesExist();
+testPremiumDeliveryBackfillsSourceOnlyCardsWhenAiRejectsAllItems();
 testWebhookMessagesPreferPremiumCardFormatWhenAvailable();
 console.log('worker pure function tests ok');

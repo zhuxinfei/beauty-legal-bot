@@ -781,19 +781,22 @@ export function buildPremiumDingTalkDelivery(report, options = {}) {
     eligibleCandidates.map(premiumCardFromCandidate),
     Math.max(eligibleCandidates.length, maxItems)
   );
-  const candidateCards = eligibleCandidates.map(candidate => ({
+  const sourceOnlyCandidateCards = cards.length || backfillableCandidateCards.length
+    ? []
+    : sourceOnlyFallbackCards(options.candidates || [], maxItems);
+  const candidateCards = [...eligibleCandidates, ...sourceOnlyCandidateCards].map(candidate => ({
     country: text(candidate.country || candidate.region),
     module: normalizeModule(candidate.module),
   }));
-  const backfillableChinaCandidateItems = backfillableCandidateCards.filter(isChinaCard).length;
+  const backfillableChinaCandidateItems = [...backfillableCandidateCards, ...sourceOnlyCandidateCards].filter(isChinaCard).length;
   const candidateChinaItems = candidateCards.filter(isChinaCard).length;
   const requiredChinaItems = requiredChinaItemCount(
-    backfillableCandidateCards.map(card => ({ country: card.country })),
+    [...backfillableCandidateCards, ...sourceOnlyCandidateCards].map(card => ({ country: card.country })),
     maxItems
   );
   if (cards.length < maxItems) {
     const selectedKeys = new Set(cards.map(cardSelectionKey));
-    for (const candidateCard of backfillableCandidateCards) {
+    for (const candidateCard of [...backfillableCandidateCards, ...sourceOnlyCandidateCards]) {
       if (cards.length >= maxItems) break;
       const key = cardSelectionKey(candidateCard);
       if (selectedKeys.has(key)) continue;
@@ -812,8 +815,9 @@ export function buildPremiumDingTalkDelivery(report, options = {}) {
     finalChinaItems: cards.filter(isChinaCard).length,
     finalSampleGradeItems: cards.filter(isSampleGradeCard).length,
     finalChinaSampleGradeItems: cards.filter(card => isChinaCard(card) && isSampleGradeCard(card)).length,
+    sourceOnlyFallbackItems: cards.filter(card => card.source_only_fallback === true).length,
     requiredChinaItems,
-    requiredSampleGradeItems: Math.min(3, cards.length),
+    requiredSampleGradeItems: cards.some(card => card.source_only_fallback === true) ? 0 : Math.min(3, cards.length),
     chinaShortfall: candidateChinaItems > cards.filter(isChinaCard).length || backfillableChinaCandidateItems > cards.filter(isChinaCard).length,
   };
   if (!cards.length) return { messages: [], cards, audit };
@@ -961,6 +965,51 @@ function premiumCardFromCandidate(candidate = {}) {
     business_impact: candidateBusinessImpact(module, hardFacts, source),
     hard_facts: hardFacts,
   };
+}
+
+function sourceOnlyFallbackCard(candidate = {}) {
+  const card = premiumCardFromCandidate(candidate);
+  const source = sourceTextForCard(card);
+  return {
+    ...card,
+    source_only_fallback: true,
+    tier: 'watch',
+    score: fallbackScore(card) + (isChinaCard(card) ? 10 : 0),
+    facts: card.facts.length ? card.facts : [firstEvidenceSentence(source)].filter(Boolean),
+    legal_signal: `来源信号：${candidateLegalSignal(card.module, source)}`,
+    business_impact: card.business_impact || candidateBusinessImpact(card.module, card.hard_facts || {}, source),
+    recommended_action: card.recommended_action || candidateObservation(card.module, source),
+  };
+}
+
+function isSourceOnlyFallbackEligible(candidate = {}) {
+  if (text(candidate.evidence_grade) === 'reject') return false;
+  if (candidate.detail_status && candidate.detail_status !== 'hydrated') return false;
+  const card = premiumCardFromCandidate(candidate);
+  if (!card.title || !isHttpUrl(card.source_url)) return false;
+  if (!/^20\d{2}-\d{2}-\d{2}$/.test(card.published_at)) return false;
+  if (isNonAuthoritativeRepublisher(card)) return false;
+  if (isNavigationOrGenericInformationPage(card)) return false;
+  if (!isBeautyRelevantCard(card)) return false;
+  const source = sourceTextForCard(card);
+  if (!CONCRETE_PATTERNS.test(source)) return false;
+  if (!BEAUTY_RELEVANCE_PATTERN.test(source)) return false;
+  return true;
+}
+
+function sourceOnlyFallbackCards(candidates = [], maxItems = 18) {
+  const seen = new Set();
+  return candidates
+    .filter(isSourceOnlyFallbackEligible)
+    .map(sourceOnlyFallbackCard)
+    .sort(compareSelectionCards)
+    .filter(card => {
+      const key = cardSelectionKey(card);
+      if (seen.has(key)) return false;
+      seen.add(key);
+      return true;
+    })
+    .slice(0, maxItems);
 }
 
 function fallbackChinaCandidateCards(candidates = [], maxItems = 3) {
