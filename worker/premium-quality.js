@@ -180,6 +180,8 @@ function isoDate(value = '') {
 function candidateDisplayDate(candidate = {}, hardFacts = {}, source = '') {
   return isoDate(candidate.published_at)
     || isoDate(candidate.updated_at)
+    || isoDate(candidate.created_at)
+    || isoDate(candidate.date)
     || isoDate(hardFacts.effective_date)
     || isoDate(hardFacts.deadline)
     || isoDate(source);
@@ -442,6 +444,15 @@ function scoreCard(card) {
 }
 
 export function validatePremiumEvidenceCard(card = {}) {
+  const evidenceSource = [
+    card.evidence_text,
+    card.article_text,
+    card.full_text,
+    card.snippet,
+    card.facts,
+    card.title,
+  ].flat().join('。');
+  const hardFacts = withInferredHardFacts(normalizeHardFacts(card.hard_facts), card);
   const normalized = {
     ...card,
     title: text(card.title),
@@ -450,14 +461,14 @@ export function validatePremiumEvidenceCard(card = {}) {
     source_name: text(card.source_name || card.name),
     source_type: text(card.source_type),
     authority_type: text(card.authority_type),
-    published_at: text(card.published_at),
+    published_at: candidateDisplayDate(card, hardFacts, evidenceSource),
     country: text(card.country || card.region || '未知'),
     facts: list(card.facts),
     legal_signal: text(card.legal_signal),
     business_impact: text(card.business_impact),
     recommended_action: text(card.recommended_action),
     evidence_text: text(card.evidence_text),
-    hard_facts: withInferredHardFacts(normalizeHardFacts(card.hard_facts), card),
+    hard_facts: hardFacts,
   };
 
   if (!normalized.title) return { accepted: false, reason: 'missing-title', card: normalized };
@@ -673,6 +684,8 @@ function displayTitle(card) {
 
 function premiumCardFromItem(item, sectionModule) {
   const module = normalizeModule(item.module || sectionModule);
+  const evidenceText = text(item.evidence_excerpt || item.article_text || item.full_text || item.snippet);
+  const hardFactsInput = normalizeHardFacts(item.hard_facts || item.extraction?.hard_facts || item.extraction?.legal_facts || {});
   const baseCard = {
     title: text(item.title),
     module,
@@ -680,17 +693,25 @@ function premiumCardFromItem(item, sectionModule) {
     source_name: text(item.source_name),
     source_type: text(item.source_type),
     authority_type: text(item.authority_type),
-    published_at: text(item.published_at),
+    published_at: candidateDisplayDate(item, hardFactsInput, evidenceText || [
+      item.what_changed,
+      item.facts,
+      item.fact_summary,
+      item.dispute_focus,
+      item.market_access_change,
+      item.regulatory_signal,
+      item.title,
+    ].flat().join('。')),
     country: text(item.country || item.region || '未知'),
     facts: list(item.what_changed || item.facts || item.fact_summary || item.dispute_focus || item.market_access_change || item.regulatory_signal),
     legal_signal: text(item.legal_signal || item.legal_obligation || item.compliance_meaning || item.violation_logic || item.infringement_logic || item.documents_needed || item.core_judgement),
     business_impact: text(item.business_impact || item.affected_business || item.impact_on_brand_assets || item.affected_import_flow || item.why_it_matters || item.risk_pattern || item.business_lessons || item.penalty_or_result),
     recommended_action: text(item.next_observation || item.recommended_action || item.recommended_actions || item.possible_follow_up),
-    evidence_text: text(item.evidence_excerpt || item.article_text || item.full_text || item.snippet),
+    evidence_text: evidenceText,
   };
   return {
     ...baseCard,
-    hard_facts: withInferredHardFacts(normalizeHardFacts(item.hard_facts || item.extraction?.hard_facts || item.extraction?.legal_facts || {}), baseCard),
+    hard_facts: withInferredHardFacts(hardFactsInput, baseCard),
   };
 }
 
@@ -754,21 +775,33 @@ export function buildPremiumDingTalkDelivery(report, options = {}) {
     console.log(`[premium-card] strict gate accepted 0/${audit.input}; fallback=${cards.length}; reasons=${Object.entries(audit.reasons).map(([reason, count]) => `${reason}=${count}`).join(', ') || 'none'}`);
   }
   const eligibleCandidates = (options.candidates || []).filter(isPremiumCandidateEligible);
+  const backfillableCandidateCards = fallbackEvidenceCards(
+    eligibleCandidates.map(premiumCardFromCandidate),
+    Math.max(eligibleCandidates.length, maxItems)
+  );
   const candidateCards = eligibleCandidates.map(candidate => ({
     country: text(candidate.country || candidate.region),
     module: normalizeModule(candidate.module),
   }));
+  const backfillableChinaCandidateItems = backfillableCandidateCards.filter(isChinaCard).length;
+  const candidateChinaItems = candidateCards.filter(isChinaCard).length;
+  const requiredChinaItems = requiredChinaItemCount(
+    backfillableCandidateCards.map(card => ({ country: card.country })),
+    maxItems
+  );
   const audit = {
     reportItems: reportCards.length,
     reportChinaItems: reportCards.filter(isChinaCard).length,
     candidateItems: candidateCards.length,
-    candidateChinaItems: candidateCards.filter(isChinaCard).length,
+    candidateChinaItems,
+    backfillableChinaCandidateItems,
     finalItems: cards.length,
     finalChinaItems: cards.filter(isChinaCard).length,
     finalSampleGradeItems: cards.filter(isSampleGradeCard).length,
     finalChinaSampleGradeItems: cards.filter(card => isChinaCard(card) && isSampleGradeCard(card)).length,
-    requiredChinaItems: requiredChinaItemCount(candidateCards, maxItems),
+    requiredChinaItems,
     requiredSampleGradeItems: Math.min(3, cards.length),
+    chinaShortfall: candidateChinaItems > cards.filter(isChinaCard).length || backfillableChinaCandidateItems > cards.filter(isChinaCard).length,
   };
   if (!cards.length) return { messages: [], cards, audit };
   return { messages: [{

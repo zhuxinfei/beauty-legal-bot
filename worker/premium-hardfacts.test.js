@@ -496,6 +496,105 @@ function testPremiumDeliveryRequiresMultipleChinaCardsWhenCandidatesAreAvailable
   assert.match(markdown, /海关发布进口化妆品申报资料核验要求/);
 }
 
+function testPremiumReportItemUsesHardFactDateWhenPublishedAtMissing() {
+  const delivery = buildPremiumDingTalkDelivery({
+    period: { start: '2026-07-22', end: '2026-07-28' },
+    sections: [{
+      module: '新规及案例动态',
+      items: [{
+        title: '化妆品标准新规征求意见，明确标准执行和新旧衔接',
+        source_url: 'https://www.nmpa.gov.cn/xxgk/zhqyj/20260724.html',
+        source_name: '国家药品监督管理局',
+        source_type: 'official_site',
+        authority_type: 'regulator',
+        published_at: '',
+        country: '中国',
+        fact_summary: ['国家药监局就化妆品标准管理规则征求意见，正文涉及标准执行、新旧标准衔接、反馈截止日和企业参与标准制修订渠道。'],
+        legal_signal: '征求意见稿把化妆品标准执行、新旧衔接和企业参与标准制修订渠道写入制度安排。',
+        business_impact: '影响配方开发、检验依据、标签备案引用标准、质量放行和进口备案资料引用标准。',
+        next_observation: ['观察正式稿发布日期、反馈截止日、过渡期安排和企业参与标准制修订的申报入口。'],
+        evidence_excerpt: '国家药监局就化妆品标准管理规则公开征求意见，反馈截止日期为2026年7月30日，影响标签备案、执行标准选择、配方开发和存量SKU过渡期管理。',
+        hard_facts: {
+          authority: '国家药品监督管理局',
+          document_number: '征求意见稿',
+          deadline: '2026年7月30日',
+          affected_processes: ['配方开发', '标签备案', '执行标准选择'],
+        },
+      }],
+    }],
+  }, { candidates: [], maxItems: 3 });
+
+  assert.equal(delivery.audit.finalChinaItems, 1);
+  assert.doesNotThrow(() => assertPremiumChinaDelivery(delivery.audit));
+  assert.match(delivery.messages[0].markdown, /国家药品监督管理局 \/ 中国 \/ 2026-07-30/);
+}
+
+function testPremiumChinaMinimumCountsOnlyBackfillableChinaCandidates() {
+  const delivery = buildPremiumDingTalkDelivery({
+    period: { start: '2026-07-22', end: '2026-07-28' },
+    sections: [],
+  }, {
+    maxItems: 6,
+    candidates: [
+      {
+        title: '化妆品标准新规征求意见，明确标准执行和新旧衔接',
+        url: 'https://www.nmpa.gov.cn/xxgk/zhqyj/20260724.html',
+        source_name: '国家药品监督管理局',
+        source_type: 'official_site',
+        authority_type: 'regulator',
+        country: '中国',
+        module: '新规及案例动态',
+        published_at: '2026-07-24',
+        detail_status: 'hydrated',
+        evidence_grade: 'hard_fact_ready',
+        article_text: '国家药监局就化妆品标准管理规则公开征求意见，明确强制性标准执行、新旧标准衔接、反馈截止日和企业参与标准制修订渠道，影响标签备案、执行标准选择、配方开发和存量SKU过渡期管理。',
+        hard_facts: {
+          authority: '国家药品监督管理局',
+          document_number: '征求意见稿',
+          deadline: '2026年7月30日',
+          affected_processes: ['配方开发', '标签备案', '执行标准选择'],
+        },
+      },
+      {
+        title: '广州市监局披露商家侵权玻色因商标并刷单处罚17万元',
+        url: 'https://amr.example.gov.cn/case/pro-xylane-20260724',
+        source_name: '广州市市场监督管理局',
+        source_type: 'official_site',
+        authority_type: 'regulator',
+        country: '中国',
+        module: '知识产权动态',
+        published_at: '2026-07-24',
+        detail_status: 'hydrated',
+        evidence_grade: 'hard_fact_ready',
+        article_text: '广州市市场监管部门披露广州妍瑟化妆品有限公司侵权使用玻色因相关商标并存在刷单行为，处罚金额17万元，影响成分卖点命名、商标授权、平台店铺运营和达人素材。',
+        hard_facts: {
+          authority: '广州市市场监督管理局',
+          involved_party: '广州妍瑟化妆品有限公司',
+          violation_behavior: '侵权使用玻色因相关商标并存在刷单行为',
+          penalty_amount: '17万元',
+          legal_basis: '《商标法》',
+          affected_processes: ['成分卖点命名', '商标授权', '平台店铺运营', '达人素材'],
+        },
+      },
+      {
+        title: '中国化妆品监管线索页面',
+        url: 'https://example.gov.cn/beauty/lead-only',
+        source_name: '监管部门',
+        country: '中国',
+        module: '新规及案例动态',
+        evidence_grade: 'hard_fact_ready',
+      },
+    ],
+  });
+
+  assert.equal(delivery.audit.candidateChinaItems, 3);
+  assert.equal(delivery.audit.backfillableChinaCandidateItems, 2);
+  assert.equal(delivery.audit.requiredChinaItems, 2);
+  assert.equal(delivery.audit.finalChinaItems, 2);
+  assert.equal(delivery.audit.chinaShortfall, true);
+  assert.doesNotThrow(() => assertPremiumChinaDelivery(delivery.audit));
+}
+
 function testLeadOnlyChinaCandidatesDoNotTriggerOrBackfillPremiumCard() {
   const delivery = buildPremiumDingTalkDelivery({
     period: { start: '2026-07-20', end: '2026-07-26' },
@@ -589,7 +688,7 @@ function testPremiumDeliveryDoesNotFillChinaShortfallWithForeignCards() {
 
   assert.equal(delivery.audit.finalChinaItems, 1);
   assert.equal(delivery.audit.finalItems, 1);
-  assert.equal(delivery.audit.chinaShortfall, true);
+  assert.equal(delivery.audit.chinaShortfall, false);
   assert.doesNotMatch(delivery.messages[0].markdown, /美国 FDA 化妆品监管事项/);
 }
 
@@ -750,7 +849,10 @@ testPremiumSelectionKeepsChinaAheadOfHigherScoredForeignItems();
 testPremiumDeliveryBackfillsQualifiedChinaItemWhenStrictSelectionIsForeignOnly();
 testPremiumDeliveryBuildsChinaCardFromCandidateWhenAiReportDropsChina();
 testPremiumDeliveryRequiresMultipleChinaCardsWhenCandidatesAreAvailable();
+testPremiumReportItemUsesHardFactDateWhenPublishedAtMissing();
+testPremiumChinaMinimumCountsOnlyBackfillableChinaCandidates();
 testLeadOnlyChinaCandidatesDoNotTriggerOrBackfillPremiumCard();
+testPremiumDeliveryDoesNotFillChinaShortfallWithForeignCards();
 testNonBeautyPlatformPenaltyCannotEnterPremiumCard();
 testAiInjectedBeautyWordingCannotMakeNonBeautyPenaltyRelevant();
 testPortalPageCannotEnterPremiumCardEvenWithInjectedBeautyTerms();
