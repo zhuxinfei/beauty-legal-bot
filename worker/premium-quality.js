@@ -333,22 +333,24 @@ function sourceTextForCard(card) {
   ].flat().join('。');
 }
 
-function isBeautyRelevantCard(card = {}) {
+function sourceEvidenceTextForRelevance(card = {}) {
   const hard = card.hard_facts || {};
-  const source = sourceTextForCard(card);
-  const combined = [
+  return [
     card.title,
-    card.module,
-    card.source_name,
-    card.source_url,
-    source,
+    card.facts,
+    card.evidence_text,
     hard.product_or_batch,
     hard.violation_behavior,
     hard.legal_basis,
-    ...(hard.affected_processes || []),
-  ].join(' ');
-  if (BEAUTY_RELEVANCE_PATTERN.test(combined)) return true;
-  if (GENERIC_NON_BEAUTY_PATTERN.test(combined)) return false;
+    hard.hs_code,
+    hard.feedback_channel,
+  ].flat().join(' ');
+}
+
+function isBeautyRelevantCard(card = {}) {
+  const sourceEvidence = sourceEvidenceTextForRelevance(card);
+  if (GENERIC_NON_BEAUTY_PATTERN.test(sourceEvidence) && !BEAUTY_RELEVANCE_PATTERN.test(sourceEvidence)) return false;
+  if (BEAUTY_RELEVANCE_PATTERN.test(sourceEvidence)) return true;
   return false;
 }
 

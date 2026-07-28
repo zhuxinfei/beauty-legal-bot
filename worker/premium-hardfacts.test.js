@@ -576,6 +576,39 @@ function testNonBeautyPlatformPenaltyCannotEnterPremiumCard() {
   assert.equal(delivery.messages.length, 0);
 }
 
+function testAiInjectedBeautyWordingCannotMakeNonBeautyPenaltyRelevant() {
+  const delivery = buildPremiumDingTalkDelivery({
+    period: { start: '2026-07-22', end: '2026-07-28' },
+    sections: [{
+      module: '广告处罚案例',
+      items: [{
+        title: '依法查处平台企业垄断行为 推动平台经济高质量发展',
+        source_url: 'https://www.samr.gov.cn/xw/mtjj/art/2026/art_65a35a1016e84e3f996bae4d07736e4d.html',
+        source_name: '国家市场监督管理总局',
+        source_type: 'official_site',
+        authority_type: 'regulator',
+        published_at: '2026-07-25',
+        country: '中国',
+        fact_summary: ['市场监管总局依法对携程集团有限公司在线酒店预订平台服务市场垄断行为作出行政处罚，没收违法所得16.58亿元，处以罚款35.21亿元，罚没款合计51.79亿元。'],
+        legal_signal: '风险案例：中国监管信息披露化妆品广告、功效宣称、直播或虚假宣传相关执法风险。',
+        business_impact: '影响中国市场美妆业务的达人素材/广告宣传、平台店铺/渠道运营。',
+        next_observation: ['观察同类事项在处罚决定、行政复议、诉讼和平台治理中的后续公开。'],
+        hard_facts: {
+          authority: '国家市场监督管理总局',
+          involved_party: '携程集团有限公司',
+          violation_behavior: '在线酒店预订平台服务市场垄断行为',
+          penalty_amount: '35.21亿元',
+          confiscation_result: '没收违法所得16.58亿元',
+          legal_basis: '《反垄断法》',
+        },
+      }],
+    }],
+  }, { candidates: [], maxItems: 6 });
+
+  assert.equal(delivery.audit.finalItems, 0);
+  assert.equal(delivery.messages.length, 0);
+}
+
 testHydrationExtractsActionableHardFacts();
 testFormalPromptsRequireAllPremiumHardFactFields();
 testPremiumMarkdownRendersNewHardFactsInFormalCard();
@@ -590,5 +623,6 @@ testPremiumDeliveryBuildsChinaCardFromCandidateWhenAiReportDropsChina();
 testPremiumDeliveryRequiresMultipleChinaCardsWhenCandidatesAreAvailable();
 testLeadOnlyChinaCandidatesDoNotTriggerOrBackfillPremiumCard();
 testNonBeautyPlatformPenaltyCannotEnterPremiumCard();
+testAiInjectedBeautyWordingCannotMakeNonBeautyPenaltyRelevant();
 
 console.log('premium hard facts tests passed');
