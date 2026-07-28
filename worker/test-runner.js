@@ -1628,32 +1628,30 @@ async function testPipelineNoUpdateSkipsEmptyDashboardPublication() {
   };
 
   try {
-    await assert.rejects(
-      () => runPipeline({
-        AI_API_KEY: 'test-key',
-        DETAIL_FETCH_ENABLED: '0',
-        AI_MODEL: 'test-model',
-        DINGTALK_WEBHOOK_URL: 'https://oapi.dingtalk.com/robot/send?access_token=test',
-        ALLOW_FOREIGN_ONLY_DELIVERY: '1',
-        SEEN_NEWS: kv,
-        CREATE_EDITORIAL_REPORT_PNG: async () => {
-          rendered = true;
-          return new Uint8Array(2048).fill(1);
-        },
-        PUBLISH_EDITORIAL_REPORT: async () => {
-          published = true;
-          return 'https://worker.test/assets/empty-dashboard.png';
-        },
-      }),
-      /Final DingTalk markdown is empty/
-    );
+    const result = await runPipeline({
+      AI_API_KEY: 'test-key',
+      DETAIL_FETCH_ENABLED: '0',
+      AI_MODEL: 'test-model',
+      DINGTALK_WEBHOOK_URL: 'https://oapi.dingtalk.com/robot/send?access_token=test',
+      ALLOW_FOREIGN_ONLY_DELIVERY: '1',
+      SEEN_NEWS: kv,
+      CREATE_EDITORIAL_REPORT_PNG: async () => {
+        rendered = true;
+        return new Uint8Array(2048).fill(1);
+      },
+      PUBLISH_EDITORIAL_REPORT: async () => {
+        published = true;
+        return 'https://worker.test/assets/empty-dashboard.png';
+      },
+    });
+    assert.equal(result.status, 'done');
   } finally {
     globalThis.fetch = originalFetch;
   }
 
   assert.equal(rendered, false);
   assert.equal(published, false);
-  assert.equal(delivered, false);
+  assert.equal(delivered, true);
 }
 
 async function testVersionedDecisionMapRouteUsesImmutableCache() {

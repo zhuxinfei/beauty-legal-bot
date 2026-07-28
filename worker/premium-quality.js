@@ -782,16 +782,13 @@ export function buildPremiumDingTalkDelivery(report, options = {}) {
     Math.max(eligibleCandidates.length, maxItems)
   );
   const sourceOnlyCandidateCards = sourceOnlyFallbackCards(options.candidates || [], maxItems);
-  const candidateCards = [...eligibleCandidates, ...sourceOnlyCandidateCards].map(candidate => ({
-    country: text(candidate.country || candidate.region),
-    module: normalizeModule(candidate.module),
-  }));
-  const backfillableChinaCandidateItems = [...backfillableCandidateCards, ...sourceOnlyCandidateCards].filter(isChinaCard).length;
+  const candidateCards = uniqueCardsBySelectionKey([
+    ...eligibleCandidates.map(premiumCardFromCandidate),
+    ...sourceOnlyCandidateCards,
+  ]);
+  const backfillableChinaCandidateItems = candidateCards.filter(isChinaCard).length;
   const candidateChinaItems = candidateCards.filter(isChinaCard).length;
-  const requiredChinaItems = requiredChinaItemCount(
-    [...backfillableCandidateCards, ...sourceOnlyCandidateCards].map(card => ({ country: card.country })),
-    maxItems
-  );
+  const requiredChinaItems = requiredChinaItemCount(candidateCards, maxItems);
   if (cards.length < maxItems) {
     const selectedKeys = new Set(cards.map(cardSelectionKey));
     for (const candidateCard of [...backfillableCandidateCards, ...sourceOnlyCandidateCards]) {
@@ -970,6 +967,8 @@ function sourceOnlyFallbackCard(candidate = {}) {
   const source = sourceTextForCard(card);
   return {
     ...card,
+    published_at: card.published_at || text(candidate.published_at) || '本期',
+    country: /中国/.test(text(candidate.country || candidate.region)) || candidate.china_relevant === true ? '中国' : card.country,
     source_only_fallback: true,
     tier: 'watch',
     score: fallbackScore(card) + (isChinaCard(card) ? 10 : 0),
@@ -985,13 +984,11 @@ function isSourceOnlyFallbackEligible(candidate = {}) {
   if (candidate.detail_status && candidate.detail_status !== 'hydrated') return false;
   const card = premiumCardFromCandidate(candidate);
   if (!card.title || !isHttpUrl(card.source_url)) return false;
-  if (!/^20\d{2}-\d{2}-\d{2}$/.test(card.published_at)) return false;
   if (isNonAuthoritativeRepublisher(card)) return false;
-  if (isNavigationOrGenericInformationPage(card)) return false;
-  if (!isBeautyRelevantCard(card)) return false;
   const source = sourceTextForCard(card);
-  if (!CONCRETE_PATTERNS.test(source)) return false;
-  if (!BEAUTY_RELEVANCE_PATTERN.test(source)) return false;
+  if (source.length < 80) return false;
+  if (!BEAUTY_RELEVANCE_PATTERN.test(source) && !MODULE_ORDER.includes(normalizeModule(card.module))) return false;
+  if (isNavigationOrGenericInformationPage(card) && !/通报|公告|处罚|召回|备案|注册|进口|出口|商标|化妆品|美妆|cosmetic/i.test(source)) return false;
   return true;
 }
 
@@ -1008,6 +1005,18 @@ function sourceOnlyFallbackCards(candidates = [], maxItems = 18) {
       return true;
     })
     .slice(0, maxItems);
+}
+
+function uniqueCardsBySelectionKey(cards = []) {
+  const seen = new Set();
+  const result = [];
+  for (const card of cards) {
+    const key = cardSelectionKey(card);
+    if (seen.has(key)) continue;
+    seen.add(key);
+    result.push(card);
+  }
+  return result;
 }
 
 function fallbackChinaCandidateCards(candidates = [], maxItems = 3) {
