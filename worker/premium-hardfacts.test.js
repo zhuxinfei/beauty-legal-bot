@@ -609,6 +609,39 @@ function testAiInjectedBeautyWordingCannotMakeNonBeautyPenaltyRelevant() {
   assert.equal(delivery.messages.length, 0);
 }
 
+function testPortalPageCannotEnterPremiumCardEvenWithInjectedBeautyTerms() {
+  const delivery = buildPremiumDingTalkDelivery({
+    period: { start: '2026-07-22', end: '2026-07-28' },
+    sections: [{
+      module: '广告处罚案例',
+      items: [{
+        title: '国家市场监督管理总局',
+        source_url: 'https://www.samr.gov.cn/',
+        source_name: '国家市场监督管理总局',
+        source_type: 'official_site',
+        authority_type: 'regulator',
+        published_at: '2026-07-25',
+        country: '中国',
+        fact_summary: ['* [新闻](https://www.samr.gov.cn/xw/index.html) * [总局](https://www.samr.gov.cn/xw/zj/index.html) * [市场监管总局依法对携程集团有限公司实施垄断行为作出行政处罚](https://www.samr.gov.cn/xw/zj/art/2026/art_46.html) 07-25 * 召回查询 * 特殊食品信息查询平台 * 注册管理信息系统'],
+        legal_signal: '执法趋势：中国监管信息披露化妆品广告、功效宣称、直播或虚假宣传相关执法风险。',
+        business_impact: '影响中国市场美妆业务的配方开发、标签备案、执行标准选择、存量SKU过渡期管理。',
+        next_observation: ['观察正式稿发布日期、反馈截止日、过渡期安排和执行口径。'],
+        hard_facts: {
+          authority: '国家市场监督管理总局',
+          involved_party: '市场监管总局依法对携程集团有限公司',
+          product_or_batch: '食品抽检不合格情况的通报',
+          violation_behavior: '执法趋势：中国监管信息披露化妆品广告、功效宣称、直播或虚假宣传相关执法风险',
+          penalty_amount: '51.79亿元',
+          legal_basis: '《中华人民共和国电子商务法（修正草案征求意见稿）》',
+        },
+      }],
+    }],
+  }, { candidates: [], maxItems: 6 });
+
+  assert.equal(delivery.audit.finalItems, 0);
+  assert.equal(delivery.messages.length, 0);
+}
+
 testHydrationExtractsActionableHardFacts();
 testFormalPromptsRequireAllPremiumHardFactFields();
 testPremiumMarkdownRendersNewHardFactsInFormalCard();
@@ -624,5 +657,6 @@ testPremiumDeliveryRequiresMultipleChinaCardsWhenCandidatesAreAvailable();
 testLeadOnlyChinaCandidatesDoNotTriggerOrBackfillPremiumCard();
 testNonBeautyPlatformPenaltyCannotEnterPremiumCard();
 testAiInjectedBeautyWordingCannotMakeNonBeautyPenaltyRelevant();
+testPortalPageCannotEnterPremiumCardEvenWithInjectedBeautyTerms();
 
 console.log('premium hard facts tests passed');
