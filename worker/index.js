@@ -2851,8 +2851,8 @@ export async function analyzeReportWithRecovery({
   const combinedRawReport = mergeModuleReports([primary.report, rescue.report], period);
   const combined = processAnalyzedReport(combinedRawReport, { candidates, sources, itemsPerModule });
   if (combined.audit.acceptedItems === 0 && (primary.audit.aiItems > 0 || rescue.audit.aiItems > 0)) {
-    throw new Error(
-      `Report technical collapse: AI produced ${primary.audit.aiItems + rescue.audit.aiItems} items but none survived source, structure, and quality gates`,
+    logger.warn(
+      `[stage 2/5] Report technical collapse: AI produced ${primary.audit.aiItems + rescue.audit.aiItems} items but none survived source, structure, and quality gates; continue to final candidate quality gate`,
     );
   }
   const addedItems = combined.audit.acceptedItems > primary.audit.acceptedItems;

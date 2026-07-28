@@ -927,7 +927,7 @@ function fallbackChinaCandidateCards(candidates = [], maxItems = 3) {
 
 function isPremiumCandidateEligible(candidate = {}) {
   const grade = text(candidate.evidence_grade);
-  if (grade && grade !== 'hard_fact_ready') return false;
+  if (grade === 'reject') return false;
   if (grade === 'hard_fact_ready') return true;
   const card = premiumCardFromCandidate(candidate);
   return isSampleGradeCard(card);

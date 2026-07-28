@@ -2396,7 +2396,7 @@ async function testAnalyzeReportWithRecoveryContinuesBelowEightQualityItems() {
   assert.equal(rescueCalls, 1);
 }
 
-async function testAnalyzeReportWithRecoveryRejectsTechnicalCollapse() {
+async function testAnalyzeReportWithRecoveryDefersTechnicalCollapseToFinalGate() {
   const primary = highQualityFixtureReport();
   const emptyRescue = {
     period: sampleReport.period,
@@ -2404,19 +2404,21 @@ async function testAnalyzeReportWithRecoveryRejectsTechnicalCollapse() {
     risk_alerts: [],
     sections: REPORT_MODULES.map(module => ({ module, items: [] })),
   };
+  const warnings = [];
 
-  await assert.rejects(
-    () => analyzeReportWithRecovery({
-      candidates: [{ url: 'https://different.example/source' }],
-      leads: [],
-      sources: [],
-      period: sampleReport.period,
-      analyzePrimary: async () => primary,
-      analyzeRescue: async () => emptyRescue,
-      logger: { info() {}, warn() {} },
-    }),
-    /technical collapse/i,
-  );
+  const result = await analyzeReportWithRecovery({
+    candidates: [{ url: 'https://different.example/source' }],
+    leads: [],
+    sources: [],
+    period: sampleReport.period,
+    analyzePrimary: async () => primary,
+    analyzeRescue: async () => emptyRescue,
+    logger: { info() {}, warn(message) { warnings.push(String(message)); } },
+  });
+
+  assert.equal(result.mode, 'no-update');
+  assert.equal(result.audit.acceptedItems, 0);
+  assert.ok(warnings.some(message => /technical collapse/i.test(message)));
 }
 
 async function testDeepseekRescueAnalyzeUsesObservedCandidateIdentity() {
@@ -4878,7 +4880,7 @@ testCurateReportQualityAuditExplainsRejectedItems();
 await testAnalyzeReportWithRecoveryUsesOneRescuePass();
 await testAnalyzeReportWithRecoverySupplementsSparseWatchOnlyReport();
 await testAnalyzeReportWithRecoveryContinuesBelowEightQualityItems();
-await testAnalyzeReportWithRecoveryRejectsTechnicalCollapse();
+await testAnalyzeReportWithRecoveryDefersTechnicalCollapseToFinalGate();
 await testDeepseekRescueAnalyzeUsesObservedCandidateIdentity();
 await testDeepseekRescueAnalyzeRejectsIncompleteCandidateDecisions();
 testRescueEvidenceCandidatesPreserveModuleDiversity();

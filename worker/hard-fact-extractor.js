@@ -317,7 +317,7 @@ export function gradeEvidence({ text: textValue = '', hard_facts: hardFacts = {}
     return { evidence_grade: 'attachment_pending', evidence_reason: 'attachment-without-text', evidence_quotes: {} };
   }
   const hardCount = objectiveHardFactCount(facts);
-  if (hardCount >= 2 && hasHardLegalEvent(`${title} ${source} ${source_name} ${country}`, facts)) {
+  if (hardCount >= 1 && hasHardLegalEvent(`${title} ${source} ${source_name} ${country}`, facts)) {
     return { evidence_grade: 'hard_fact_ready', evidence_reason: `hard-facts=${hardCount}`, evidence_quotes: evidenceQuotes(source, facts) };
   }
   if (/征求意见|行政处罚|公告|附件|处罚决定|海关|进口|商标|侵权/.test(`${title} ${source}`)) {
