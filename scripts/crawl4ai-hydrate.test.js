@@ -43,14 +43,25 @@ function testEvidenceStatsExposeChinaHardFactReady() {
 function testCrawl4AiScriptDiscoversHardDetailLinksFromLeadPages() {
   const source = readFileSync(new URL('./crawl4ai-hydrate.js', import.meta.url), 'utf8');
   assert.match(source, /extract_detail_urls/);
-  for (const keyword of ['行政处罚', '处罚决定', '征求意见', '商标', '海关', '进口', 'HS']) {
+  for (const keyword of ['行政处罚', '处罚决定', '征求意见', '商标', '海关', '进口', 'HS', '化妆品', '功效宣称', '备案', '标签']) {
     assert.ok(source.includes(keyword), `missing hard detail keyword: ${keyword}`);
   }
   assert.match(source, /CRAWL4AI_DETAIL_LINK_LIMIT/);
 }
 
+function testManualWorkflowHydratesEnoughChinaAuthoritySources() {
+  const hydrateSource = readFileSync(new URL('./crawl4ai-hydrate.js', import.meta.url), 'utf8');
+  const workflow = readFileSync(new URL('../.github/workflows/weekly.yml', import.meta.url), 'utf8');
+
+  assert.match(hydrateSource, /CRAWL4AI_PREVIEW_LIMIT \|\| 39/);
+  assert.match(hydrateSource, /CRAWL4AI_DETAIL_LINK_LIMIT", "12"/);
+  assert.match(workflow, /CRAWL4AI_DETAIL_LINK_LIMIT:\s*12/);
+  assert.match(workflow, /--limit 39/);
+}
+
 testAnnotatesHydratedRecordsWithEvidenceGrades();
 testEvidenceStatsExposeChinaHardFactReady();
 testCrawl4AiScriptDiscoversHardDetailLinksFromLeadPages();
+testManualWorkflowHydratesEnoughChinaAuthoritySources();
 
 console.log('crawl4ai hydrate tests passed');

@@ -58,7 +58,7 @@ except Exception as exc:
 spec = json.loads(${JSON.stringify(JSON.stringify(spec))})
 base_directory = os.getenv("CRAWL4_AI_BASE_DIRECTORY", ${JSON.stringify('/private/tmp/beauty-legal-bot-crawl4ai')})
 attachment_limit = max(0, int(os.getenv("CRAWL4AI_ATTACHMENT_LIMIT", ${JSON.stringify(Number.isFinite(attachmentLimit) ? Math.max(0, attachmentLimit) : 3)})))
-detail_link_limit = max(0, int(os.getenv("CRAWL4AI_DETAIL_LINK_LIMIT", "4")))
+detail_link_limit = max(0, int(os.getenv("CRAWL4AI_DETAIL_LINK_LIMIT", "12")))
 
 def text_value(value):
     return value if isinstance(value, str) else ""
@@ -82,16 +82,17 @@ def extract_attachment_urls(markdown, base_url):
 
 def extract_detail_urls(markdown, base_url):
     source = text_value(markdown)
+    beauty_pattern = re.compile(r"化妆品|美妆|护肤|彩妆|香水|防晒|染发|着色剂|功效宣称|备案|注册人|标签|包装|配方|原料|成分", re.I)
     hard_pattern = re.compile(r"行政处罚|处罚决定|典型案例|征求意见|公告|通告|标准|新旧衔接|商标|专利|侵权|海关|进口|出口|HS\\s*编码|附件|pdf|xlsx?", re.I)
     urls = []
     for match in re.finditer(r"\\[([^\\]]{2,120})\\]\\(([^)]+)\\)", source, flags=re.I):
         label = match.group(1) or ""
         href = match.group(2) or ""
-        if hard_pattern.search(label) or hard_pattern.search(href):
+        if (beauty_pattern.search(label) or beauty_pattern.search(href)) and (hard_pattern.search(label) or hard_pattern.search(href)):
             urls.append((label, href))
     for match in re.finditer(r"https?://[^\\s)]+", source, flags=re.I):
         href = match.group(0)
-        if hard_pattern.search(href):
+        if beauty_pattern.search(href) and hard_pattern.search(href):
             urls.append((href, href))
     seen = set()
     normalized = []
@@ -371,7 +372,7 @@ async function main() {
 
   const loaded = await loadInput(resolve(input));
   const manualPreviewLimit = process.env.GITHUB_EVENT_NAME === 'workflow_dispatch'
-    ? Number(process.env.CRAWL4AI_PREVIEW_LIMIT || 24)
+    ? Number(process.env.CRAWL4AI_PREVIEW_LIMIT || 39)
     : 0;
   const effectivePageTimeoutMs = manualPreviewLimit > 0
     ? Math.min(Number(pageTimeoutMs) || 20000, Number(process.env.CRAWL4AI_PREVIEW_TIMEOUT_MS || 12000))

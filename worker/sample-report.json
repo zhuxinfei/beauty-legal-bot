@@ -1,7 +1,7 @@
 {
   "period": {
-    "start": "2026-05-18",
-    "end": "2026-05-24"
+    "start": "2026-07-18",
+    "end": "2026-07-24"
   },
   "summary": [
     "印尼 BPOM 化妆品清真认证节点临近，进口 SKU 需要优先排查认证状态。",
@@ -45,7 +45,7 @@
           },
           "source_name": "BPOM",
           "source_url": "https://www.pom.go.id/",
-          "published_at": "2026-05-21",
+          "published_at": "2026-07-21",
           "status": "生效提醒",
           "effective_date": "2026-10-17",
           "feedback_deadline": "未知",
@@ -125,7 +125,7 @@
           },
           "source_name": "上海市监局",
           "source_url": "https://scjgj.sh.gov.cn/",
-          "published_at": "2026-05-20",
+          "published_at": "2026-07-20",
           "case_type": "行政处罚",
           "parties": "某美妆经营主体",
           "facts": [

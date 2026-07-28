@@ -6,6 +6,15 @@ on:
     # 00:17 UTC = Monday 08:17 in Asia/Shanghai.
     - cron: '17 0 * * 1'
   workflow_dispatch:
+    inputs:
+      allow_duplicate_debug:
+        description: '调试阶段允许重复推送'
+        required: false
+        default: 'false'
+        type: choice
+        options:
+          - 'false'
+          - 'true'
 
 permissions:
   contents: write
@@ -34,7 +43,8 @@ jobs:
       SOURCE_HYDRATION_FILE: out/hydrated-authority.json
       CRAWL4_AI_BASE_DIRECTORY: /tmp/beauty-legal-bot-crawl4ai
       CRAWL4AI_ATTACHMENT_LIMIT: 2
-      FORCE_DELIVERY: ${{ github.event_name == 'workflow_dispatch' && '1' || '0' }}
+      CRAWL4AI_DETAIL_LINK_LIMIT: 12
+      FORCE_DELIVERY: ${{ github.event_name == 'workflow_dispatch' && inputs.allow_duplicate_debug == 'true' && '1' || '0' }}
       DINGTALK_WEBHOOK_URL: ${{ secrets.DINGTALK_WEBHOOK_URL }}
       DINGTALK_SECRET: ${{ secrets.DINGTALK_SECRET }}
       FEISHU_WEBHOOK_URL: ${{ secrets.FEISHU_WEBHOOK_URL }}
@@ -74,7 +84,7 @@ jobs:
             --python python \
             --input worker/sources.json \
             --output "$SOURCE_HYDRATION_FILE" \
-            --limit 24 \
+            --limit 39 \
             --page-timeout-ms 25000 \
             --attachment-limit "$CRAWL4AI_ATTACHMENT_LIMIT"
           node -e "const fs=require('fs'); const p=JSON.parse(fs.readFileSync(process.env.SOURCE_HYDRATION_FILE,'utf8')); const rows=(p.records||[]); console.log('hydrated records=' + rows.length + ', withText=' + rows.filter(r => (r.article_text||r.raw_markdown||r.fit_markdown||'').length > 0).length + ', attachments=' + rows.reduce((s,r)=>s+(r.attachment_urls||[]).length,0));"

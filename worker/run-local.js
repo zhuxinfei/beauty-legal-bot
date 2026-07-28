@@ -42,7 +42,7 @@ const env = {
   REPORT_TARGET_ITEMS: manualPreview ? '4' : process.env.REPORT_TARGET_ITEMS || '8',
   MIN_SOURCE_COVERAGE: process.env.MIN_SOURCE_COVERAGE || '0.9',
   MIN_CHINA_CRITICAL_COVERAGE: process.env.MIN_CHINA_CRITICAL_COVERAGE || '0.9',
-  FORCE_DELIVERY: process.env.FORCE_DELIVERY || '0',
+  FORCE_DELIVERY: process.env.FORCE_DELIVERY || (manualPreview ? '1' : '0'),
   DETAIL_FETCH_ENABLED: process.env.DETAIL_FETCH_ENABLED || '1',
   DETAIL_CANDIDATE_LIMIT: manualPreview ? '18' : process.env.DETAIL_CANDIDATE_LIMIT || '48',
   DETAIL_FETCH_TIMEOUT_MS: process.env.DETAIL_FETCH_TIMEOUT_MS || '12000',

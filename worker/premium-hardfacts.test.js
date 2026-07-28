@@ -543,6 +543,56 @@ function testLeadOnlyChinaCandidatesDoNotTriggerOrBackfillPremiumCard() {
   assert.doesNotMatch(delivery.messages[0].markdown, /欢迎访问中华商标网/);
 }
 
+function testPremiumDeliveryDoesNotFillChinaShortfallWithForeignCards() {
+  const chinaItem = {
+    title: '化妆品标准新规征求意见，明确标准执行和新旧衔接',
+    source_url: 'https://www.nmpa.gov.cn/xxgk/zhqyj/20260724.html',
+    source_name: '国家药品监督管理局',
+    source_type: 'official_site',
+    authority_type: 'regulator',
+    published_at: '2026-07-24',
+    country: '中国',
+    fact_summary: ['国家药监局就化妆品标准管理规则征求意见，正文涉及标准执行、新旧标准衔接和企业参与标准制修订渠道。'],
+    legal_signal: '征求意见稿把化妆品标准执行、新旧衔接和企业参与标准制修订渠道写入制度安排。',
+    business_impact: '影响配方开发、检验依据、标签备案引用标准、质量放行和进口备案资料引用标准。',
+    next_observation: ['观察正式稿发布日期、反馈截止日、过渡期安排和企业参与标准制修订的申报入口。'],
+    hard_facts: {
+      authority: '国家药品监督管理局',
+      document_number: '征求意见稿',
+      deadline: '2026年7月30日',
+      affected_processes: ['配方开发', '标签备案', '执行标准选择'],
+    },
+  };
+  const foreignItems = [1, 2].map(index => ({
+    title: `美国 FDA 化妆品监管事项 ${index}`,
+    source_url: `https://www.fda.gov/cosmetics/${index}`,
+    source_name: '美国 FDA',
+    source_type: 'official_site',
+    authority_type: 'regulator',
+    published_at: '2026-07-24',
+    country: '美国',
+    fact_summary: [`美国 FDA 披露化妆品监管事项 ${index}，涉及标签、报告、召回和渠道处置。`],
+    legal_signal: '美国渠道化妆品监管事项。',
+    business_impact: '影响美国渠道 SKU、标签、召回、质量放行和平台店铺。',
+    next_observation: ['观察 FDA 后续正式文件和执行口径。'],
+    hard_facts: {
+      authority: '美国 FDA',
+      effective_date: '2026-07-24',
+      affected_processes: ['美国渠道', '标签', '质量放行'],
+    },
+  }));
+
+  const delivery = buildPremiumDingTalkDelivery({
+    period: { start: '2026-07-22', end: '2026-07-28' },
+    sections: [{ module: '新规及案例动态', items: [chinaItem, ...foreignItems] }],
+  }, { candidates: [chinaItem], maxItems: 3 });
+
+  assert.equal(delivery.audit.finalChinaItems, 1);
+  assert.equal(delivery.audit.finalItems, 1);
+  assert.equal(delivery.audit.chinaShortfall, true);
+  assert.doesNotMatch(delivery.messages[0].markdown, /美国 FDA 化妆品监管事项/);
+}
+
 function testNonBeautyPlatformPenaltyCannotEnterPremiumCard() {
   const delivery = buildPremiumDingTalkDelivery({
     period: { start: '2026-07-21', end: '2026-07-27' },

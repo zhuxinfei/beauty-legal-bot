@@ -84,7 +84,14 @@ function extractCompanyNames(value = '') {
 
 function isVagueInvolvedParty(value = '') {
   const source = text(value);
-  return !source || /^(?:涉案|相关|部分|多家|两家|若干|某些|有关)?(?:主体|商家|企业|公司|经营者|经营主体|美妆企业|化妆品企业)$/.test(source);
+  return !source
+    || /原文未披露|未披露|未明确|待明确|未知/.test(source)
+    || /^(?:涉案|相关|部分|多家|两家|若干|某些|有关)?(?:主体|商家|企业|公司|经营者|经营主体|美妆企业|化妆品企业)$/.test(source);
+}
+
+function meaningfulInvolvedParty(value = '') {
+  const source = hardText(value);
+  return source && !isVagueInvolvedParty(source) ? source : '';
 }
 
 function hardText(value) {
@@ -156,6 +163,28 @@ function firstMatch(value, patterns) {
   return '';
 }
 
+function isoDate(value = '') {
+  const source = text(value);
+  const iso = source.match(/20\d{2}-\d{1,2}-\d{1,2}/)?.[0];
+  if (iso) {
+    const [year, month, day] = iso.split('-').map(Number);
+    return `${year}-${String(month).padStart(2, '0')}-${String(day).padStart(2, '0')}`;
+  }
+  const cn = source.match(/(20\d{2})年(\d{1,2})月(\d{1,2})日?/);
+  if (cn) {
+    return `${cn[1]}-${String(Number(cn[2])).padStart(2, '0')}-${String(Number(cn[3])).padStart(2, '0')}`;
+  }
+  return '';
+}
+
+function candidateDisplayDate(candidate = {}, hardFacts = {}, source = '') {
+  return isoDate(candidate.published_at)
+    || isoDate(candidate.updated_at)
+    || isoDate(hardFacts.effective_date)
+    || isoDate(hardFacts.deadline)
+    || isoDate(source);
+}
+
 function inferViolationBehavior(value) {
   const source = text(value);
   return firstMatch(source, [
@@ -182,9 +211,7 @@ function withInferredHardFacts(hardFacts, card) {
     card.evidence_text,
     card.title,
     card.facts,
-    card.legal_signal,
     card.business_impact,
-    card.recommended_action,
   ].flat().join('。');
   const companyNames = extractCompanyNames(source);
   const needsPartyDisclosure = ['广告处罚案例', '知识产权保护或者侵权'].includes(normalizeModule(card.module));
@@ -217,18 +244,18 @@ function objectiveHardFactCount(hardFacts = {}) {
     hardFacts.confiscation_result,
     hardFacts.legal_basis,
     hardFacts.violation_behavior,
-    hardFacts.involved_party,
+    meaningfulInvolvedParty(hardFacts.involved_party),
     hardFacts.product_or_batch,
     hardFacts.hs_code,
     hardFacts.effective_date,
     hardFacts.deadline,
     hardFacts.feedback_channel,
-  ].filter(value => text(value)).length;
+  ].filter(value => hardText(value)).length;
 }
 
 function hasHardLegalEvent(card) {
   const hard = card.hard_facts || {};
-  const source = sourceTextForCard(card);
+  const source = factualEvidenceTextForCard(card);
   if (hard.document_number || hard.penalty_amount || hard.legal_basis || hard.effective_date || hard.deadline || hard.hs_code) return true;
   if (objectiveHardFactCount(hard) >= 2 && HARD_LEGAL_EVENT_PATTERN.test(source)) return true;
   return HARD_LEGAL_EVENT_PATTERN.test([card.title, card.facts].flat().join(' '));
@@ -317,7 +344,7 @@ function impactSignalScore(card) {
   if (/商标|专利|著作权|知识产权|侵权|冒用|假冒|仿冒/i.test(source)) score += 18;
   if (/处罚|罚款|行政处罚|判决|裁定|典型案例|违法/i.test(source)) score += 18;
   if (/强制性标准|禁用|限用|生效|截止|征求意见|备案|注册|海关|HS\s*编码|进口|出口/i.test(source)) score += 12;
-  if (hard.involved_party) score += 8;
+  if (meaningfulInvolvedParty(hard.involved_party)) score += 8;
   if (hard.legal_basis) score += 8;
   if (hard.product_or_batch) score += 8;
   if ((hard.affected_processes || []).length) score += Math.min(12, hard.affected_processes.length * 3);
@@ -332,6 +359,14 @@ function sourceTextForCard(card) {
     card.legal_signal,
     card.business_impact,
     card.recommended_action,
+  ].flat().join('。');
+}
+
+function factualEvidenceTextForCard(card) {
+  return [
+    card.evidence_text,
+    card.title,
+    card.facts,
   ].flat().join('。');
 }
 
@@ -357,7 +392,7 @@ function isBeautyRelevantCard(card = {}) {
 
 function validateTypeHardFacts(card) {
   const hard = card.hard_facts || {};
-  const source = sourceTextForCard(card);
+  const source = factualEvidenceTextForCard(card);
   const module = normalizeModule(card.module);
 
   if (module === '新法律法规政策') {
@@ -371,13 +406,13 @@ function validateTypeHardFacts(card) {
   }
 
   if (module === '广告处罚案例') {
-    const hasResult = Boolean(hard.penalty_amount || hard.legal_basis || hard.involved_party || hard.product_or_batch)
+    const hasResult = Boolean(hard.penalty_amount || hard.legal_basis || meaningfulInvolvedParty(hard.involved_party) || hard.product_or_batch)
       || /(罚款|处罚|没收|罚没|责令|违法所得|吊销|停止发布|停止销售)/.test(source);
     if (!hasResult) return 'case-missing-hard-result';
   }
 
   if (module === '知识产权保护或者侵权') {
-    const hasParty = Boolean(hard.involved_party) || /(权利人|当事人|公司|企业|品牌|原告|被告)/.test(source);
+    const hasParty = Boolean(meaningfulInvolvedParty(hard.involved_party)) || /(权利人|当事人|公司|企业|品牌|原告|被告)/.test(source);
     const hasRight = /(商标|专利|著作权|版权|外观设计|爱马仕|PRO-XYLANE|玻色因)/i.test(source);
     const hasResult = Boolean(hard.penalty_amount || hard.legal_basis) || /(罚款|处罚|没收|判决|裁定|赔偿|侵权|冒用|假冒)/.test(source);
     if (!hasParty || !hasRight || !hasResult) return 'ip-missing-right-or-result';
@@ -770,17 +805,30 @@ export function assertPremiumChinaDelivery(audit = {}, { allowForeignOnly = fals
 
 function cardsForPremiumDelivery(cards) {
   const selected = selectPremiumEvidenceCards(cards, { maxItems: cards.length || 0, minItems: 0 });
-  return backfillChinaCoverage(selected, cards);
+  return backfillChinaCoverage(selected, cards, cards.length || 0);
 }
 
-function backfillChinaCoverage(selected = [], sourceCards = []) {
-  if (!selected.length || selected.some(isChinaCard)) return selected;
+function backfillChinaCoverage(selected = [], sourceCards = [], maxItems = 6) {
+  if (!selected.length) return selected;
+  const requiredChinaItems = requiredChinaItemCount(
+    sourceCards
+      .filter(card => isSampleGradeCard(card))
+      .map(card => ({ country: card.country })),
+    maxItems || sourceCards.length || selected.length
+  );
+  if (!requiredChinaItems || selected.filter(isChinaCard).length >= requiredChinaItems) return selected;
   const selectedKeys = new Set(selected.map(card => `${card.source_url.toLowerCase()}|${card.title.replace(/\s+/g, '')}`));
-  const chinaFallback = fallbackEvidenceCards(sourceCards, sourceCards.length || 1)
+  const chinaFallbacks = fallbackEvidenceCards(sourceCards, sourceCards.length || 1)
     .filter(isChinaCard)
-    .find(card => !selectedKeys.has(`${card.source_url.toLowerCase()}|${card.title.replace(/\s+/g, '')}`));
-  if (!chinaFallback) return selected;
-  return [...selected, chinaFallback].sort(compareSelectionCards);
+    .filter(card => !selectedKeys.has(`${card.source_url.toLowerCase()}|${card.title.replace(/\s+/g, '')}`));
+  if (!chinaFallbacks.length) return selected;
+  const combined = [...selected];
+  for (const chinaFallback of chinaFallbacks) {
+    if (combined.filter(isChinaCard).length >= requiredChinaItems) break;
+    combined.push(chinaFallback);
+    selectedKeys.add(`${chinaFallback.source_url.toLowerCase()}|${chinaFallback.title.replace(/\s+/g, '')}`);
+  }
+  return combined.sort(compareSelectionCards);
 }
 
 function candidateEvidenceText(candidate = {}) {
@@ -850,7 +898,7 @@ function premiumCardFromCandidate(candidate = {}) {
     source_name: text(candidate.source_name || candidate.name),
     source_type: text(candidate.source_type),
     authority_type: text(candidate.authority_type),
-    published_at: text(candidate.published_at),
+    published_at: candidateDisplayDate(candidate, { ...(candidate.hard_facts || {}), ...extractedFacts }, source),
     country: text(candidate.country || candidate.region || '未知'),
     facts: [firstEvidenceSentence(source)].filter(Boolean),
     legal_signal: candidateLegalSignal(module, source),
@@ -873,7 +921,6 @@ function fallbackChinaCandidateCards(candidates = [], maxItems = 3) {
   const cards = candidates
     .filter(isPremiumCandidateEligible)
     .filter(candidate => /中国/.test(text(candidate.country || candidate.region)) || candidate.china_relevant === true)
-    .filter(candidate => text(candidate.detail_status) === 'hydrated' || candidateEvidenceText(candidate).length >= 80)
     .map(premiumCardFromCandidate);
   return fallbackEvidenceCards(cards, maxItems).filter(isChinaCard);
 }
@@ -936,5 +983,9 @@ function backfillChinaFromCandidates(cards = [], candidates = [], maxItems = 6) 
     if (removableIndex === undefined) break;
     combined.splice(removableIndex, 1);
   }
-  return combined.slice(0, maxItems).sort(compareSelectionCards);
+  combined = combined.slice(0, maxItems).sort(compareSelectionCards);
+  if (combined.filter(isChinaCard).length < requiredChinaItems) {
+    return combined.filter(isChinaCard).slice(0, maxItems).sort(compareSelectionCards);
+  }
+  return combined;
 }
