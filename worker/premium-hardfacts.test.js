@@ -837,6 +837,101 @@ function testSamrPortalDumpCannotEnterPremiumCardWithMixedIndustries() {
   assert.equal(delivery.messages.length, 0);
 }
 
+function testGenericTrademarkCampaignCannotEnterWithoutBeautyEvidence() {
+  const delivery = buildPremiumDingTalkDelivery({
+    period: { start: '2026-07-22', end: '2026-07-28' },
+    sections: [{
+      module: '知识产权动态',
+      items: [{
+        title: 'begin-->内蒙古自治区市场监督管理局（知识产权局）在全区开展商标行政保护专项行动 end-->',
+        source_url: 'https://www.cnipa.gov.cn/art/2026/7/22/art_57_207337.html',
+        source_name: '国家知识产权局',
+        source_type: 'official_site',
+        authority_type: 'regulator',
+        published_at: '2026-07-22',
+        country: '中国',
+        fact_summary: ['自今年7月起，内蒙古自治区市场监督管理局（知识产权局）在全区开展商标行政保护专项行动，全面筑牢商标行政保护屏障。'],
+        legal_signal: '执法趋势：中国来源披露商标、专利、著作权或品牌资产保护相关风险。',
+        business_impact: '影响中国市场美妆业务的商标授权、包装设计、达人素材、平台店铺。',
+        next_observation: ['观察同类事项在处罚决定、行政复议、诉讼和平台治理中的后续公开。'],
+        hard_facts: {
+          authority: '国家知识产权局',
+          legal_basis: '《2026年内蒙古自治区商标行政保护专项行动方案》',
+          affected_processes: ['商标授权', '包装设计', '达人素材', '平台店铺'],
+        },
+      }],
+    }],
+  }, { candidates: [], maxItems: 6 });
+
+  assert.equal(delivery.audit.finalItems, 0);
+  assert.equal(delivery.messages.length, 0);
+}
+
+function testGenericTrademarkLawTextCannotEnterWithoutBeautyEvidence() {
+  const delivery = buildPremiumDingTalkDelivery({
+    period: { start: '2026-07-22', end: '2026-07-28' },
+    sections: [{
+      module: '知识产权动态',
+      items: [{
+        title: '中华人民共和国商标法',
+        source_url: 'https://www.gippc.com.cn/ippc/zcfg/202607/f6e90f0c88c448128af8a8874920e011.shtml',
+        source_name: '广东省知识产权保护中心',
+        source_type: 'official_site',
+        authority_type: 'regulator',
+        published_at: '2026-07-20',
+        country: '中国',
+        fact_summary: ['中华人民共和国商标法规定，没收侵权商品和主要用于制造侵权商品、伪造注册商标标识的工具，违法经营额五万元以上的，可以并处违法经营额五倍以下的罚款。'],
+        legal_signal: '风险案例：中国来源披露商标、专利、著作权或品牌资产保护相关风险。',
+        business_impact: '影响中国市场美妆业务的商标授权、包装设计、达人素材、平台店铺。',
+        next_observation: ['观察同类事项在处罚决定、行政复议、诉讼和平台治理中的后续公开。'],
+        hard_facts: {
+          authority: '广东省知识产权保护中心',
+          violation_behavior: '任何单位或者个人有权向负责商标管理工作、商标执法的部门投诉、举报',
+          confiscation_result: '没收侵权商品和主要用于制造侵权商品、伪造注册商标标识的工具',
+          legal_basis: '《中华人民共和国商标法》',
+          affected_processes: ['商标授权', '包装设计', '达人素材', '平台店铺'],
+        },
+      }],
+    }],
+  }, { candidates: [], maxItems: 6 });
+
+  assert.equal(delivery.audit.finalItems, 0);
+  assert.equal(delivery.messages.length, 0);
+}
+
+function testWeakLabelPackagingWordsCannotCreateBeautyRelevance() {
+  const delivery = buildPremiumDingTalkDelivery({
+    period: { start: '2026-07-22', end: '2026-07-28' },
+    sections: [{
+      module: '知识产权动态',
+      items: [{
+        title: '中华人民共和国商标法',
+        source_url: 'https://www.gippc.com.cn/ippc/zcfg/202607/f6e90f0c88c448128af8a8874920e011.shtml',
+        source_name: '广东省知识产权保护中心',
+        source_type: 'official_site',
+        authority_type: 'regulator',
+        published_at: '2026-07-20',
+        country: '中国',
+        fact_summary: ['商标法涉及商品包装、标签、注册、备案、服务质量和商标管理，违法经营额五万元以上的，可以并处违法经营额五倍以下的罚款。'],
+        legal_signal: '风险案例：中国来源披露商标、专利、著作权或品牌资产保护相关风险。',
+        business_impact: '影响中国市场美妆业务的商标授权、包装设计、达人素材、平台店铺。',
+        next_observation: ['观察同类事项在处罚决定、行政复议、诉讼和平台治理中的后续公开。'],
+        hard_facts: {
+          authority: '广东省知识产权保护中心',
+          violation_behavior: '商标管理相关投诉举报',
+          product_or_batch: '商品包装、标签、注册、备案',
+          confiscation_result: '没收侵权商品和工具',
+          legal_basis: '《中华人民共和国商标法》',
+          affected_processes: ['商标授权', '包装设计', '达人素材', '平台店铺'],
+        },
+      }],
+    }],
+  }, { candidates: [], maxItems: 6 });
+
+  assert.equal(delivery.audit.finalItems, 0);
+  assert.equal(delivery.messages.length, 0);
+}
+
 testHydrationExtractsActionableHardFacts();
 testFormalPromptsRequireAllPremiumHardFactFields();
 testPremiumMarkdownRendersNewHardFactsInFormalCard();
@@ -857,5 +952,8 @@ testNonBeautyPlatformPenaltyCannotEnterPremiumCard();
 testAiInjectedBeautyWordingCannotMakeNonBeautyPenaltyRelevant();
 testPortalPageCannotEnterPremiumCardEvenWithInjectedBeautyTerms();
 testSamrPortalDumpCannotEnterPremiumCardWithMixedIndustries();
+testGenericTrademarkCampaignCannotEnterWithoutBeautyEvidence();
+testGenericTrademarkLawTextCannotEnterWithoutBeautyEvidence();
+testWeakLabelPackagingWordsCannotCreateBeautyRelevance();
 
 console.log('premium hard facts tests passed');
