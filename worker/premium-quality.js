@@ -978,10 +978,15 @@ export function buildPremiumDingTalkDelivery(report, options = {}) {
     eligibleCandidateCards,
     Math.max(eligibleCandidates.length, maxItems)
   );
+  const strictCandidateCards = cardsForPremiumDelivery(
+    eligibleCandidateCards,
+    Math.max(eligibleCandidates.length, maxItems)
+  );
   const sourceOnlyCandidateCards = options.allowSourceOnlyFallback === true
     ? sourceOnlyFallbackCards(options.candidates || [], maxItems)
     : [];
   const candidateCards = uniqueCardsBySelectionKey([
+    ...strictCandidateCards,
     ...backfillableCandidateCards,
     ...sourceOnlyCandidateCards,
   ]);
@@ -991,7 +996,7 @@ export function buildPremiumDingTalkDelivery(report, options = {}) {
   const requiredChinaItems = requiredChinaItemCount(sampleCandidateCards, maxItems);
   if (cards.length < maxItems) {
     const selectedKeys = new Set(cards.map(cardSelectionKey));
-    for (const candidateCard of [...backfillableCandidateCards, ...sourceOnlyCandidateCards]) {
+    for (const candidateCard of [...strictCandidateCards, ...backfillableCandidateCards, ...sourceOnlyCandidateCards]) {
       if (cards.length >= maxItems) break;
       const key = cardSelectionKey(candidateCard);
       if (selectedKeys.has(key)) continue;
