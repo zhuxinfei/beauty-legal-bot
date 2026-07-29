@@ -4920,9 +4920,10 @@ function testHardFactAcquisitionRejectsPortalHomepages() {
 
 function testCheckedInCatalogMarksOnlyHardFactSourcesForFormalAcquisition() {
   const formalSources = sourceCatalog.sources.filter(isHardFactAcquisitionSource);
-  assert.ok(formalSources.length >= 2, 'expected checked-in hard fact list sources');
+  assert.ok(formalSources.length >= 4, 'expected checked-in hard fact endpoint and list sources');
   assert.ok(formalSources.every(source => source.source_scope === 'hard_fact_list' || source.source_scope === 'hard_fact_endpoint'));
   assert.equal(formalSources.some(source => isLikelyPortalUrl(source.url)), false);
+  assert.ok(formalSources.some(source => /202607211930582131911\.html/.test(source.url)), 'missing latest NIFDC hard fact endpoint');
   assert.ok(formalSources.some(source => /nifdc\.org\.cn/.test(source.url)), 'missing NIFDC cosmetic standards source');
   assert.ok(formalSources.some(source => /yjj\.scjgj\.fujian\.gov\.cn\/hzp\/jgdt/.test(source.url)), 'missing Fujian cosmetic regulatory updates source');
 }

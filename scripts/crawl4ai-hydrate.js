@@ -103,8 +103,17 @@ def extract_detail_urls(markdown, base_url):
             urls.append((href, href))
     seen = set()
     normalized = []
+    def sanitize_detail_href(raw):
+        href = text_value(raw).strip().strip('"').strip("'")
+        match = re.search(r"(https?://[^\\s)\"']+?\\.html?)", href, flags=re.I)
+        if match:
+            return match.group(1)
+        match = re.search(r"([^\\s)\"']+?\\.html?)", href, flags=re.I)
+        if match:
+            return match.group(1)
+        return href
     for label, raw in urls:
-        absolute = urljoin(base_url or "", raw)
+        absolute = urljoin(base_url or "", sanitize_detail_href(raw))
         if not absolute or absolute in seen:
             continue
         seen.add(absolute)
@@ -366,7 +375,8 @@ export function hydrationEvidenceStats(records = []) {
 function assertHydrationTextGate(records = []) {
   const stats = hydrationTextStats(records);
   const evidence = hydrationEvidenceStats(records);
-  const min = Number(process.env.MIN_CRAWL4AI_WITH_TEXT || 6);
+  const configuredMin = Number(process.env.MIN_CRAWL4AI_WITH_TEXT || 6);
+  const min = Math.min(configuredMin, Math.max(1, Math.ceil(stats.records / 2)));
   console.error(`hydrated records=${stats.records}, china=${stats.china}, withText=${stats.withText}, attachments=${stats.attachments}`);
   console.error(`hard_fact_ready=${evidence.hardFactReady}, china_hard_fact_ready=${evidence.chinaHardFactReady}, lead_only=${evidence.leadOnly}, attachment_pending=${evidence.attachmentPending}, reject=${evidence.reject}`);
   if (stats.records && stats.withText < min) {

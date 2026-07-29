@@ -1,6 +1,42 @@
 {
   "sources": [
     {
+      "id": "hardfact-cn-nifdc-cosmetic-pseudomonas-consultation-20260721",
+      "name": "中检院化妆品微生物标准征求意见",
+      "url": "https://www.nifdc.org.cn/directory/web/nifdc/bshff/hzhpbzh/hzhpbzhtzgg/202607211930582131911.html",
+      "source_scope": "hard_fact_endpoint",
+      "module": "新规及案例动态",
+      "region": "亚洲",
+      "country": "中国",
+      "source_type": "official_site",
+      "authority_type": "regulator",
+      "priority": "high",
+      "topics": [
+        "化妆品标准",
+        "征求意见",
+        "铜绿假单胞菌",
+        "耐热大肠菌群"
+      ]
+    },
+    {
+      "id": "hardfact-cn-nmpa-cosmetic-safety-technical-methods-20260529",
+      "name": "国家药监局化妆品安全技术规范检验方法公告",
+      "url": "https://www.nmpa.gov.cn/xxgk/ggtg/hzhpggtg/jmhzhptg/20260529150154170.html",
+      "source_scope": "hard_fact_endpoint",
+      "module": "新规及案例动态",
+      "region": "亚洲",
+      "country": "中国",
+      "source_type": "official_site",
+      "authority_type": "regulator",
+      "priority": "high",
+      "topics": [
+        "化妆品安全技术规范",
+        "公告",
+        "检验方法",
+        "国家药监局"
+      ]
+    },
+    {
       "id": "hardfact-cn-nifdc-cosmetic-standards-notices",
       "name": "中检院化妆品标准通知公告",
       "url": "https://www.nifdc.org.cn/directory/web/nifdc/bshff/hzhpbzh/hzhpbzhtzgg/index.html",
