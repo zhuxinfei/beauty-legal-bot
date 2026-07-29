@@ -1293,7 +1293,11 @@ export async function runPipeline(env, requestUrl = 'https://beauty-legal-bot.wo
       ? "[stage 3/5] 生成单条原生 Markdown 报告..."
       : "[stage 3/5] 无准入事项，生成文字简报...");
     const generatedAt = new Date().toISOString();
-    const premiumDelivery = buildPremiumDingTalkDelivery(report, { candidates });
+    const premiumCandidates = uniqueCandidatesByUrl([
+      ...candidates,
+      ...hydratedCandidates.filter(candidate => candidate.evidence_grade === 'hard_fact_ready'),
+    ]);
+    const premiumDelivery = buildPremiumDingTalkDelivery(report, { candidates: premiumCandidates });
     const previewMessages = premiumDelivery.messages;
     const markdown = previewMessages.map(message => message.markdown).join('\n\n---\n\n');
     console.log(`[stage 3/5] 精品卡验收：中国候选 ${premiumDelivery.audit.candidateChinaItems}/${premiumDelivery.audit.candidateItems}，中国准入 ${premiumDelivery.audit.reportChinaItems}/${premiumDelivery.audit.reportItems}，中国入卡 ${premiumDelivery.audit.finalChinaItems}/${premiumDelivery.audit.finalItems}`);
@@ -2745,6 +2749,18 @@ function normalizeSourceUrl(url) {
   } catch {
     return raw.replace(/\/$/, '');
   }
+}
+
+function uniqueCandidatesByUrl(candidates = []) {
+  const seen = new Set();
+  const result = [];
+  for (const candidate of candidates) {
+    const key = normalizeSourceUrl(candidate.url || candidate.source_url || candidate.final_url || candidate.title);
+    if (!key || seen.has(key)) continue;
+    seen.add(key);
+    result.push(candidate);
+  }
+  return result;
 }
 
 function sourceIdentityKey(url) {
