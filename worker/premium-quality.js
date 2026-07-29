@@ -24,10 +24,11 @@ const REPUBLISHER_HOST_PATTERN = /(?:^|\.)((?:sohu|163|sina|qq|toutiao|baijiahao
 const MEDIA_SOURCE_TYPES = new Set(['industry_media', 'media', 'wechat_lead', 'wechat_public_account']);
 const NAVIGATION_TITLE_PATTERN = /^(?:(?:欢迎访问|欢迎来到).+|(?:网站首页|首页|站点导航|登录|注册|搜索|联系我们|栏目|专题|新闻中心|通知公告|工作动态|化妆品|Cosmetics|Home|Welcome|Menu|Search)(?:$|[\s｜|:：_-].*))/i;
 const GENERIC_INFO_PAGE_PATTERN = /(?:安全使用|消费者提示|消费提示|使用提示|科普|问答|常见问题|指南页面|专题页|栏目页|监管入口|信息入口|Q&A|questions?\s+and\s+answers?|how\s+to\s+use|safe\s+use|cosmetics\s+safety)/i;
-const PORTAL_EVIDENCE_PATTERN = /(?:\* \[新闻\]|\* \[首页\]|javascript:void|司局介绍|时政要闻|地方\]\(|媒体聚焦|重要政策举措及实施效果|召回查询|信息查询平台|注册管理信息系统)/i;
+const PORTAL_EVIDENCE_PATTERN = /(?:\* \[新闻\]|\* \[首页\]|javascript:void|司局介绍|时政要闻|地方\]\(|媒体聚焦|重要政策举措及实施效果|召回查询|信息查询平台|注册管理信息系统|数据查询|产业创新|统计监控|快捷检索|高级检索|友情链接|用户需求与满意度调查|证明商标使用申请表|填写说明|查看更多|通知公告\s*更多)/i;
 const HARD_LEGAL_EVENT_PATTERN = /(?:文号|公告|通告|通报|征求意见|反馈截止|截止日期|截止|生效|实施|过渡期|新旧衔接|行政处罚|处罚决定|罚款|罚没|没收|违法所得|责令改正|吊销|停止销售|召回|警示信|warning\s+letter|判决|裁定|赔偿|侵权|冒用|假冒|刷单|虚假交易|商标|专利|著作权|海关|口岸|报关|清关|HS\s*编码|进口|出口|禁用|限用|15\s*个?工作日|serious\s+adverse\s+event|mandatory\s+report)/i;
 const BEAUTY_RELEVANCE_PATTERN = /(?:化妆品|美妆|护肤|彩妆|香水|口红|面膜|洗护|防晒|染发|染眉|染睫|美容|医美|祛斑|美白|功效宣称|玻色因|爱马仕|配方|着色剂|色素|进口化妆品|出口化妆品|化妆品标准|cosmetic|cosmetics|MoCRA|color additives?)/i;
 const GENERIC_NON_BEAUTY_PATTERN = /(?:在线酒店|酒店预订|机票|旅游|平台经济|外卖|网约车|金融监管|证券|外汇|房地产|教育培训|医疗器械|药品集采|保险|银行|携程|美团|阿里巴巴|腾讯|京东|滴滴)/i;
+const PREMIUM_JUNK_EVIDENCE_PATTERN = /(?:欢迎访问|通知公告\s*更多|首页\s+资讯中心|栏目导航|工作委员会|专业委员会名单|证明商标使用申请表|填写说明|粤港澳知识产权大数据综合服务平台|快捷检索|高级检索|友情链接|用户需求与满意度调查问卷|政府侧应用与数据需求调研问卷)/i;
 
 function text(value) {
   return String(value || '').replace(/\s+/g, ' ').trim();
@@ -262,12 +263,53 @@ function objectiveHardFactCount(hardFacts = {}) {
   ].filter(value => hardText(value)).length;
 }
 
+function hasConcreteDateAnchor(card = {}) {
+  const hard = card.hard_facts || {};
+  return /(?:20\d{2}[-年/.]\d{1,2}(?:[-月/.]\d{1,2})?|20\d{6})/.test(text([
+    card.published_at,
+    card.source_url,
+    hard.effective_date,
+    hard.deadline,
+    card.evidence_text,
+    card.facts,
+  ].flat().join(' ')));
+}
+
+function hasSampleGradeHardFactBundle(card = {}) {
+  const hard = card.hard_facts || {};
+  const module = normalizeModule(card.module);
+  const source = factualEvidenceTextForCard(card);
+  const hasAuthority = Boolean(hardText(hard.authority) || hardText(card.source_name));
+  const hasParty = Boolean(meaningfulInvolvedParty(hard.involved_party) || extractCompanyNames(source).length);
+  const hasAct = Boolean(hardText(hard.violation_behavior) || /违法事实|侵权使用|刷单|冒用|假冒|虚假交易|违反|被处罚|处罚金额|罚款/.test(source));
+  const hasOutcome = Boolean(hardText(hard.penalty_amount) || hardText(hard.confiscation_result));
+  const hasRuleBasis = Boolean(hardText(hard.legal_basis) || hardText(hard.document_number));
+  const hasPolicyNode = Boolean(hardText(hard.document_number) || hardText(hard.effective_date) || hardText(hard.deadline) || hardText(hard.feedback_channel));
+  const hasProductOrFlow = Boolean(hardText(hard.product_or_batch) || hard.affected_processes?.length);
+
+  if (!hasAuthority || !hasConcreteDateAnchor(card)) return false;
+  if (['广告处罚案例', '知识产权保护或者侵权'].includes(module)) {
+    return hasParty && hasAct && (hasOutcome || hasRuleBasis) && hasProductOrFlow;
+  }
+  if (module === '产品质量/召回与安全风险') {
+    return hasProductOrFlow && (hasOutcome || hasAct || hasPolicyNode) && /召回|停止销售|抽检|不合格|污染|警示|warning|recall|adverse|contamination/i.test(source);
+  }
+  if (module === '新法律法规政策') {
+    return hasPolicyNode && hasProductOrFlow && /征求意见|反馈截止|生效|实施|过渡期|新旧衔接|发布|公告|通告|修订|标准|规则|办法|条例|法案|requirement|regulation|rule/i.test(source);
+  }
+  if (module === '进出口') {
+    return (hasPolicyNode || hardText(hard.hs_code) || hasOutcome) && hasProductOrFlow && /海关|进口|出口|口岸|报关|清关|HS\s*编码|扣留|detention/i.test(source);
+  }
+  return (hasPolicyNode || hasOutcome) && hasProductOrFlow;
+}
+
 function hasHardLegalEvent(card) {
   const hard = card.hard_facts || {};
   const source = factualEvidenceTextForCard(card);
-  if (hard.document_number || hard.penalty_amount || hard.legal_basis || hard.effective_date || hard.deadline || hard.hs_code) return true;
-  if (objectiveHardFactCount(hard) >= 2 && HARD_LEGAL_EVENT_PATTERN.test(source)) return true;
-  return HARD_LEGAL_EVENT_PATTERN.test([card.title, card.facts].flat().join(' '));
+  if (hasSampleGradeHardFactBundle(card)) return true;
+  if ((hard.penalty_amount || hard.confiscation_result) && meaningfulInvolvedParty(hard.involved_party) && hard.violation_behavior) return true;
+  if ((hard.document_number || hard.effective_date || hard.deadline || hard.hs_code) && objectiveHardFactCount(hard) >= 3 && HARD_LEGAL_EVENT_PATTERN.test(source)) return true;
+  return false;
 }
 
 function isNavigationOrGenericInformationPage(card) {
@@ -850,6 +892,7 @@ export function buildPremiumDingTalkDelivery(report, options = {}) {
     }
     cards.sort(compareSelectionCards);
   }
+  cards = cards.filter(isSampleGradeCard).slice(0, maxItems).sort(compareSelectionCards);
   const audit = {
     reportItems: reportCards.length,
     reportChinaItems: reportCards.filter(isChinaCard).length,
@@ -862,7 +905,7 @@ export function buildPremiumDingTalkDelivery(report, options = {}) {
     finalChinaSampleGradeItems: cards.filter(card => isChinaCard(card) && isSampleGradeCard(card)).length,
     sourceOnlyFallbackItems: cards.filter(card => card.source_only_fallback === true).length,
     requiredChinaItems,
-    requiredSampleGradeItems: cards.some(card => card.source_only_fallback === true) ? 0 : Math.min(3, cards.length),
+    requiredSampleGradeItems: Math.min(3, cards.length),
     chinaShortfall: candidateChinaItems > cards.filter(isChinaCard).length || backfillableChinaCandidateItems > cards.filter(isChinaCard).length,
   };
   if (!cards.length) return { messages: [], cards, audit };
@@ -1034,9 +1077,7 @@ function isSourceOnlyFallbackEligible(candidate = {}) {
   const source = sourceTextForCard(card);
   if (source.length < 80) return false;
   if (!BEAUTY_RELEVANCE_PATTERN.test(source) && !MODULE_ORDER.includes(normalizeModule(card.module))) return false;
-  if (isNavigationOrGenericInformationPage(card)) return false;
-  if (!hasHardLegalEvent(card)) return false;
-  return true;
+  return isSampleGradeCard(card);
 }
 
 function sourceOnlyFallbackCards(candidates = [], maxItems = 18) {
@@ -1084,10 +1125,11 @@ function isPremiumCandidateEligible(candidate = {}) {
 function isSampleGradeCard(card = {}) {
   const hardCount = objectiveHardFactCount(card.hard_facts || {});
   if (hardCount < 2) return false;
-  if (!hasHardLegalEvent(card)) return false;
+  if (!hasSampleGradeHardFactBundle(card)) return false;
   if (!isBeautyRelevantCard(card)) return false;
   if (isNavigationOrGenericInformationPage(card)) return false;
   if (/Crawl4AI|欢迎访问|专题页|入口页|监管入口|安全使用|消费者提示/i.test(sourceTextForCard(card))) return false;
+  if (PREMIUM_JUNK_EVIDENCE_PATTERN.test(sourceTextForCard(card))) return false;
   return true;
 }
 

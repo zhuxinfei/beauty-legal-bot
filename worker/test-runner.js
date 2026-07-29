@@ -1077,15 +1077,30 @@ function testPremiumDeliveryAuditRejectsForeignOnlyWhenChinaCandidatesExist() {
     }],
   };
 
-  const delivery = buildPremiumDingTalkDelivery(report, {
-    candidates: [{
-      country: '中国',
-      module: '知识产权动态',
-      evidence_grade: 'hard_fact_ready',
-      title: '广州妍瑟化妆品有限公司侵权玻色因商标并刷单，被罚17万元',
-      source_url: 'https://amr.example.gov.cn/case/pro-xylane-20260724',
-    }],
-  });
+	  const delivery = buildPremiumDingTalkDelivery(report, {
+	    candidates: [{
+	      country: '中国',
+	      module: '知识产权动态',
+	      evidence_grade: 'hard_fact_ready',
+	      title: '广州妍瑟化妆品有限公司侵权玻色因商标并刷单，被罚17万元',
+	      source_url: 'https://amr.example.gov.cn/case/pro-xylane-20260724',
+	      source_name: '广州市市场监督管理局',
+	      source_type: 'official_site',
+	      authority_type: 'regulator',
+	      published_at: '2026-07-24',
+	      detail_status: 'hydrated',
+	      article_text: '广州市市场监管部门披露广州妍瑟化妆品有限公司侵权使用玻色因相关商标并存在刷单行为，处罚金额17万元，影响成分卖点命名、商标授权、平台店铺运营和达人素材。',
+	      hard_facts: {
+	        authority: '广州市市场监督管理局',
+	        involved_party: '广州妍瑟化妆品有限公司',
+	        violation_behavior: '侵权使用玻色因相关商标并存在刷单行为',
+	        penalty_amount: '17万元',
+	        legal_basis: '《商标法》',
+	        product_or_batch: '含玻色因卖点的美妆商品',
+	        affected_processes: ['成分卖点命名', '商标授权', '平台店铺运营', '达人素材'],
+	      },
+	    }],
+	  });
 
   assert.equal(delivery.audit.candidateChinaItems, 1);
   assert.equal(delivery.audit.finalChinaItems, 1);
@@ -1122,12 +1137,11 @@ function testPremiumDeliveryBackfillsSourceOnlyCardsWhenAiRejectsAllItems() {
     sections: [],
   }, { candidates, maxItems: 18 });
 
-  assert.equal(delivery.audit.finalItems, 18);
-  assert.equal(delivery.audit.finalChinaItems, 18);
-  assert.equal(delivery.audit.sourceOnlyFallbackItems, 18);
-  assert.doesNotThrow(() => assertPremiumChinaDelivery(delivery.audit));
-  assert.match(delivery.messages[0].markdown, /来源信号/);
-  assert.match(delivery.messages[0].markdown, /本期精选 18 条/);
+  assert.equal(delivery.audit.finalItems, 0);
+  assert.equal(delivery.audit.finalChinaItems, 0);
+  assert.equal(delivery.audit.sourceOnlyFallbackItems, 0);
+  assert.doesNotThrow(() => assertPremiumChinaDelivery(delivery.audit, { allowForeignOnly: true }));
+  assert.equal(delivery.messages.length, 0);
 
   const mixedDelivery = buildPremiumDingTalkDelivery({
     period: { start: '2026-07-20', end: '2026-07-26' },
@@ -1155,8 +1169,8 @@ function testPremiumDeliveryBackfillsSourceOnlyCardsWhenAiRejectsAllItems() {
     }],
   }, { candidates, maxItems: 18 });
 
-  assert.equal(mixedDelivery.audit.finalItems, 18);
-  assert.ok(mixedDelivery.audit.finalChinaItems >= 3);
+  assert.equal(mixedDelivery.audit.finalItems, 1);
+  assert.equal(mixedDelivery.audit.finalChinaItems, 0);
   assert.doesNotThrow(() => assertPremiumChinaDelivery(mixedDelivery.audit));
 }
 
@@ -1218,6 +1232,15 @@ function testWebhookMessagesPreferPremiumCardFormatWhenAvailable() {
         source_name: 'BPOM',
         published_at: '2026-05-21',
         country: '印尼',
+        document_number: 'BPOM公告',
+        deadline: '2026-06-30',
+        hard_facts: {
+          authority: 'BPOM',
+          document_number: 'BPOM公告',
+          effective_date: '2026-05-21',
+          deadline: '2026-06-30',
+          affected_processes: ['进口', '清关', '上架'],
+        },
         what_changed: ['2026年5月21日，BPOM 更新化妆品清真认证要求，设置过渡期。'],
         legal_obligation: ['进口化妆品应在过渡期内核查清真认证状态。'],
         affected_business: ['印尼市场进口化妆品的准入、清关和上架节奏。'],
@@ -1688,14 +1711,14 @@ async function testPipelineNoUpdateSkipsEmptyDashboardPublication() {
         return 'https://worker.test/assets/empty-dashboard.png';
       },
     });
-    assert.equal(result.status, 'done');
+    assert.equal(result.status, 'skipped');
   } finally {
     globalThis.fetch = originalFetch;
   }
 
   assert.equal(rendered, false);
   assert.equal(published, false);
-  assert.equal(delivered, true);
+  assert.equal(delivered, false);
 }
 
 async function testVersionedDecisionMapRouteUsesImmutableCache() {

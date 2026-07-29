@@ -487,13 +487,14 @@ function testPremiumDeliveryRequiresMultipleChinaCardsWhenCandidatesAreAvailable
     sections: [{ module: '产品质量/召回与安全风险', items: foreignItems }],
   }, { candidates: chinaCandidates, maxItems: 6 });
 
-  assert.equal(delivery.audit.requiredChinaItems, 3);
-  assert.equal(delivery.audit.finalChinaItems, 3);
+  assert.equal(delivery.audit.requiredChinaItems, 2);
+  assert.equal(delivery.audit.finalChinaItems, 2);
   assert.doesNotThrow(() => assertPremiumChinaDelivery(delivery.audit));
   const markdown = delivery.messages[0].markdown;
-  assert.ok(markdown.indexOf('化妆品标准新规征求意见') < markdown.indexOf('美国 FDA 化妆品监管事项'));
+  assert.match(markdown, /化妆品标准新规征求意见/);
   assert.match(markdown, /广州市监局披露商家侵权玻色因商标并刷单处罚17万元/);
-  assert.match(markdown, /海关发布进口化妆品申报资料核验要求/);
+  assert.doesNotMatch(markdown, /美国 FDA 化妆品监管事项/);
+  assert.doesNotMatch(markdown, /海关发布进口化妆品申报资料核验要求/);
 }
 
 function testPremiumReportItemUsesHardFactDateWhenPublishedAtMissing() {
@@ -657,6 +658,100 @@ function testLeadOnlyNavigationPagesCannotBackfillSourceOnlyPremiumCard() {
   assert.equal(delivery.audit.requiredChinaItems, 0);
   assert.equal(delivery.audit.sourceOnlyFallbackItems, 0);
   assert.doesNotMatch(delivery.messages[0].markdown, /欢迎访问中华商标网|通知公告 更多/);
+}
+
+function testFormalRunPortalAndFormPagesCannotEnterPremiumDelivery() {
+  const candidates = [
+    {
+      title: '粤港澳知识产权大数据综合服务平台',
+      url: 'https://www.gpic.gd.cn/',
+      source_name: '广东省知识产权保护中心',
+      source_type: 'official_site',
+      authority_type: 'regulator',
+      country: '中国',
+      module: '知识产权动态',
+      published_at: '2026-07-28',
+      detail_status: 'hydrated',
+      evidence_grade: 'hard_fact_ready',
+      article_text: '粤港澳知识产权大数据综合服务平台 数据查询 产业创新 统计监控 教育培训 欧盟商标查询系统 外观专利检索 快捷检索 高级检索 全部 专利 商标 地理标志 集成电路 友情链接 国家知识产权局。',
+      hard_facts: {
+        authority: '国家知识产权局',
+        involved_party: '原文未披露',
+      },
+    },
+    {
+      title: '证明商标使用申请表',
+      url: 'https://member.cta.org.cn/application/read',
+      source_name: '中华商标协会',
+      source_type: 'official_site',
+      authority_type: 'association',
+      country: '中国',
+      module: '知识产权动态',
+      published_at: '本期',
+      detail_status: 'hydrated',
+      evidence_grade: 'hard_fact_ready',
+      article_text: '证明商标使用申请表 证明商标使用申请表 填写说明 一、建立代理流程情况 说明建立了委托代理、立案建档、案件经办、复核纠错、官文回馈等商标代理服务流程相关情况。',
+      hard_facts: {
+        authority: '中华商标协会',
+        involved_party: '原文未披露',
+      },
+    },
+    {
+      title: '浙江省市场监管发展研究中心（浙江省平台经济监测中心/浙江省广告监测中心）',
+      url: 'http://www.zjmyjj.cn/portalnews/index.html',
+      source_name: '浙江省广告监测中心',
+      source_type: 'official_site',
+      authority_type: 'regulator',
+      country: '中国',
+      module: '美妆动态',
+      published_at: '本期',
+      detail_status: 'hydrated',
+      evidence_grade: 'hard_fact_ready',
+      article_text: '通知公告 人才招聘 首页 资讯中心 平台经济监测 广告监测 newstype=1005 浙江方圆检测集团股份有限公司。',
+      hard_facts: {
+        authority: '国家市场监督管理总局',
+        involved_party: '浙江方圆检测集团股份有限公司',
+      },
+    },
+  ];
+  const delivery = buildPremiumDingTalkDelivery({
+    period: { start: '2026-07-23', end: '2026-07-29' },
+    sections: [],
+  }, { candidates, maxItems: 6 });
+
+  assert.equal(delivery.audit.candidateChinaItems, 0);
+  assert.equal(delivery.audit.finalItems, 0);
+  assert.equal(delivery.messages.length, 0);
+}
+
+function testStaticCosmeticsReferencePagesCannotEnterPremiumDeliveryWithoutFreshEvent() {
+  const delivery = buildPremiumDingTalkDelivery({
+    period: { start: '2026-07-23', end: '2026-07-29' },
+    sections: [{
+      module: '新法律法规政策',
+      items: [{
+        title: 'Modernization of Cosmetics Regulation Act of 2022 (MoCRA)',
+        source_url: 'https://www.fda.gov/cosmetics/cosmetics-laws-regulations/modernization-cosmetics-regulation-act-2022-mocra',
+        source_name: '美国 FDA Cosmetics',
+        source_type: 'official_site',
+        authority_type: 'regulator',
+        country: '美国',
+        published_at: '本期',
+        fact_summary: ['Background on the Modernization of Cosmetics Regulation Act of 2022 (MoCRA). On average people use 6 to 12 cosmetics products daily. Key Terms Adverse Event Facility Responsible Person Serious Adverse Event.'],
+        legal_signal: '来源信号：新增义务：中国权威来源披露化妆品规则、标准、备案、注册或执行口径的具体变化。',
+        business_impact: '影响中国市场美妆产品标签、备案注册、广告素材、平台上架和存量SKU管理。',
+        next_observation: ['观察正式文件、执行口径、配套问答和后续监管公开。'],
+        evidence_excerpt: 'Background on the Modernization of Cosmetics Regulation Act of 2022 (MoCRA). Key Terms Adverse Event Facility Responsible Person Serious Adverse Event.',
+        hard_facts: {
+          authority: '美国 FDA Cosmetics',
+          affected_processes: ['标签', '备案/注册', '不良事件监测'],
+        },
+      }],
+    }],
+  }, { candidates: [], maxItems: 6 });
+
+  assert.equal(delivery.audit.finalItems, 0);
+  assert.equal(delivery.messages.length, 0);
 }
 
 function testPremiumDeliveryDoesNotFillChinaShortfallWithForeignCards() {
@@ -964,6 +1059,8 @@ testPremiumDeliveryRequiresMultipleChinaCardsWhenCandidatesAreAvailable();
 testPremiumReportItemUsesHardFactDateWhenPublishedAtMissing();
 testPremiumChinaMinimumTracksBackfillableAndSourceOnlyChinaCandidates();
 testLeadOnlyNavigationPagesCannotBackfillSourceOnlyPremiumCard();
+testFormalRunPortalAndFormPagesCannotEnterPremiumDelivery();
+testStaticCosmeticsReferencePagesCannotEnterPremiumDeliveryWithoutFreshEvent();
 testPremiumDeliveryDoesNotFillChinaShortfallWithForeignCards();
 testNonBeautyPlatformPenaltyCannotEnterPremiumCard();
 testAiInjectedBeautyWordingCannotMakeNonBeautyPenaltyRelevant();

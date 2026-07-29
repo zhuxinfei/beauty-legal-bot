@@ -1291,10 +1291,21 @@ export async function runPipeline(env, requestUrl = 'https://beauty-legal-bot.wo
     const previewMessages = premiumDelivery.messages;
     const markdown = previewMessages.map(message => message.markdown).join('\n\n---\n\n');
     console.log(`[stage 3/5] 精品卡验收：中国候选 ${premiumDelivery.audit.candidateChinaItems}/${premiumDelivery.audit.candidateItems}，中国准入 ${premiumDelivery.audit.reportChinaItems}/${premiumDelivery.audit.reportItems}，中国入卡 ${premiumDelivery.audit.finalChinaItems}/${premiumDelivery.audit.finalItems}`);
-    assertPremiumChinaDelivery(premiumDelivery.audit, {
-      allowForeignOnly: env.ALLOW_FOREIGN_ONLY_DELIVERY === '1',
-    });
-    assertFinalDingTalkMarkdownQuality(markdown, premiumDelivery.audit);
+	    assertPremiumChinaDelivery(premiumDelivery.audit, {
+	      allowForeignOnly: env.ALLOW_FOREIGN_ONLY_DELIVERY === '1',
+	    });
+	    if (!Number(premiumDelivery.audit.finalItems || 0)) {
+	      console.log('[stage 3/5] 无达到精品证据门槛的事项，跳过推送');
+	      return {
+	        stage: 'quality',
+	        status: 'skipped',
+	        message: 'no premium evidence cards passed final quality gate',
+	        report,
+	        markdown,
+	        audit: premiumDelivery.audit,
+	      };
+	    }
+	    assertFinalDingTalkMarkdownQuality(markdown, premiumDelivery.audit);
     if (typeof env.ON_REPORT_READY === 'function') {
       await env.ON_REPORT_READY({ report, markdown, generatedAt, failures, sourceResults, coverage });
     }
