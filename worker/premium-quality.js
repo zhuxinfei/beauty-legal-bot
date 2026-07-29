@@ -950,8 +950,13 @@ export function buildPremiumDingTalkDelivery(report, options = {}) {
     console.log(`[premium-card] strict gate accepted 0/${audit.input}; fallback=${cards.length}; reasons=${Object.entries(audit.reasons).map(([reason, count]) => `${reason}=${count}`).join(', ') || 'none'}`);
   }
   const eligibleCandidates = (options.candidates || []).filter(isPremiumCandidateEligible);
+  const eligibleCandidateCards = eligibleCandidates.map(premiumCardFromCandidate);
+  if (options.logCandidateAudit === true) {
+    const candidateAudit = auditPremiumEvidenceCards(eligibleCandidateCards);
+    console.log(`[premium-card] candidate gate accepted ${candidateAudit.accepted}/${candidateAudit.input}; reasons=${Object.entries(candidateAudit.reasons).map(([reason, count]) => `${reason}=${count}`).join(', ') || 'none'}`);
+  }
   const backfillableCandidateCards = fallbackEvidenceCards(
-    eligibleCandidates.map(premiumCardFromCandidate),
+    eligibleCandidateCards,
     Math.max(eligibleCandidates.length, maxItems)
   );
   const sourceOnlyCandidateCards = options.allowSourceOnlyFallback === true

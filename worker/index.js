@@ -1264,6 +1264,7 @@ export async function runPipeline(env, requestUrl = 'https://beauty-legal-bot.wo
         candidates: directHardFactCandidates,
         maxItems: Number(env.PREMIUM_MAX_ITEMS || env.REPORT_TARGET_ITEMS || 18),
         maxBytes: env.DINGTALK_MAX_BYTES,
+        logCandidateAudit: true,
       });
       const markdown = directDelivery.messages.map(message => message.markdown).join('\n\n---\n\n');
       console.log(`[stage 3/5] 精品卡验收：中国候选 ${directDelivery.audit.candidateChinaItems}/${directDelivery.audit.candidateItems}，中国入卡 ${directDelivery.audit.finalChinaItems}/${directDelivery.audit.finalItems}`);
