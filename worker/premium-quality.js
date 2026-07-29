@@ -191,7 +191,7 @@ function isoDate(value = '') {
   if (cn) {
     return `${cn[1]}-${String(Number(cn[2])).padStart(2, '0')}-${String(Number(cn[3])).padStart(2, '0')}`;
   }
-  const compact = source.match(/(?:^|[^\d])(20\d{2})(\d{2})(\d{2})(?:[^\d]|$)/);
+  const compact = source.match(/(?:^|[^\d])(20\d{2})(\d{2})(\d{2})(?:\d{4,}|[^\d]|$)/);
   if (compact) return `${compact[1]}-${compact[2]}-${compact[3]}`;
   return '';
 }
@@ -1179,7 +1179,7 @@ function premiumCardFromCandidate(candidate = {}) {
     title: text(candidate.title),
     module,
     evidence_text: source,
-    facts: [firstEvidenceSentence(source)].filter(Boolean),
+    facts: uniqueValues([firstEvidenceSentence(source), text(candidate.title)]).filter(Boolean),
     business_impact: candidate.business_impact || '',
   });
   const baseCard = {
