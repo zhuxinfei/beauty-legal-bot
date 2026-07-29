@@ -1153,6 +1153,9 @@ function assertFinalDingTalkMarkdownQuality(markdown = '', audit = {}) {
   if (/Crawl4AI|建议动作|法务判断|管理层摘要|来源链接|事实摘要|来源信号|中国权威来源披露|中国来源披露|监管信息披露|当前仅能确认|待核验/.test(markdown)) {
     throw new Error('Final DingTalk markdown used legacy or forbidden wording');
   }
+  if (/\[\s*\]\s*\(|\]\($|javascript:void|违法行为：的[，,、\s]*依法严肃查处|产品\/批次：[^。\n]*\[\s*\]\s*\(/i.test(markdown)) {
+    throw new Error('Final DingTalk markdown contains broken field fragments');
+  }
   if (!markdown.includes('- **事实依据**') || !markdown.includes('- **法务观察**') || !markdown.includes('- **业务影响**') || !markdown.includes('- **下一步观察建议**')) {
     throw new Error('Final DingTalk markdown missing premium card sections');
   }

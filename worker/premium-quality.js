@@ -29,6 +29,8 @@ const HARD_LEGAL_EVENT_PATTERN = /(?:文号|公告|通告|通报|征求意见|�
 const BEAUTY_RELEVANCE_PATTERN = /(?:化妆品|美妆|护肤|彩妆|香水|口红|面膜|洗护|防晒|染发|染眉|染睫|美容|医美|祛斑|美白|功效宣称|玻色因|爱马仕|配方|着色剂|色素|进口化妆品|出口化妆品|化妆品标准|cosmetic|cosmetics|MoCRA|color additives?)/i;
 const GENERIC_NON_BEAUTY_PATTERN = /(?:在线酒店|酒店预订|机票|旅游|平台经济|外卖|网约车|金融监管|证券|外汇|房地产|教育培训|医疗器械|药品集采|保险|银行|携程|美团|阿里巴巴|腾讯|京东|滴滴)/i;
 const PREMIUM_JUNK_EVIDENCE_PATTERN = /(?:欢迎访问|通知公告\s*更多|首页\s+资讯中心|栏目导航|工作委员会|专业委员会名单|证明商标使用申请表|填写说明|粤港澳知识产权大数据综合服务平台|快捷检索|高级检索|友情链接|用户需求与满意度调查问卷|政府侧应用与数据需求调研问卷)/i;
+const BROKEN_FIELD_PATTERN = /(?:\[\s*\]\s*\(|\]\($|\(\s*$|\[\s*$|javascript:void|undefined|null|NaN|>\s*$|<\s*$)/i;
+const FRAGMENT_FIELD_PATTERN = /^(?:的|和|及|并|依法|予以|进行|相关|上述|该|此|其|对|将|已|了)[，,、；;\s]*(?:依法)?(?:严肃查处|处理|监管|处罚|执行|实施|发布|通告|公告)?$/;
 
 function text(value) {
   return String(value || '').replace(/\s+/g, ' ').trim();
@@ -108,6 +110,7 @@ function meaningfulInvolvedParty(value = '') {
 function hardText(value) {
   const source = text(value);
   if (!source || /见原文|未知|待核验|未披露|未明确|待明确|空$/.test(source)) return '';
+  if (BROKEN_FIELD_PATTERN.test(source) || FRAGMENT_FIELD_PATTERN.test(source)) return '';
   return source;
 }
 
@@ -288,20 +291,21 @@ function hasSampleGradeHardFactBundle(card = {}) {
   const hasOutcome = Boolean(hardText(hard.penalty_amount) || hardText(hard.confiscation_result));
   const hasRuleBasis = Boolean(hardText(hard.legal_basis) || hardText(hard.document_number));
   const hasPolicyNode = Boolean(hardText(hard.document_number) || hardText(hard.effective_date) || hardText(hard.deadline) || hardText(hard.feedback_channel));
-  const hasProductOrFlow = Boolean(hardText(hard.product_or_batch) || hard.affected_processes?.length);
+  const hasProduct = Boolean(hardText(hard.product_or_batch));
+  const hasProductOrFlow = Boolean(hasProduct || hard.affected_processes?.length);
 
   if (!hasAuthority || !hasConcreteDateAnchor(card)) return false;
   if (['广告处罚案例', '知识产权保护或者侵权'].includes(module)) {
-    return hasParty && hasAct && (hasOutcome || hasRuleBasis) && hasProductOrFlow;
+    return hasParty && hasAct && (hasOutcome || hasRuleBasis) && hasProduct;
   }
   if (module === '产品质量/召回与安全风险') {
-    return hasProductOrFlow && (hasOutcome || hasAct || hasPolicyNode) && /召回|停止销售|抽检|不合格|污染|警示|warning|recall|adverse|contamination/i.test(source);
+    return hasProduct && (hasOutcome || hasAct || hasPolicyNode) && /召回|停止销售|抽检|不合格|污染|警示|warning|recall|adverse|contamination/i.test(source);
   }
   if (module === '新法律法规政策') {
-    return hasPolicyNode && hasProductOrFlow && /征求意见|反馈截止|生效|实施|过渡期|新旧衔接|发布|公告|通告|修订|标准|规则|办法|条例|法案|requirement|regulation|rule/i.test(source);
+    return hasPolicyNode && hasProduct && /征求意见|反馈截止|生效|实施|过渡期|新旧衔接|发布|公告|通告|修订|标准|规则|办法|条例|法案|requirement|regulation|rule/i.test(source);
   }
   if (module === '进出口') {
-    return (hasPolicyNode || hardText(hard.hs_code) || hasOutcome) && hasProductOrFlow && /海关|进口|出口|口岸|报关|清关|HS\s*编码|扣留|detention/i.test(source);
+    return (hasPolicyNode || hardText(hard.hs_code) || hasOutcome) && (hasProduct || hardText(hard.hs_code)) && /海关|进口|出口|口岸|报关|清关|HS\s*编码|扣留|detention/i.test(source);
   }
   return (hasPolicyNode || hasOutcome) && hasProductOrFlow;
 }
@@ -1218,6 +1222,7 @@ function isSampleGradeCard(card = {}) {
   const hardCount = objectiveHardFactCount(card.hard_facts || {});
   if (hardCount < 2) return false;
   if (!hasSampleGradeHardFactBundle(card)) return false;
+  if (BROKEN_FIELD_PATTERN.test(JSON.stringify(card.hard_facts || {}))) return false;
   if (!isBeautyRelevantCard(card)) return false;
   if (isNavigationOrGenericInformationPage(card)) return false;
   if (isHardFactReadyDetailCandidate(card)) return true;

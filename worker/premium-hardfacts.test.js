@@ -132,6 +132,7 @@ function testPremiumDeliveryFallsBackInsteadOfSendingEmptyCard() {
         hard_facts: {
           authority: '国家药品监督管理局',
           document_number: '征求意见稿',
+          product_or_batch: '化妆品标准管理规则',
           deadline: '2026年7月30日',
           feedback_channel: '国家药监局政务服务门户意见征集栏目',
         },
@@ -430,6 +431,7 @@ function testPremiumDeliveryBuildsChinaCardFromCandidateWhenAiReportDropsChina()
       hard_facts: {
         authority: '国家药品监督管理局',
         document_number: '征求意见稿',
+        product_or_batch: '化妆品标准管理规则',
         deadline: '2026年7月30日',
         affected_processes: ['配方开发', '标签备案', '执行标准选择', '存量SKU过渡期管理'],
       },
@@ -530,6 +532,22 @@ function testPremiumDeliveryRequiresMultipleChinaCardsWhenCandidatesAreAvailable
     article_text: articleText,
     hard_facts: {
       authority: sourceName,
+      ...(index === 0 ? {
+        document_number: '征求意见稿',
+        product_or_batch: '化妆品标准管理规则',
+        deadline: '2026年7月30日',
+      } : {}),
+      ...(index === 1 ? {
+        involved_party: '广州妍瑟化妆品有限公司',
+        product_or_batch: '含玻色因卖点的美妆商品',
+        violation_behavior: '侵权使用玻色因相关商标并存在刷单行为',
+        penalty_amount: '17万元',
+      } : {}),
+      ...(index === 2 ? {
+        document_number: '进口化妆品申报资料核验要求',
+        product_or_batch: '进口化妆品',
+        hs_code: '3304990099',
+      } : {}),
       affected_processes: ['标签备案', '商标授权', '进口申报'],
     },
   }));
@@ -539,14 +557,14 @@ function testPremiumDeliveryRequiresMultipleChinaCardsWhenCandidatesAreAvailable
     sections: [{ module: '产品质量/召回与安全风险', items: foreignItems }],
   }, { candidates: chinaCandidates, maxItems: 6 });
 
-  assert.equal(delivery.audit.requiredChinaItems, 2);
-  assert.equal(delivery.audit.finalChinaItems, 2);
+  assert.equal(delivery.audit.requiredChinaItems, 3);
+  assert.equal(delivery.audit.finalChinaItems, 3);
   assert.doesNotThrow(() => assertPremiumChinaDelivery(delivery.audit));
   const markdown = delivery.messages[0].markdown;
   assert.match(markdown, /化妆品标准新规征求意见/);
   assert.match(markdown, /广州市监局披露商家侵权玻色因商标并刷单处罚17万元/);
   assert.doesNotMatch(markdown, /美国 FDA 化妆品监管事项/);
-  assert.doesNotMatch(markdown, /海关发布进口化妆品申报资料核验要求/);
+  assert.match(markdown, /海关发布进口化妆品申报资料核验要求/);
 }
 
 function testPremiumReportItemUsesHardFactDateWhenPublishedAtMissing() {
@@ -570,6 +588,7 @@ function testPremiumReportItemUsesHardFactDateWhenPublishedAtMissing() {
         hard_facts: {
           authority: '国家药品监督管理局',
           document_number: '征求意见稿',
+          product_or_batch: '化妆品标准管理规则',
           deadline: '2026年7月30日',
           affected_processes: ['配方开发', '标签备案', '执行标准选择'],
         },
@@ -604,6 +623,7 @@ function testPremiumChinaMinimumTracksBackfillableAndSourceOnlyChinaCandidates()
         hard_facts: {
           authority: '国家药品监督管理局',
           document_number: '征求意见稿',
+          product_or_batch: '化妆品标准管理规则',
           deadline: '2026年7月30日',
           affected_processes: ['配方开发', '标签备案', '执行标准选择'],
         },
@@ -623,6 +643,7 @@ function testPremiumChinaMinimumTracksBackfillableAndSourceOnlyChinaCandidates()
         hard_facts: {
           authority: '广州市市场监督管理局',
           involved_party: '广州妍瑟化妆品有限公司',
+          product_or_batch: '含玻色因卖点的美妆商品',
           violation_behavior: '侵权使用玻色因相关商标并存在刷单行为',
           penalty_amount: '17万元',
           legal_basis: '《商标法》',
@@ -822,6 +843,7 @@ function testPremiumDeliveryDoesNotFillChinaShortfallWithForeignCards() {
     hard_facts: {
       authority: '国家药品监督管理局',
       document_number: '征求意见稿',
+      product_or_batch: '化妆品标准管理规则',
       deadline: '2026年7月30日',
       affected_processes: ['配方开发', '标签备案', '执行标准选择'],
     },
@@ -1346,6 +1368,41 @@ function testHardFactCandidatesCanRenderDirectlyWithoutAiReportItems() {
   assert.doesNotMatch(markdown, /Crawl4AI|建议动作|法务判断|来源信号|待核验|网站首页/);
 }
 
+function testBrokenHardFactFragmentsCannotEnterPremiumCard() {
+  const delivery = buildPremiumDingTalkDelivery({
+    period: { start: '2026-07-23', end: '2026-07-29' },
+    sections: [],
+  }, {
+    maxItems: 6,
+    candidates: [{
+      title: '国家药监局关于40批次不符合规定化妆品的通告（2026年第19号）',
+      url: 'https://www.nmpa.gov.cn/xxgk/ggtg/hzhpggtg/hzhpchjgg/hzhpcjgjj/20260522162510165.html',
+      source_url: 'https://www.nmpa.gov.cn/xxgk/ggtg/hzhpggtg/hzhpchjgg/hzhpcjgjj/20260522162510165.html',
+      source_name: '福建省药监局化妆品监管动态',
+      source_type: 'official_site',
+      authority_type: 'regulator',
+      source_scope: 'hard_fact_endpoint',
+      country: '中国',
+      module: '新法律法规政策',
+      published_at: '2026-07-17',
+      detail_status: 'hydrated',
+      evidence_grade: 'hard_fact_ready',
+      article_text: '国家药监局关于40批次不符合规定化妆品的通告（2026年第19号） [](javascript:void(0)) 经广东省药品监督管理局 的，依法严肃查处。',
+      hard_facts: {
+        authority: '经广东省药品监督管理局',
+        document_number: '2026年第19号',
+        product_or_batch: '不符合规定化妆品的通告（2026年第19号） [](',
+        violation_behavior: '的，依法严肃查处',
+        legal_basis: '《化妆品监督管理条例》、《化妆品生产经营监督管理办法》、《化妆品抽样检验管理办法》',
+        affected_processes: ['标签', '备案/注册', 'SKU/批次管理'],
+      },
+    }],
+  });
+
+  assert.equal(delivery.audit.finalItems, 0);
+  assert.equal(delivery.messages.length, 0);
+}
+
 testHydrationExtractsActionableHardFacts();
 testFormalPromptsRequireAllPremiumHardFactFields();
 testPremiumMarkdownRendersNewHardFactsInFormalCard();
@@ -1378,5 +1435,6 @@ testNifdcCosmeticStandardNoticeDoesNotRenderNavigationOrWrongModule();
 testQualifiedNifdcCosmeticStandardNoticeRendersCleanPolicyCard();
 testHardFactCandidateBackfillsWhenAiReportItemsAreNavigationOnly();
 testHardFactCandidatesCanRenderDirectlyWithoutAiReportItems();
+testBrokenHardFactFragmentsCannotEnterPremiumCard();
 
 console.log('premium hard facts tests passed');

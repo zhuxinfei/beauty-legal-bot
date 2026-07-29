@@ -1196,6 +1196,7 @@ function testPremiumDeliverySplitsOversizedDingTalkMarkdownWithinByteLimit() {
       hard_facts: {
         authority: '市场监督管理局',
         involved_party: `广州测试化妆品有限公司${index + 1}`,
+        product_or_batch: `涉案化妆品 SKU 第${index + 1}批`,
         violation_behavior: '侵权使用化妆品相关商标并发布误导性宣传',
         penalty_amount: `${index + 1}万元`,
         legal_basis: '《商标法》',
@@ -1240,6 +1241,7 @@ function testWebhookMessagesPreferPremiumCardFormatWhenAvailable() {
         hard_facts: {
           authority: 'BPOM',
           document_number: 'BPOM公告',
+          product_or_batch: '印尼市场进口化妆品 SKU',
           effective_date: '2026-05-21',
           deadline: '2026-06-30',
           affected_processes: ['进口', '清关', '上架'],
