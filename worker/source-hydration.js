@@ -61,6 +61,7 @@ function extractCompanyNames(value = '') {
     .map(match => text(match.name)
       .replace(/^.*?(?:披露|通报|认定|处罚)/, '')
       .replace(/^(?:当事人|被处罚人|涉案主体|原告|被告|申请人|被申请人)[：:\s]*/, ''))
+    .filter(name => !/^(?:两家|多家|相关|涉案|部分|若干|某些)?(?:公司|企业|主体|商家|经营者|美妆企业|化妆品企业)$/.test(name))
     .filter(name => !/市场监督管理局|药品监督管理局|国家知识产权局|海关|人民法院|委员会|协会|监管部门/.test(name));
   return uniqueValues(matches).slice(0, 4);
 }
@@ -155,6 +156,14 @@ function normalizeArray(value) {
   return (Array.isArray(value) ? value : [value]).map(text).filter(Boolean);
 }
 
+function cleanInvolvedParty(value = '') {
+  return uniqueValues(text(value).split(/[、,，]/)
+    .map(item => item.trim())
+    .filter(Boolean)
+    .filter(name => !/^(?:两家|多家|相关|涉案|部分|若干|某些)?(?:公司|企业|主体|商家|经营者|美妆企业|化妆品企业)$/.test(name)))
+    .join('、');
+}
+
 function classifySignalType(value) {
   const source = String(value || '');
   if (/处罚|罚款|行政处罚|判决|裁定|侵权|违法|召回|不合格/i.test(source)) return '风险案例';
@@ -197,6 +206,10 @@ function extractHardFactsFromText(value = '') {
     involved_party: extractInvolvedParty(source),
     product_or_batch: firstMatch(source, [
       /(?:涉及产品|产品名称|产品\/批次|批号|批次)[：:\s]*([^。；;\n]{2,60})/,
+      /(化妆品中[^。；;\n]{2,80}?检验方法(?:标准)?)/,
+      /(《化妆品中[^》]{2,80}?检验方法[(（]征求意见稿[)）]》(?:等\d+项化妆品标准)?)/,
+      /公开征求《([^》]{2,80}?检验方法[(（]征求意见稿[)）])》等\d+项化妆品标准意见/,
+      /公开征求([^。；;\n]{2,100}?化妆品标准)意见/,
     ]),
     hs_code: firstMatch(source, [
       /(?:HS\s*编码|HS Code|商品编码)[：:\s]*([0-9]{6,10})/i,
@@ -217,9 +230,10 @@ function extractHardFactsFromText(value = '') {
 }
 
 function normalizeHardFacts(record = {}, articleText = '') {
+  const combinedText = [record.title, articleText].filter(Boolean).join('\n');
   const extracted = {
-    ...extractHardFactsFromText(articleText),
-    ...extractHardFacts(articleText, {
+    ...extractHardFactsFromText(combinedText),
+    ...extractHardFacts(combinedText, {
       title: record.title,
       source_name: record.source_name || record.name,
       source_url: record.source_url || record.url,
@@ -237,6 +251,7 @@ function normalizeHardFacts(record = {}, articleText = '') {
   };
   if (!merged.signal_type) merged.signal_type = classifySignalType(articleText);
   if (!merged.risk_tier) merged.risk_tier = classifyRiskTier(articleText);
+  if (merged.involved_party) merged.involved_party = cleanInvolvedParty(merged.involved_party);
   return merged;
 }
 

@@ -158,6 +158,31 @@ function testHydrationRecordCarriesEvidenceGradeAndQuotes() {
   assert.equal(record.attachment_records[0].extraction_status, 'hydrated');
 }
 
+function testNifdcStandardHydrationExtractsPolicyNodesFromTitleAndText() {
+  const record = normalizeHydratedRecord({
+    source_url: 'https://www.nifdc.org.cn/directory/web/nifdc/bshff/hzhpbzh/hzhpbzhtzgg/202607211930582131911.html',
+    title: '中检院关于公开征求《化妆品中铜绿假单胞菌的检验方法（征求意见稿）》等2项化妆品标准意见的通知',
+    source_name: '中检院化妆品标准通知公告',
+    country: '中国',
+    module: '新规及案例动态',
+    fit_markdown: [
+      '首页 通知公告 更多。',
+      '中检院关于公开征求《化妆品中铜绿假单胞菌的检验方法（征求意见稿）》等2项化妆品标准意见的通知。',
+      '中检院公开征求化妆品中铜绿假单胞菌、耐热大肠菌群检验方法标准意见。',
+      '意见反馈截止日期：2026年8月10日。',
+      '反馈渠道：中检院化妆品标准制修订联系邮箱。',
+    ].join('\n'),
+  });
+
+  assert.equal(record.evidence_grade, 'hard_fact_ready');
+  assert.equal(record.hard_facts.authority, '中检院化妆品标准通知公告');
+  assert.equal(record.hard_facts.document_number, '征求意见稿');
+  assert.equal(record.hard_facts.deadline, '2026年8月10日');
+  assert.equal(record.hard_facts.feedback_channel, '中检院化妆品标准制修订联系邮箱');
+  assert.match(record.hard_facts.product_or_batch, /铜绿假单胞菌|耐热大肠菌群|检验方法标准/);
+  assert.deepEqual(record.hard_facts.affected_processes, ['配方开发', '标签备案', '执行标准选择', '存量SKU过渡期管理']);
+}
+
 function testHydrationMergeAuditReportsEvidenceGrades() {
   const merged = mergeHydratedCandidates([{
     url: 'https://amr.example.gov.cn/case/pro-xylane-20260724',
@@ -196,6 +221,7 @@ testCustomsExtractsHsCodeAndImportProcess();
 testLeadOnlyAndGenericPagesCannotEnterPremiumEvidence();
 testPortalDumpWithMixedIndustriesIsRejectedBeforeAiAnalysis();
 testHydrationRecordCarriesEvidenceGradeAndQuotes();
+testNifdcStandardHydrationExtractsPolicyNodesFromTitleAndText();
 testHydrationMergeAuditReportsEvidenceGrades();
 
 console.log('hard fact extractor tests passed');
