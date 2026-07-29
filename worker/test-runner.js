@@ -1160,6 +1160,50 @@ function testPremiumDeliveryBackfillsSourceOnlyCardsWhenAiRejectsAllItems() {
   assert.doesNotThrow(() => assertPremiumChinaDelivery(mixedDelivery.audit));
 }
 
+function testPremiumDeliverySplitsOversizedDingTalkMarkdownWithinByteLimit() {
+  const longFact = '监管部门披露化妆品经营主体在标签、备案、广告素材、平台店铺和进口清关资料中存在可核验合规风险，要求企业同步排查在售SKU、留存原始证据并跟踪后续处置。';
+  const sections = [{
+    module: '知识产权动态',
+    items: Array.from({ length: 18 }, (_, index) => ({
+      title: `中国化妆品商标侵权处罚案例第${index + 1}项`,
+      source_url: `https://amr.example.gov.cn/case/beauty-ip-${index + 1}`,
+      source_name: '市场监督管理局',
+      source_type: 'official_site',
+      authority_type: 'regulator',
+      published_at: '2026-07-24',
+      country: '中国',
+      fact_summary: [`${longFact}第${index + 1}项涉及商标侵权、刷单宣传或包装标识争议，处罚金额${index + 1}万元。`],
+      legal_signal: '风险案例：中国来源披露商标、专利、著作权或品牌资产保护相关风险。',
+      business_impact: '影响中国市场美妆业务的商标授权、包装设计、达人素材、平台店铺和进口清关。',
+      next_observation: ['观察同类事项在处罚决定、行政复议、诉讼和平台治理中的后续公开。'],
+      hard_facts: {
+        authority: '市场监督管理局',
+        involved_party: `广州测试化妆品有限公司${index + 1}`,
+        violation_behavior: '侵权使用化妆品相关商标并发布误导性宣传',
+        penalty_amount: `${index + 1}万元`,
+        legal_basis: '《商标法》',
+        affected_processes: ['商标授权', '包装设计', '达人素材', '平台店铺'],
+      },
+    })),
+  }];
+
+  const maxBytes = 5000;
+  const delivery = buildPremiumDingTalkDelivery({
+    period: { start: '2026-07-20', end: '2026-07-26' },
+    sections,
+  }, { maxItems: 18, maxBytes });
+
+  assert.ok(delivery.messages.length > 1);
+  assert.equal(delivery.messages.reduce((sum, message) => sum + message.itemCount, 0), 18);
+  for (const message of delivery.messages) {
+    assert.ok(new TextEncoder().encode(message.markdown).length <= maxBytes);
+    assert.match(message.markdown, /^# 美妆法务资讯精品卡/);
+    assert.match(message.markdown, /^###\s+\d+\./m);
+    assert.match(message.markdown, /- \*\*事实依据\*\*/);
+    assert.match(message.markdown, /- \*\*下一步观察建议\*\*/);
+  }
+}
+
 function testWebhookMessagesPreferPremiumCardFormatWhenAvailable() {
   const messages = buildDingTalkWebhookMessages({
     premium_delivery: true,
@@ -5058,5 +5102,6 @@ testPremiumGateAcceptsManualHardInformationSamples();
 testPremiumMarkdownReplacesVaguePartyWithConcreteCompanyNames();
 testPremiumDeliveryAuditRejectsForeignOnlyWhenChinaCandidatesExist();
 testPremiumDeliveryBackfillsSourceOnlyCardsWhenAiRejectsAllItems();
+testPremiumDeliverySplitsOversizedDingTalkMarkdownWithinByteLimit();
 testWebhookMessagesPreferPremiumCardFormatWhenAvailable();
 console.log('worker pure function tests ok');

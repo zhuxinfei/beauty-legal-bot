@@ -529,7 +529,7 @@ function testPremiumReportItemUsesHardFactDateWhenPublishedAtMissing() {
   assert.match(delivery.messages[0].markdown, /国家药品监督管理局 \/ 中国 \/ 2026-07-30/);
 }
 
-function testPremiumChinaMinimumCountsOnlyBackfillableChinaCandidates() {
+function testPremiumChinaMinimumTracksBackfillableAndSourceOnlyChinaCandidates() {
   const delivery = buildPremiumDingTalkDelivery({
     period: { start: '2026-07-22', end: '2026-07-28' },
     sections: [],
@@ -588,14 +588,14 @@ function testPremiumChinaMinimumCountsOnlyBackfillableChinaCandidates() {
   });
 
   assert.equal(delivery.audit.candidateChinaItems, 3);
-  assert.equal(delivery.audit.backfillableChinaCandidateItems, 2);
-  assert.equal(delivery.audit.requiredChinaItems, 2);
-  assert.equal(delivery.audit.finalChinaItems, 2);
-  assert.equal(delivery.audit.chinaShortfall, true);
+  assert.equal(delivery.audit.backfillableChinaCandidateItems, 3);
+  assert.equal(delivery.audit.requiredChinaItems, 3);
+  assert.equal(delivery.audit.finalChinaItems, 3);
+  assert.equal(delivery.audit.chinaShortfall, false);
   assert.doesNotThrow(() => assertPremiumChinaDelivery(delivery.audit));
 }
 
-function testLeadOnlyChinaCandidatesDoNotTriggerOrBackfillPremiumCard() {
+function testLeadOnlyChinaCandidatesCanBackfillSourceOnlyPremiumCard() {
   const delivery = buildPremiumDingTalkDelivery({
     period: { start: '2026-07-20', end: '2026-07-26' },
     sections: [{
@@ -637,9 +637,11 @@ function testLeadOnlyChinaCandidatesDoNotTriggerOrBackfillPremiumCard() {
     }],
   });
 
-  assert.equal(delivery.audit.candidateChinaItems, 0);
-  assert.equal(delivery.audit.requiredChinaItems, 0);
-  assert.doesNotMatch(delivery.messages[0].markdown, /欢迎访问中华商标网/);
+  assert.equal(delivery.audit.candidateChinaItems, 1);
+  assert.equal(delivery.audit.requiredChinaItems, 1);
+  assert.equal(delivery.audit.finalChinaItems, 1);
+  assert.equal(delivery.audit.sourceOnlyFallbackItems, 1);
+  assert.match(delivery.messages[0].markdown, /欢迎访问中华商标网/);
 }
 
 function testPremiumDeliveryDoesNotFillChinaShortfallWithForeignCards() {
@@ -945,8 +947,8 @@ testPremiumDeliveryBackfillsQualifiedChinaItemWhenStrictSelectionIsForeignOnly()
 testPremiumDeliveryBuildsChinaCardFromCandidateWhenAiReportDropsChina();
 testPremiumDeliveryRequiresMultipleChinaCardsWhenCandidatesAreAvailable();
 testPremiumReportItemUsesHardFactDateWhenPublishedAtMissing();
-testPremiumChinaMinimumCountsOnlyBackfillableChinaCandidates();
-testLeadOnlyChinaCandidatesDoNotTriggerOrBackfillPremiumCard();
+testPremiumChinaMinimumTracksBackfillableAndSourceOnlyChinaCandidates();
+testLeadOnlyChinaCandidatesCanBackfillSourceOnlyPremiumCard();
 testPremiumDeliveryDoesNotFillChinaShortfallWithForeignCards();
 testNonBeautyPlatformPenaltyCannotEnterPremiumCard();
 testAiInjectedBeautyWordingCannotMakeNonBeautyPenaltyRelevant();

@@ -1,5 +1,6 @@
 import { extractHardFacts } from './hard-fact-extractor.js';
 
+const UTF8_ENCODER = new TextEncoder();
 const MODULE_ORDER = [
   '新法律法规政策',
   '广告处罚案例',
@@ -30,6 +31,10 @@ const GENERIC_NON_BEAUTY_PATTERN = /(?:在线酒店|酒店预订|机票|旅游|�
 
 function text(value) {
   return String(value || '').replace(/\s+/g, ' ').trim();
+}
+
+function utf8Bytes(value) {
+  return UTF8_ENCODER.encode(String(value || '')).length;
 }
 
 function sanitizeBriefingText(value) {
@@ -764,6 +769,51 @@ export function buildPremiumDingTalkMarkdown({ period = {}, cards = [], preselec
   return `${lines.join('\n')}\n`;
 }
 
+function orderCardsForPremiumMarkdown(cards = []) {
+  const modules = [...new Set(cards.map(card => card.module))]
+    .sort((a, b) => {
+      const aHasChina = cards.some(card => card.module === a && isChinaCard(card));
+      const bHasChina = cards.some(card => card.module === b && isChinaCard(card));
+      const aTop = Math.max(...cards.filter(card => card.module === a).map(card => card.score));
+      const bTop = Math.max(...cards.filter(card => card.module === b).map(card => card.score));
+      return Number(bHasChina) - Number(aHasChina) || bTop - aTop || moduleRank(a) - moduleRank(b);
+    });
+  return modules.flatMap(module => cards.filter(card => card.module === module).sort(comparePremiumCards));
+}
+
+function buildPremiumDingTalkMessageChunks(report, cards = [], maxBytes = 18000) {
+  const byteLimit = Math.max(1200, Number(maxBytes || 18000));
+  const orderedCards = orderCardsForPremiumMarkdown(cards);
+  const chunks = [];
+  let current = [];
+  for (const card of orderedCards) {
+    const candidate = [...current, card];
+    const candidateMarkdown = buildPremiumDingTalkMarkdown({ period: report.period || {}, cards: candidate, preselected: true });
+    if (current.length && utf8Bytes(candidateMarkdown) > byteLimit) {
+      chunks.push(current);
+      current = [card];
+      continue;
+    }
+    current = candidate;
+  }
+  if (current.length) chunks.push(current);
+  const total = chunks.length;
+  return chunks.map((chunk, index) => {
+    const markdown = buildPremiumDingTalkMarkdown({ period: report.period || {}, cards: chunk, preselected: true });
+    const bytes = utf8Bytes(markdown);
+    if (bytes > byteLimit) throw new Error(`Premium DingTalk message exceeds byte budget: ${bytes}/${byteLimit}`);
+    return {
+      id: total > 1 ? `weekly-report-${index + 1}` : 'weekly-report',
+      title: `美妆法务资讯｜${text(report.period?.end || '本期')}${total > 1 ? `（${index + 1}/${total}）` : ''}`,
+      markdown,
+      bytes,
+      itemCount: chunk.length,
+      displayedItemCount: chunk.length,
+      omittedItemCount: 0,
+    };
+  });
+}
+
 export function buildPremiumDingTalkDelivery(report, options = {}) {
   const reportCards = (report.sections || []).flatMap(section =>
     (section.items || []).map(item => premiumCardFromItem(item, section.module))
@@ -816,15 +866,11 @@ export function buildPremiumDingTalkDelivery(report, options = {}) {
     chinaShortfall: candidateChinaItems > cards.filter(isChinaCard).length || backfillableChinaCandidateItems > cards.filter(isChinaCard).length,
   };
   if (!cards.length) return { messages: [], cards, audit };
-  return { messages: [{
-    id: 'weekly-report',
-    title: `美妆法务资讯｜${text(report.period?.end || '本期')}`,
-    markdown: buildPremiumDingTalkMarkdown({ period: report.period || {}, cards, preselected: true }),
-    bytes: 0,
-    itemCount: cards.length,
-    displayedItemCount: cards.length,
-    omittedItemCount: 0,
-  }], cards, audit };
+  return {
+    messages: buildPremiumDingTalkMessageChunks(report, cards, options.maxBytes),
+    cards,
+    audit,
+  };
 }
 
 export function buildPremiumDingTalkMessages(report, options = {}) {
