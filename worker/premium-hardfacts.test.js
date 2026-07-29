@@ -587,15 +587,15 @@ function testPremiumChinaMinimumTracksBackfillableAndSourceOnlyChinaCandidates()
     ],
   });
 
-  assert.equal(delivery.audit.candidateChinaItems, 3);
-  assert.equal(delivery.audit.backfillableChinaCandidateItems, 3);
-  assert.equal(delivery.audit.requiredChinaItems, 3);
-  assert.equal(delivery.audit.finalChinaItems, 3);
+  assert.equal(delivery.audit.candidateChinaItems, 2);
+  assert.equal(delivery.audit.backfillableChinaCandidateItems, 2);
+  assert.equal(delivery.audit.requiredChinaItems, 2);
+  assert.equal(delivery.audit.finalChinaItems, 2);
   assert.equal(delivery.audit.chinaShortfall, false);
   assert.doesNotThrow(() => assertPremiumChinaDelivery(delivery.audit));
 }
 
-function testLeadOnlyChinaCandidatesCanBackfillSourceOnlyPremiumCard() {
+function testLeadOnlyNavigationPagesCannotBackfillSourceOnlyPremiumCard() {
   const delivery = buildPremiumDingTalkDelivery({
     period: { start: '2026-07-20', end: '2026-07-26' },
     sections: [{
@@ -621,27 +621,42 @@ function testLeadOnlyChinaCandidatesCanBackfillSourceOnlyPremiumCard() {
       }],
     }],
   }, {
-    candidates: [{
-      title: '欢迎访问中华商标网',
-      url: 'https://example.org/topic/cosmetics-brand',
-      source_name: '中华商标协会',
-      country: '中国',
-      module: '知识产权动态',
-      published_at: '2026-07-24',
-      detail_status: 'hydrated',
-      evidence_grade: 'lead_only',
-      article_text: '欢迎访问中华商标网。化妆品产业专业委员会拟建立品牌指数和商标品牌价值评估体系。',
-      hard_facts: {
-        authority: '中华商标协会',
+    candidates: [
+      {
+        title: '欢迎访问中华商标网',
+        url: 'https://example.org/topic/cosmetics-brand',
+        source_name: '中华商标协会',
+        country: '中国',
+        module: '知识产权动态',
+        published_at: '2026-07-24',
+        detail_status: 'hydrated',
+        evidence_grade: 'lead_only',
+        article_text: '欢迎访问中华商标网。化妆品产业专业委员会拟建立品牌指数和商标品牌价值评估体系。',
+        hard_facts: {
+          authority: '中华商标协会',
+        },
       },
-    }],
+      {
+        title: '通知公告 更多>>',
+        url: 'https://example.org/notices',
+        source_name: '广西知识产权局',
+        country: '中国',
+        module: '知识产权动态',
+        published_at: '2026-07-24',
+        detail_status: 'hydrated',
+        evidence_grade: 'lead_only',
+        article_text: '通知公告 更多>> 首页 资讯中心 办事服务 商标法 知识产权公共服务 化妆品商标申请和注册数量等导航列表。',
+        hard_facts: {
+          authority: '国家知识产权局',
+        },
+      },
+    ],
   });
 
-  assert.equal(delivery.audit.candidateChinaItems, 1);
-  assert.equal(delivery.audit.requiredChinaItems, 1);
-  assert.equal(delivery.audit.finalChinaItems, 1);
-  assert.equal(delivery.audit.sourceOnlyFallbackItems, 1);
-  assert.match(delivery.messages[0].markdown, /欢迎访问中华商标网/);
+  assert.equal(delivery.audit.candidateChinaItems, 0);
+  assert.equal(delivery.audit.requiredChinaItems, 0);
+  assert.equal(delivery.audit.sourceOnlyFallbackItems, 0);
+  assert.doesNotMatch(delivery.messages[0].markdown, /欢迎访问中华商标网|通知公告 更多/);
 }
 
 function testPremiumDeliveryDoesNotFillChinaShortfallWithForeignCards() {
@@ -948,7 +963,7 @@ testPremiumDeliveryBuildsChinaCardFromCandidateWhenAiReportDropsChina();
 testPremiumDeliveryRequiresMultipleChinaCardsWhenCandidatesAreAvailable();
 testPremiumReportItemUsesHardFactDateWhenPublishedAtMissing();
 testPremiumChinaMinimumTracksBackfillableAndSourceOnlyChinaCandidates();
-testLeadOnlyChinaCandidatesCanBackfillSourceOnlyPremiumCard();
+testLeadOnlyNavigationPagesCannotBackfillSourceOnlyPremiumCard();
 testPremiumDeliveryDoesNotFillChinaShortfallWithForeignCards();
 testNonBeautyPlatformPenaltyCannotEnterPremiumCard();
 testAiInjectedBeautyWordingCannotMakeNonBeautyPenaltyRelevant();

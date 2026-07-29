@@ -1034,7 +1034,8 @@ function isSourceOnlyFallbackEligible(candidate = {}) {
   const source = sourceTextForCard(card);
   if (source.length < 80) return false;
   if (!BEAUTY_RELEVANCE_PATTERN.test(source) && !MODULE_ORDER.includes(normalizeModule(card.module))) return false;
-  if (isNavigationOrGenericInformationPage(card) && !/通报|公告|处罚|召回|备案|注册|进口|出口|商标|化妆品|美妆|cosmetic/i.test(source)) return false;
+  if (isNavigationOrGenericInformationPage(card)) return false;
+  if (!hasHardLegalEvent(card)) return false;
   return true;
 }
 
@@ -1076,7 +1077,6 @@ function fallbackChinaCandidateCards(candidates = [], maxItems = 3) {
 function isPremiumCandidateEligible(candidate = {}) {
   const grade = text(candidate.evidence_grade);
   if (grade === 'reject') return false;
-  if (grade === 'hard_fact_ready') return true;
   const card = premiumCardFromCandidate(candidate);
   return isSampleGradeCard(card);
 }
