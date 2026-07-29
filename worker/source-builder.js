@@ -1,5 +1,6 @@
 import { writeFileSync } from 'node:fs';
 import { execFileSync } from 'node:child_process';
+import { isLikelyPortalUrl } from './source-acquisition.js';
 
 const workbookPath = process.env.SOURCE_WORKBOOK || '/Users/zhuxinfei/Downloads/美妆行业新法律法规、违法案例公众号_网站收录 +2026.5.24.xlsx';
 
@@ -50,10 +51,12 @@ function classifyWorkbookRows(rows) {
     const key = `${name}|${url}|${currentModule}`;
     if (seen.has(key)) return [];
     seen.add(key);
+    const sourceScope = isLikelyPortalUrl(url) ? 'portal' : 'discovery_only';
     return [{
       id: `xlsx-${String(no).padStart(3, '0')}`,
       name,
       url,
+      source_scope: sourceScope,
       module: currentModule,
       region: '亚洲',
       country: '中国',
@@ -64,6 +67,35 @@ function classifyWorkbookRows(rows) {
     }];
   });
 }
+
+const hardFactAuthoritySources = [
+  {
+    id: 'hardfact-cn-nifdc-cosmetic-standards-notices',
+    name: '中检院化妆品标准通知公告',
+    url: 'https://www.nifdc.org.cn/directory/web/nifdc/bshff/hzhpbzh/hzhpbzhtzgg/index.html',
+    source_scope: 'hard_fact_list',
+    module: '新规及案例动态',
+    region: '亚洲',
+    country: '中国',
+    source_type: 'official_site',
+    authority_type: 'regulator',
+    priority: 'high',
+    topics: ['化妆品标准', '征求意见', '公告', '国家药监局'],
+  },
+  {
+    id: 'hardfact-cn-fujian-cosmetic-regulatory-updates',
+    name: '福建省药监局化妆品监管动态',
+    url: 'https://yjj.scjgj.fujian.gov.cn/hzp/jgdt/',
+    source_scope: 'hard_fact_list',
+    module: '新规及案例动态',
+    region: '亚洲',
+    country: '中国',
+    source_type: 'official_site',
+    authority_type: 'regulator',
+    priority: 'high',
+    topics: ['化妆品监管动态', '国家药监局公告', '通告', '征求意见'],
+  },
+];
 
 const globalAuthoritySources = [
   { name: '欧盟委员会化妆品法规', url: 'https://single-market-economy.ec.europa.eu/sectors/cosmetics/cosmetic-products-specific-topics_en', module: '新规及案例动态', region: '欧洲', country: '欧盟', source_type: 'official_site', authority_type: 'regulator', priority: 'high', topics: ['欧盟', '化妆品法规', '禁限用成分', 'SCCS'] },
@@ -83,6 +115,9 @@ const globalAuthoritySources = [
   { name: '美国 CBP', url: 'https://www.cbp.gov/newsroom', module: '进出口动态', region: '北美洲', country: '美国', source_type: 'official_site', authority_type: 'regulator', priority: 'medium', topics: ['进口', '海关', 'CBP'] },
 ];
 
-const sources = [...classifyWorkbookRows(loadWorkbookRows()), ...globalAuthoritySources];
+const sources = [...hardFactAuthoritySources, ...classifyWorkbookRows(loadWorkbookRows()), ...globalAuthoritySources.map(source => ({
+  ...source,
+  source_scope: isLikelyPortalUrl(source.url) ? 'portal' : 'discovery_only',
+}))];
 writeFileSync(new URL('./sources.json', import.meta.url), JSON.stringify({ sources }, null, 2) + '\n');
 console.log(`wrote ${sources.length} sources`);

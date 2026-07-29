@@ -37,6 +37,12 @@ import {
   assertPremiumChinaDelivery,
   buildPremiumDingTalkDelivery,
 } from './premium-quality.js';
+import {
+  filterHardFactAcquisitionSources,
+  isFormalAcquisitionMode,
+  isHardFactAcquisitionSource,
+  isLikelyPortalUrl,
+} from './source-acquisition.js';
 
 // ---------------------------------------------------------------------------
 // 配置
@@ -1696,6 +1702,8 @@ export function makeLead(source) {
   };
 }
 
+export { isHardFactAcquisitionSource, isLikelyPortalUrl };
+
 export function makeSourceLeadCandidate(source) {
   return makeCandidate(source, {
     title: `${source.name}：${source.module}行业线索`,
@@ -3168,7 +3176,7 @@ async function requestSourceHtml(source, url, fetcher, timeoutMs) {
   return { ok: true, status: response.status, html, finalUrl: response.url || url };
 }
 
-function extractSourceCandidatesFromHtml(source, html, finalUrl = source.url) {
+export function extractSourceCandidatesFromHtml(source, html, finalUrl = source.url) {
   const snippetLimit = ['美妆动态', '进出口动态'].includes(source.module) ? 1500 : 800;
   const links = extractLinks(html, finalUrl).filter(link => isRelevantTitle(link.title));
   const imageUrl = extractImageUrl(html, finalUrl);
@@ -3176,7 +3184,9 @@ function extractSourceCandidatesFromHtml(source, html, finalUrl = source.url) {
   const linkCandidates = links.map(link => makeCandidate(source, { ...link, snippet: pageText, image_url: imageUrl }));
   const sourceText = `${source.name} ${(source.topics || []).join(' ')} ${pageText}`;
   const shouldKeepSourcePage = SOURCE_PAGE_HARD_EVENT_PATTERN.test(sourceText)
-    && BEAUTY_KEYWORDS.some(keyword => sourceText.toLowerCase().includes(keyword.toLowerCase()));
+    && BEAUTY_KEYWORDS.some(keyword => sourceText.toLowerCase().includes(keyword.toLowerCase()))
+    && isHardFactAcquisitionSource(source)
+    && !isLikelyPortalUrl(finalUrl);
   const sourceCandidate = shouldKeepSourcePage
     ? [makeCandidate(source, {
       title: `${source.name}：${source.module}信息源入口`,
@@ -3219,7 +3229,12 @@ async function fetchSourceCandidates(source, {
 }
 
 export async function collectCandidates(sources = sourceCatalog.sources, onProgress = async () => {}, options = {}) {
-  const { fetchableSources, leadSources } = splitSources(sources);
+  const formalAcquisitionMode = isFormalAcquisitionMode(options);
+  const acquisitionSources = filterHardFactAcquisitionSources(sources, {
+    ...options,
+    hardFactOnly: formalAcquisitionMode,
+  });
+  const { fetchableSources, leadSources } = splitSources(formalAcquisitionMode ? acquisitionSources : sources);
   const leads = leadSources.map(makeLead);
   const authoritySearchTasks = buildAuthoritySearchTasks(leads);
   const leadCandidates = leadSources.map(makeSourceLeadCandidate);
@@ -3233,7 +3248,7 @@ export async function collectCandidates(sources = sourceCatalog.sources, onProgr
   const coverage = calculateSourceCoverage(fetchableSources, sourceResults);
   const failures = sourceResults.filter(result => result.status === 'failed').map(result => result.source.name);
   const candidates = [
-    ...results.flatMap(result => result.items.length ? result.items : [makeSourceLeadCandidate(result.source)]),
+    ...results.flatMap(result => result.items.length ? result.items : (formalAcquisitionMode ? [] : [makeSourceLeadCandidate(result.source)])),
     ...leadCandidates,
   ];
 
@@ -3350,6 +3365,7 @@ async function runCollectPhase(sources, batchId, date, env) {
     detailConcurrency: Number(env.DETAIL_FETCH_CONCURRENCY || DETAIL_FETCH_CONCURRENCY),
     detailBrowserRecoveryLimit: Number(env.DETAIL_BROWSER_RECOVERY_LIMIT || DETAIL_BROWSER_RECOVERY_LIMIT),
     hydrationRecords,
+    env,
   });
   await env.SEEN_NEWS.put(
     `pipeline:${date}:batch:${batchId}`,

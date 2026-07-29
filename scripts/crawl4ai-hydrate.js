@@ -3,6 +3,10 @@ import { execFileSync } from 'node:child_process';
 import { resolve } from 'node:path';
 import { pathToFileURL } from 'node:url';
 import { normalizeHydratedPayload } from '../worker/source-hydration.js';
+import {
+  filterHardFactAcquisitionSources,
+  isHardFactAcquisitionSource,
+} from '../worker/source-acquisition.js';
 
 function parseArgs(argv) {
   const args = {
@@ -328,7 +332,10 @@ function hydrationSourceScore(item = {}) {
 }
 
 export function prioritizeHydrationSources(records = []) {
-  return [...records].sort((a, b) => hydrationSourceScore(b) - hydrationSourceScore(a));
+  return [...records].sort((a, b) => {
+    const scopeDelta = Number(isHardFactAcquisitionSource(b)) - Number(isHardFactAcquisitionSource(a));
+    return scopeDelta || hydrationSourceScore(b) - hydrationSourceScore(a);
+  });
 }
 
 function hydrationTextStats(records = []) {
@@ -374,7 +381,7 @@ async function main() {
     throw new Error('Usage: node scripts/crawl4ai-hydrate.js --input worker/sources.json --output out/hydrated-sources.json');
   }
 
-  const loaded = await loadInput(resolve(input));
+  const loaded = filterHardFactAcquisitionSources(await loadInput(resolve(input)), { env: process.env, hardFactOnly: true });
   const manualPreviewLimit = process.env.GITHUB_EVENT_NAME === 'workflow_dispatch'
     ? Number(process.env.CRAWL4AI_PREVIEW_LIMIT || 39)
     : 0;

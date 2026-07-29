@@ -1,6 +1,42 @@
 {
   "sources": [
     {
+      "id": "hardfact-cn-nifdc-cosmetic-standards-notices",
+      "name": "中检院化妆品标准通知公告",
+      "url": "https://www.nifdc.org.cn/directory/web/nifdc/bshff/hzhpbzh/hzhpbzhtzgg/index.html",
+      "source_scope": "hard_fact_list",
+      "module": "新规及案例动态",
+      "region": "亚洲",
+      "country": "中国",
+      "source_type": "official_site",
+      "authority_type": "regulator",
+      "priority": "high",
+      "topics": [
+        "化妆品标准",
+        "征求意见",
+        "公告",
+        "国家药监局"
+      ]
+    },
+    {
+      "id": "hardfact-cn-fujian-cosmetic-regulatory-updates",
+      "name": "福建省药监局化妆品监管动态",
+      "url": "https://yjj.scjgj.fujian.gov.cn/hzp/jgdt/",
+      "source_scope": "hard_fact_list",
+      "module": "新规及案例动态",
+      "region": "亚洲",
+      "country": "中国",
+      "source_type": "official_site",
+      "authority_type": "regulator",
+      "priority": "high",
+      "topics": [
+        "化妆品监管动态",
+        "国家药监局公告",
+        "通告",
+        "征求意见"
+      ]
+    },
+    {
       "id": "xlsx-001",
       "name": "中国政府网",
       "url": "https://www.gov.cn/",
@@ -13,7 +49,8 @@
       "topics": [
         "广告合规及处罚案例",
         "中国政府网"
-      ]
+      ],
+      "source_scope": "portal"
     },
     {
       "id": "xlsx-002",
@@ -31,7 +68,8 @@
       "topics": [
         "广告合规及处罚案例",
         "国家药品监督管理局"
-      ]
+      ],
+      "source_scope": "portal"
     },
     {
       "id": "xlsx-003",
@@ -46,7 +84,8 @@
       "topics": [
         "广告合规及处罚案例",
         "国家市场监督管理总局"
-      ]
+      ],
+      "source_scope": "portal"
     },
     {
       "id": "xlsx-004",
@@ -61,7 +100,8 @@
       "topics": [
         "广告合规及处罚案例",
         "上海市市场监督管理局"
-      ]
+      ],
+      "source_scope": "portal"
     },
     {
       "id": "xlsx-005",
@@ -79,7 +119,8 @@
       "topics": [
         "广告合规及处罚案例",
         "杭州市市场监督管理局"
-      ]
+      ],
+      "source_scope": "discovery_only"
     },
     {
       "id": "xlsx-006",
@@ -97,7 +138,8 @@
       "topics": [
         "广告合规及处罚案例",
         "北京市市场监督管理局"
-      ]
+      ],
+      "source_scope": "portal"
     },
     {
       "id": "xlsx-007",
@@ -112,7 +154,8 @@
       "topics": [
         "广告合规及处罚案例",
         "广州市市场监督管理局"
-      ]
+      ],
+      "source_scope": "portal"
     },
     {
       "id": "xlsx-008",
@@ -130,7 +173,8 @@
       "topics": [
         "广告合规及处罚案例",
         "浙江省药品监督管理局"
-      ]
+      ],
+      "source_scope": "portal"
     },
     {
       "id": "xlsx-009",
@@ -148,7 +192,8 @@
       "topics": [
         "广告合规及处罚案例",
         "浙江省市场监督管理局"
-      ]
+      ],
+      "source_scope": "portal"
     },
     {
       "id": "xlsx-010",
@@ -166,7 +211,8 @@
       "topics": [
         "广告合规及处罚案例",
         "广东省市场监督管理局"
-      ]
+      ],
+      "source_scope": "portal"
     },
     {
       "id": "xlsx-011",
@@ -184,7 +230,8 @@
       "topics": [
         "广告合规及处罚案例",
         "国家市场监督管理总局广告监管司"
-      ]
+      ],
+      "source_scope": "discovery_only"
     },
     {
       "id": "xlsx-012",
@@ -199,7 +246,8 @@
       "topics": [
         "广告合规及处罚案例",
         "市场监管半月沙龙"
-      ]
+      ],
+      "source_scope": "discovery_only"
     },
     {
       "id": "xlsx-013",
@@ -214,7 +262,8 @@
       "topics": [
         "美妆动态",
         "浙江省广告监测中心"
-      ]
+      ],
+      "source_scope": "discovery_only"
     },
     {
       "id": "xlsx-014",
@@ -229,7 +278,8 @@
       "topics": [
         "美妆动态",
         "浙江美妆"
-      ]
+      ],
+      "source_scope": "discovery_only"
     },
     {
       "id": "xlsx-015",
@@ -244,7 +294,8 @@
       "topics": [
         "美妆动态",
         "美妆品牌合规指引"
-      ]
+      ],
+      "source_scope": "discovery_only"
     },
     {
       "id": "xlsx-016",
@@ -259,7 +310,8 @@
       "topics": [
         "美妆动态",
         "化妆品报"
-      ]
+      ],
+      "source_scope": "discovery_only"
     },
     {
       "id": "xlsx-017",
@@ -274,7 +326,8 @@
       "topics": [
         "美妆动态",
         "化妆品观察"
-      ]
+      ],
+      "source_scope": "discovery_only"
     },
     {
       "id": "xlsx-018",
@@ -289,7 +342,8 @@
       "topics": [
         "美妆动态",
         "化妆品法规服务站"
-      ]
+      ],
+      "source_scope": "discovery_only"
     },
     {
       "id": "xlsx-019",
@@ -304,7 +358,8 @@
       "topics": [
         "美妆动态",
         "互联网合规君"
-      ]
+      ],
+      "source_scope": "discovery_only"
     },
     {
       "id": "xlsx-021",
@@ -319,7 +374,8 @@
       "topics": [
         "美妆动态",
         "化妆品行业传媒网"
-      ]
+      ],
+      "source_scope": "discovery_only"
     },
     {
       "id": "xlsx-022",
@@ -334,7 +390,8 @@
       "topics": [
         "美妆动态",
         "饭米粒law"
-      ]
+      ],
+      "source_scope": "discovery_only"
     },
     {
       "id": "xlsx-023",
@@ -349,7 +406,8 @@
       "topics": [
         "美妆动态",
         "美妆头条"
-      ]
+      ],
+      "source_scope": "discovery_only"
     },
     {
       "id": "xlsx-024",
@@ -364,7 +422,8 @@
       "topics": [
         "美妆动态",
         "质美妆规"
-      ]
+      ],
+      "source_scope": "discovery_only"
     },
     {
       "id": "xlsx-025",
@@ -379,7 +438,8 @@
       "topics": [
         "美妆动态",
         "妆研24小时"
-      ]
+      ],
+      "source_scope": "discovery_only"
     },
     {
       "id": "xlsx-026",
@@ -394,7 +454,8 @@
       "topics": [
         "美妆动态",
         "妆规情报局"
-      ]
+      ],
+      "source_scope": "discovery_only"
     },
     {
       "id": "xlsx-028",
@@ -409,7 +470,8 @@
       "topics": [
         "知识产权动态",
         "广东省知识产权保护中心"
-      ]
+      ],
+      "source_scope": "portal"
     },
     {
       "id": "xlsx-029",
@@ -424,7 +486,8 @@
       "topics": [
         "知识产权动态",
         "国家知识产权局"
-      ]
+      ],
+      "source_scope": "portal"
     },
     {
       "id": "xlsx-030",
@@ -439,7 +502,8 @@
       "topics": [
         "知识产权动态",
         "国家知识产权局商标局"
-      ]
+      ],
+      "source_scope": "discovery_only"
     },
     {
       "id": "xlsx-031",
@@ -457,7 +521,8 @@
       "topics": [
         "知识产权动态",
         "国家知识产权公共服务网"
-      ]
+      ],
+      "source_scope": "portal"
     },
     {
       "id": "xlsx-032",
@@ -472,7 +537,8 @@
       "topics": [
         "知识产权动态",
         "杭州知识产权运营公共服务平台"
-      ]
+      ],
+      "source_scope": "portal"
     },
     {
       "id": "xlsx-033",
@@ -487,7 +553,8 @@
       "topics": [
         "知识产权动态",
         "北京市知识产权局"
-      ]
+      ],
+      "source_scope": "portal"
     },
     {
       "id": "xlsx-034",
@@ -502,7 +569,8 @@
       "topics": [
         "知识产权动态",
         "知识产权家"
-      ]
+      ],
+      "source_scope": "discovery_only"
     },
     {
       "id": "xlsx-035",
@@ -517,7 +585,8 @@
       "topics": [
         "知识产权动态",
         "知产库"
-      ]
+      ],
+      "source_scope": "discovery_only"
     },
     {
       "id": "xlsx-036",
@@ -532,7 +601,8 @@
       "topics": [
         "知识产权动态",
         "知产力"
-      ]
+      ],
+      "source_scope": "discovery_only"
     },
     {
       "id": "xlsx-037",
@@ -547,7 +617,8 @@
       "topics": [
         "知识产权动态",
         "知识产权法律服务"
-      ]
+      ],
+      "source_scope": "discovery_only"
     },
     {
       "id": "xlsx-038",
@@ -562,7 +633,8 @@
       "topics": [
         "知识产权动态",
         "中华商标协会"
-      ]
+      ],
+      "source_scope": "portal"
     },
     {
       "id": "xlsx-039",
@@ -577,7 +649,8 @@
       "topics": [
         "新规及案例动态",
         "中华人民共和国最高人民检察院"
-      ]
+      ],
+      "source_scope": "portal"
     },
     {
       "id": "xlsx-040",
@@ -592,7 +665,8 @@
       "topics": [
         "新规及案例动态",
         "中华人民共和国司法部"
-      ]
+      ],
+      "source_scope": "portal"
     },
     {
       "id": "xlsx-041",
@@ -607,7 +681,8 @@
       "topics": [
         "新规及案例动态",
         "中国人大网"
-      ]
+      ],
+      "source_scope": "portal"
     },
     {
       "id": "xlsx-042",
@@ -622,7 +697,8 @@
       "topics": [
         "新规及案例动态",
         "法大大"
-      ]
+      ],
+      "source_scope": "discovery_only"
     },
     {
       "id": "xlsx-043",
@@ -637,7 +713,8 @@
       "topics": [
         "新规及案例动态",
         "民法典普法"
-      ]
+      ],
+      "source_scope": "discovery_only"
     },
     {
       "id": "xlsx-044",
@@ -652,7 +729,8 @@
       "topics": [
         "新规及案例动态",
         "人民法院报"
-      ]
+      ],
+      "source_scope": "discovery_only"
     },
     {
       "id": "xlsx-045",
@@ -667,7 +745,8 @@
       "topics": [
         "新规及案例动态",
         "保全与执行"
-      ]
+      ],
+      "source_scope": "discovery_only"
     },
     {
       "id": "xlsx-046",
@@ -682,7 +761,8 @@
       "topics": [
         "新规及案例动态",
         "中国法律评论"
-      ]
+      ],
+      "source_scope": "discovery_only"
     },
     {
       "id": "xlsx-047",
@@ -697,7 +777,8 @@
       "topics": [
         "新规及案例动态",
         "最高人民法院司法案例研究院"
-      ]
+      ],
+      "source_scope": "discovery_only"
     },
     {
       "id": "xlsx-048",
@@ -712,7 +793,8 @@
       "topics": [
         "新规及案例动态",
         "劳动法库"
-      ]
+      ],
+      "source_scope": "discovery_only"
     },
     {
       "id": "xlsx-049",
@@ -727,7 +809,8 @@
       "topics": [
         "新规及案例动态",
         "最高判例指引"
-      ]
+      ],
+      "source_scope": "discovery_only"
     },
     {
       "id": "xlsx-050",
@@ -742,7 +825,8 @@
       "topics": [
         "进出口动态",
         "海关发布"
-      ]
+      ],
+      "source_scope": "discovery_only"
     },
     {
       "id": "xlsx-051",
@@ -757,7 +841,8 @@
       "topics": [
         "进出口动态",
         "海运网"
-      ]
+      ],
+      "source_scope": "discovery_only"
     },
     {
       "id": "xlsx-052",
@@ -772,7 +857,8 @@
       "topics": [
         "进出口动态",
         "青眼"
-      ]
+      ],
+      "source_scope": "discovery_only"
     },
     {
       "id": "xlsx-053",
@@ -787,7 +873,8 @@
       "topics": [
         "进出口动态",
         "青眼号外"
-      ]
+      ],
+      "source_scope": "discovery_only"
     },
     {
       "id": "xlsx-054",
@@ -802,7 +889,8 @@
       "topics": [
         "进出口动态",
         "青眼资讯"
-      ]
+      ],
+      "source_scope": "discovery_only"
     },
     {
       "id": "xlsx-055",
@@ -817,7 +905,8 @@
       "topics": [
         "进出口动态",
         "关务小二"
-      ]
+      ],
+      "source_scope": "discovery_only"
     },
     {
       "id": "xlsx-057",
@@ -832,7 +921,8 @@
       "topics": [
         "进出口动态",
         "进出口法律评析"
-      ]
+      ],
+      "source_scope": "discovery_only"
     },
     {
       "id": "xlsx-058",
@@ -847,7 +937,8 @@
       "topics": [
         "进出口动态",
         "观海咨询"
-      ]
+      ],
+      "source_scope": "discovery_only"
     },
     {
       "id": "xlsx-059",
@@ -862,7 +953,8 @@
       "topics": [
         "进出口动态",
         "潍坊综合保税区"
-      ]
+      ],
+      "source_scope": "discovery_only"
     },
     {
       "id": "xlsx-060",
@@ -877,7 +969,8 @@
       "topics": [
         "进出口动态",
         "欣海关务工作室"
-      ]
+      ],
+      "source_scope": "discovery_only"
     },
     {
       "id": "xlsx-061",
@@ -895,7 +988,8 @@
       "topics": [
         "进出口动态",
         "海关总署"
-      ]
+      ],
+      "source_scope": "portal"
     },
     {
       "id": "xlsx-062",
@@ -910,7 +1004,8 @@
       "topics": [
         "进出口动态",
         "跨境进口老歪"
-      ]
+      ],
+      "source_scope": "discovery_only"
     },
     {
       "id": "xlsx-063",
@@ -925,7 +1020,8 @@
       "topics": [
         "进出口动态",
         "杭州海关发布"
-      ]
+      ],
+      "source_scope": "discovery_only"
     },
     {
       "id": "xlsx-065",
@@ -940,7 +1036,8 @@
       "topics": [
         "进出口动态",
         "GOODHONOR嘉诚国际"
-      ]
+      ],
+      "source_scope": "discovery_only"
     },
     {
       "id": "xlsx-066",
@@ -955,7 +1052,8 @@
       "topics": [
         "进出口动态",
         "宁波广电（公众号）"
-      ]
+      ],
+      "source_scope": "discovery_only"
     },
     {
       "id": "xlsx-067",
@@ -970,7 +1068,8 @@
       "topics": [
         "进出口动态",
         "首席电商观察"
-      ]
+      ],
+      "source_scope": "discovery_only"
     },
     {
       "id": "xlsx-068",
@@ -985,7 +1084,8 @@
       "topics": [
         "进出口动态",
         "数字经济联合会"
-      ]
+      ],
+      "source_scope": "discovery_only"
     },
     {
       "id": "xlsx-069",
@@ -1003,7 +1103,8 @@
       "topics": [
         "进出口动态",
         "国家网信办官网"
-      ]
+      ],
+      "source_scope": "portal"
     },
     {
       "name": "欧盟委员会化妆品法规",
@@ -1019,7 +1120,8 @@
         "化妆品法规",
         "禁限用成分",
         "SCCS"
-      ]
+      ],
+      "source_scope": "discovery_only"
     },
     {
       "name": "欧盟 SCCS 科学委员会",
@@ -1034,7 +1136,8 @@
         "SCCS",
         "成分安全",
         "意见稿"
-      ]
+      ],
+      "source_scope": "discovery_only"
     },
     {
       "name": "欧盟 Safety Gate",
@@ -1049,7 +1152,8 @@
         "Safety Gate",
         "召回",
         "化妆品"
-      ]
+      ],
+      "source_scope": "discovery_only"
     },
     {
       "name": "美国 FDA Cosmetics",
@@ -1065,7 +1169,8 @@
         "FDA",
         "化妆品注册",
         "不良事件"
-      ]
+      ],
+      "source_scope": "discovery_only"
     },
     {
       "name": "美国 FTC Advertising",
@@ -1080,7 +1185,8 @@
         "广告",
         "FTC",
         "虚假宣传"
-      ]
+      ],
+      "source_scope": "discovery_only"
     },
     {
       "name": "印度尼西亚 BPOM",
@@ -1095,7 +1201,8 @@
         "BPOM",
         "清真",
         "化妆品注册"
-      ]
+      ],
+      "source_scope": "portal"
     },
     {
       "name": "泰国 FDA Cosmetics",
@@ -1110,7 +1217,8 @@
         "泰国",
         "FDA",
         "化妆品"
-      ]
+      ],
+      "source_scope": "portal"
     },
     {
       "name": "越南 DAV 化妆品",
@@ -1128,7 +1236,8 @@
         "越南",
         "化妆品",
         "注册"
-      ]
+      ],
+      "source_scope": "portal"
     },
     {
       "name": "日本厚生劳动省 化妆品",
@@ -1146,7 +1255,8 @@
         "日本",
         "化妆品",
         "医药部外品"
-      ]
+      ],
+      "source_scope": "discovery_only"
     },
     {
       "name": "韩国 MFDS Cosmetics",
@@ -1164,7 +1274,8 @@
         "韩国",
         "MFDS",
         "化妆品"
-      ]
+      ],
+      "source_scope": "discovery_only"
     },
     {
       "name": "墨西哥 COFEPRIS",
@@ -1179,7 +1290,8 @@
         "墨西哥",
         "COFEPRIS",
         "化妆品"
-      ]
+      ],
+      "source_scope": "discovery_only"
     },
     {
       "name": "意大利卫生部 Cosmetics",
@@ -1194,7 +1306,8 @@
         "意大利",
         "化妆品",
         "欧盟"
-      ]
+      ],
+      "source_scope": "discovery_only"
     },
     {
       "name": "WIPO",
@@ -1209,7 +1322,8 @@
         "WIPO",
         "商标",
         "外观设计"
-      ]
+      ],
+      "source_scope": "portal"
     },
     {
       "name": "EUIPO",
@@ -1227,7 +1341,8 @@
         "EUIPO",
         "商标",
         "外观设计"
-      ]
+      ],
+      "source_scope": "discovery_only"
     },
     {
       "name": "美国 CBP",
@@ -1242,7 +1357,8 @@
         "进口",
         "海关",
         "CBP"
-      ]
+      ],
+      "source_scope": "discovery_only"
     }
   ]
 }

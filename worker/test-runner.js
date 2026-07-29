@@ -98,6 +98,9 @@ import {
   buildAnalysisPrompt,
   normalizeReportForValidation,
   makeSourceLeadCandidate,
+  isHardFactAcquisitionSource,
+  isLikelyPortalUrl,
+  extractSourceCandidatesFromHtml,
   normalizeModuleReport,
   enrichReportWithSourceSignals,
   filterReportToObservedSources,
@@ -4894,6 +4897,52 @@ function testPreviewSourceSelectionPrioritizesHardChinaLegalSources() {
   assert.ok(fetchable.filter(source => source.country === '中国').length >= 5);
 }
 
+function testHardFactAcquisitionRejectsPortalHomepages() {
+  const rejected = [
+    { name: '中国政府网', url: 'https://www.gov.cn/', source_type: 'official_site', authority_type: 'regulator', country: '中国', module: '广告合规及处罚案例' },
+    { name: '国家药品监督管理局', url: 'https://www.nmpa.gov.cn/index.html', source_type: 'official_site', authority_type: 'regulator', country: '中国', module: '广告合规及处罚案例' },
+    { name: '国家市场监督管理总局', url: 'https://www.samr.gov.cn/', source_type: 'official_site', authority_type: 'regulator', country: '中国', module: '广告合规及处罚案例' },
+  ];
+  for (const source of rejected) {
+    assert.equal(isHardFactAcquisitionSource(source), false, `${source.name} homepage must not be a formal acquisition source`);
+  }
+
+  assert.equal(isHardFactAcquisitionSource({
+    name: '国家药监局征求意见',
+    url: 'https://www.nmpa.gov.cn/xxgk/zhqyj/20260724.html',
+    source_scope: 'hard_fact_endpoint',
+    source_type: 'official_site',
+    authority_type: 'regulator',
+    country: '中国',
+    module: '新规及案例动态',
+  }), true);
+}
+
+function testCheckedInCatalogMarksOnlyHardFactSourcesForFormalAcquisition() {
+  const formalSources = sourceCatalog.sources.filter(isHardFactAcquisitionSource);
+  assert.ok(formalSources.length >= 2, 'expected checked-in hard fact list sources');
+  assert.ok(formalSources.every(source => source.source_scope === 'hard_fact_list' || source.source_scope === 'hard_fact_endpoint'));
+  assert.equal(formalSources.some(source => isLikelyPortalUrl(source.url)), false);
+  assert.ok(formalSources.some(source => /nifdc\.org\.cn/.test(source.url)), 'missing NIFDC cosmetic standards source');
+  assert.ok(formalSources.some(source => /yjj\.scjgj\.fujian\.gov\.cn\/hzp\/jgdt/.test(source.url)), 'missing Fujian cosmetic regulatory updates source');
+}
+
+function testPortalSourcePageCannotBecomeCandidate() {
+  const html = '<html><head><title>国家市场监督管理总局</title></head><body>首页 新闻 时政要闻 通知公告 行政处罚 化妆品 召回 商标 进口 出口 政策法规 网站地图</body></html>';
+  const candidates = extractSourceCandidatesFromHtml({
+    name: '国家市场监督管理总局',
+    url: 'https://www.samr.gov.cn/',
+    source_type: 'official_site',
+    authority_type: 'regulator',
+    country: '中国',
+    module: '广告合规及处罚案例',
+    topics: ['化妆品', '行政处罚'],
+  }, html, 'https://www.samr.gov.cn/');
+
+  assert.equal(candidates.some(candidate => /信息源入口|行业线索/.test(candidate.title)), false);
+  assert.equal(candidates.some(candidate => candidate.url === 'https://www.samr.gov.cn/'), false);
+}
+
 function testWeeklyWorkflowRunsLocalReportPipelineWithoutWorkerDeploy() {
   const workflow = readFileSync(new URL('../.github/workflows/weekly.yml', import.meta.url), 'utf8');
   assert.ok(workflow.includes('node worker/run-local.js'));
@@ -5087,6 +5136,9 @@ testSourceLeadCandidateKeepsWeaklyFetchableModulesAnalyzable();
 testSourceCatalogUsesWorkbookModulesAndGlobalMarkets();
 testSelectSourcesForWorkerBudgetKeepsImportantCoverageUnderLimit();
 testPreviewSourceSelectionPrioritizesHardChinaLegalSources();
+testHardFactAcquisitionRejectsPortalHomepages();
+testCheckedInCatalogMarksOnlyHardFactSourcesForFormalAcquisition();
+testPortalSourcePageCannotBecomeCandidate();
 testPromptIncludesProductQualityRecallModule();
 testWeeklyWorkflowRunsLocalReportPipelineWithoutWorkerDeploy();
 testDecisionMapPublicUrlCanOverrideWorkerAssetUrl();
