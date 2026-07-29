@@ -105,10 +105,10 @@ def extract_detail_urls(markdown, base_url):
     normalized = []
     def sanitize_detail_href(raw):
         href = text_value(raw).strip().strip('"').strip("'")
-        match = re.search(r"(https?://[^\\s)\"']+?\\.html?)", href, flags=re.I)
+        match = re.search(r'''(https?://[^\\s)"']+?\\.html?)''', href, flags=re.I)
         if match:
             return match.group(1)
-        match = re.search(r"([^\\s)\"']+?\\.html?)", href, flags=re.I)
+        match = re.search(r'''([^\\s)"']+?\\.html?)''', href, flags=re.I)
         if match:
             return match.group(1)
         return href

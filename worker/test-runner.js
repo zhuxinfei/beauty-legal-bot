@@ -4972,7 +4972,8 @@ function testWeeklyWorkflowRunsLocalReportPipelineWithoutWorkerDeploy() {
   assert.ok(workflow.includes('DETAIL_FETCH_ENABLED: 1'));
   assert.ok(workflow.includes('DETAIL_CANDIDATE_LIMIT: 48'));
   assert.ok(workflow.includes('REPORT_TARGET_ITEMS: 8'));
-  assert.ok(workflow.includes('fonts-noto-cjk'));
+  assert.equal(workflow.includes('fonts-noto-cjk'), false);
+  assert.equal(workflow.includes('fc-match'), false);
   assert.ok(workflow.includes('node worker/probe-ai.js'));
   assert.ok(workflow.indexOf('node worker/probe-ai.js') < workflow.indexOf('node worker/run-local.js'));
   assert.ok(workflow.includes('CLOUDFLARE_KV_NAMESPACE_ID'));
