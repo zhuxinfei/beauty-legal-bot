@@ -31,6 +31,8 @@ const GENERIC_NON_BEAUTY_PATTERN = /(?:在线酒店|酒店预订|机票|旅游|�
 const PREMIUM_JUNK_EVIDENCE_PATTERN = /(?:欢迎访问|通知公告\s*更多|首页\s+资讯中心|栏目导航|工作委员会|专业委员会名单|证明商标使用申请表|填写说明|粤港澳知识产权大数据综合服务平台|快捷检索|高级检索|友情链接|用户需求与满意度调查问卷|政府侧应用与数据需求调研问卷)/i;
 const BROKEN_FIELD_PATTERN = /(?:\[\s*\]\s*\(|\]\($|\(\s*$|\[\s*$|javascript:void|undefined|null|NaN|>\s*$|<\s*$)/i;
 const FRAGMENT_FIELD_PATTERN = /^(?:的|和|及|并|依法|予以|进行|相关|上述|该|此|其|对|将|已|了)[，,、；;\s]*(?:依法)?(?:严肃查处|处理|监管|处罚|执行|实施|发布|通告|公告)?$/;
+const DOCUMENT_TITLE_AS_PRODUCT_PATTERN = /(?:关于)?(?:\d+\s*批次)?(?:不符合规定)?化妆品的(?:公告|通告)[（(]20\d{2}年第\d+号[）)](?:\s|$)/;
+const MIXED_NOTICE_CHROME_PATTERN = /20\d{2}[-年]\d{1,2}[-月]\d{1,2}.*(?:召开|工作动态|监管动态|新闻|会议|活动|培训|论坛|检查)/;
 
 function text(value) {
   return String(value || '').replace(/\s+/g, ' ').trim();
@@ -111,6 +113,7 @@ function hardText(value) {
   const source = text(value);
   if (!source || /见原文|未知|待核验|未披露|未明确|待明确|空$/.test(source)) return '';
   if (BROKEN_FIELD_PATTERN.test(source) || FRAGMENT_FIELD_PATTERN.test(source)) return '';
+  if (DOCUMENT_TITLE_AS_PRODUCT_PATTERN.test(source) || MIXED_NOTICE_CHROME_PATTERN.test(source)) return '';
   return source;
 }
 
@@ -244,6 +247,40 @@ function withInferredHardFacts(hardFacts, card) {
     confiscation_result: hardFacts.confiscation_result || inferConfiscationResult(source),
     feedback_channel: hardFacts.feedback_channel || inferFeedbackChannel(source),
   };
+}
+
+function authorityFromCanonicalSource(candidate = {}) {
+  const url = text(candidate.source_url || candidate.url);
+  const title = text(candidate.title);
+  if (/nmpa\.gov\.cn/i.test(url) || /^国家药监局/.test(title)) return '国家药品监督管理局';
+  if (/nifdc\.org\.cn/i.test(url) || /^中检院/.test(title)) return '中检院';
+  if (/customs\.gov\.cn/i.test(url) || /^海关/.test(title)) return '海关总署';
+  return '';
+}
+
+function policyProductFromTitle(title = '') {
+  const source = text(title);
+  return firstMatch(source, [
+    /关于发布《([^》]{4,80})》的(?:公告|通告|通知)/,
+    /关于公开征求《([^》]{4,80})》(?:等\d+项)?(?:化妆品)?(?:标准)?意见的通知/,
+    /关于发布([^，。]{4,80}?(?:规定|办法|标准|规范|要求|清单|目录|检验方法))的(?:公告|通告|通知)/,
+  ]);
+}
+
+function normalizeCandidateHardFacts(candidate = {}, facts = {}) {
+  const titleProduct = policyProductFromTitle(candidate.title);
+  const authority = authorityFromCanonicalSource(candidate);
+  const next = { ...facts };
+  if (authority) next.authority = authority;
+  if (titleProduct && (!hardText(next.product_or_batch) || DOCUMENT_TITLE_AS_PRODUCT_PATTERN.test(text(next.product_or_batch)))) {
+    next.product_or_batch = titleProduct;
+  }
+  if (authority === '国家药品监督管理局' && /化妆品监督管理条例|化妆品生产经营监督管理办法|化妆品抽样检验管理办法/.test(text(candidate.article_text || candidate.full_text || candidate.evidence_text))) {
+    next.legal_basis = firstMatch(text(candidate.article_text || candidate.full_text || candidate.evidence_text), [
+      /(《化妆品监督管理条例》(?:、《化妆品生产经营监督管理办法》)?(?:、《化妆品抽样检验管理办法》)?)/,
+    ]) || next.legal_basis;
+  }
+  return normalizeHardFacts(next);
 }
 
 function compactHardFacts(facts = {}, keys = []) {
@@ -1113,7 +1150,7 @@ function premiumCardFromCandidate(candidate = {}) {
       ? providedHardFacts.affected_processes
       : extractedFacts.affected_processes,
   };
-  const hardFacts = withInferredHardFacts(normalizeHardFacts(mergedHardFacts), {
+  const hardFacts = withInferredHardFacts(normalizeCandidateHardFacts(candidate, mergedHardFacts), {
     title: text(candidate.title),
     module,
     evidence_text: source,
@@ -1223,6 +1260,7 @@ function isSampleGradeCard(card = {}) {
   if (hardCount < 2) return false;
   if (!hasSampleGradeHardFactBundle(card)) return false;
   if (BROKEN_FIELD_PATTERN.test(JSON.stringify(card.hard_facts || {}))) return false;
+  if (BROKEN_FIELD_PATTERN.test(sourceTextForCard(card))) return false;
   if (!isBeautyRelevantCard(card)) return false;
   if (isNavigationOrGenericInformationPage(card)) return false;
   if (isHardFactReadyDetailCandidate(card)) return true;

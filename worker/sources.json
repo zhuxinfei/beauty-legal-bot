@@ -37,6 +37,42 @@
       ]
     },
     {
+      "id": "hardfact-cn-nmpa-new-ingredient-registration-20260626",
+      "name": "国家药监局化妆品新原料注册备案资料管理规定",
+      "url": "https://www.nmpa.gov.cn/xxgk/fgwj/xzhgfxwj/20260626114523130.html",
+      "source_scope": "hard_fact_endpoint",
+      "module": "新规及案例动态",
+      "region": "亚洲",
+      "country": "中国",
+      "source_type": "official_site",
+      "authority_type": "regulator",
+      "priority": "high",
+      "topics": [
+        "化妆品新原料",
+        "注册备案",
+        "资料管理规定",
+        "国家药监局"
+      ]
+    },
+    {
+      "id": "hardfact-cn-nifdc-new-ingredient-technical-rules-20260626",
+      "name": "中检院化妆品新原料注册备案资料技术通则",
+      "url": "https://www.nifdc.org.cn/nifdc/bshff/hzhpjssp/hzpsptzgg/202606261410392098272.html",
+      "source_scope": "hard_fact_endpoint",
+      "module": "新规及案例动态",
+      "region": "亚洲",
+      "country": "中国",
+      "source_type": "official_site",
+      "authority_type": "regulator",
+      "priority": "high",
+      "topics": [
+        "化妆品新原料",
+        "技术通则",
+        "注册备案",
+        "中检院"
+      ]
+    },
+    {
       "id": "hardfact-cn-nifdc-cosmetic-standards-notices",
       "name": "中检院化妆品标准通知公告",
       "url": "https://www.nifdc.org.cn/directory/web/nifdc/bshff/hzhpbzh/hzhpbzhtzgg/index.html",
@@ -70,6 +106,44 @@
         "国家药监局公告",
         "通告",
         "征求意见"
+      ]
+    },
+    {
+      "id": "hardfact-us-ftc-ah-media-cosmetic-free-trial-refunds-202607",
+      "name": "FTC 化妆品 free trial 退款案",
+      "url": "https://www.ftc.gov/enforcement/refunds/ah-media-group-refunds",
+      "source_scope": "hard_fact_endpoint",
+      "module": "广告合规及处罚案例",
+      "region": "北美洲",
+      "country": "美国",
+      "source_type": "official_site",
+      "authority_type": "regulator",
+      "priority": "high",
+      "topics": [
+        "FTC",
+        "cosmetics",
+        "free trial",
+        "refunds",
+        "negative option"
+      ]
+    },
+    {
+      "id": "hardfact-us-fda-morovan-nail-polish-remover-recall-202604",
+      "name": "FDA 指甲油卸除剂召回",
+      "url": "https://www.fda.gov/safety/recalls-market-withdrawals-safety-alerts/product-recall",
+      "source_scope": "hard_fact_endpoint",
+      "module": "产品质量/召回与安全风险",
+      "region": "北美洲",
+      "country": "美国",
+      "source_type": "official_site",
+      "authority_type": "regulator",
+      "priority": "medium",
+      "topics": [
+        "FDA",
+        "cosmetics",
+        "recall",
+        "methylene chloride",
+        "chloroform"
       ]
     },
     {

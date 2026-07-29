@@ -1248,7 +1248,12 @@ export async function runPipeline(env, requestUrl = 'https://beauty-legal-bot.wo
 
     const directHardFactMode = env.HARD_FACT_DIRECT_DELIVERY === '1'
       || (qualityMode && env.HARD_FACT_DIRECT_DELIVERY !== '0');
+    const freshHydrationHardFactRecords = filterCandidatesByFreshness(
+      (hydrationRecords || []).filter(candidate => candidate?.evidence_grade === 'hard_fact_ready'),
+      period
+    );
     const directHardFactCandidates = hardFactReadyCandidates([
+      ...freshHydrationHardFactRecords,
       ...hydratedCandidates,
       ...candidates,
     ]);

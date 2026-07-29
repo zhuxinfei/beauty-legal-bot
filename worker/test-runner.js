@@ -4833,6 +4833,7 @@ function testSourceCatalogUsesWorkbookModulesAndGlobalMarkets() {
   const sources = sourceCatalog.sources;
   const modules = new Set(sources.map(source => source.module));
   assert.deepEqual([...modules].sort(), [
+    '产品质量/召回与安全风险',
     '广告合规及处罚案例',
     '新规及案例动态',
     '知识产权动态',

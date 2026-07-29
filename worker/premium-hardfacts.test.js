@@ -1403,6 +1403,77 @@ function testBrokenHardFactFragmentsCannotEnterPremiumCard() {
   assert.equal(delivery.messages.length, 0);
 }
 
+function testNoticeTitleCannotBeUsedAsProductBatch() {
+  const delivery = buildPremiumDingTalkDelivery({
+    period: { start: '2026-07-23', end: '2026-07-29' },
+    sections: [],
+  }, {
+    maxItems: 6,
+    candidates: [{
+      title: '国家药监局关于40批次不符合规定化妆品的通告（2026年第19号）',
+      url: 'https://www.nmpa.gov.cn/xxgk/ggtg/hzhpggtg/hzhpchjgg/hzhpcjgjj/20260522162510165.html',
+      source_url: 'https://www.nmpa.gov.cn/xxgk/ggtg/hzhpggtg/hzhpchjgg/hzhpcjgjj/20260522162510165.html',
+      source_name: '福建省药监局化妆品监管动态',
+      source_type: 'official_site',
+      authority_type: 'regulator',
+      source_scope: 'hard_fact_endpoint',
+      country: '中国',
+      module: '新法律法规政策',
+      published_at: '2026-07-17',
+      detail_status: 'hydrated',
+      evidence_grade: 'hard_fact_ready',
+      article_text: '国家药监局关于40批次不符合规定化妆品的通告（2026年第19号）。2026-05-22 福建省药监局召开药品精透监管会议。',
+      hard_facts: {
+        authority: '福建省药监局化妆品监管动态',
+        document_number: '2026年第19号',
+        product_or_batch: '不符合规定化妆品的通告（2026年第19号） 2026-05-22 福建省药监局召开药品“精透监管”',
+        legal_basis: '《化妆品监督管理条例》',
+        affected_processes: ['标签', '备案/注册', 'SKU/批次管理'],
+      },
+    }],
+  });
+
+  assert.equal(delivery.audit.finalItems, 0);
+  assert.equal(delivery.messages.length, 0);
+}
+
+function testNmpaTitleRepairsRepublishedListChrome() {
+  const delivery = buildPremiumDingTalkDelivery({
+    period: { start: '2026-07-23', end: '2026-07-29' },
+    sections: [],
+  }, {
+    maxItems: 6,
+    candidates: [{
+      title: '国家药监局关于发布化妆品新原料注册备案及资料管理规定的公告（2026年第59号）',
+      url: 'https://www.nmpa.gov.cn/xxgk/fgwj/xzhgfxwj/20260626114523130.html',
+      source_url: 'https://www.nmpa.gov.cn/xxgk/fgwj/xzhgfxwj/20260626114523130.html',
+      source_name: '福建省药监局化妆品监管动态',
+      source_type: 'official_site',
+      authority_type: 'regulator',
+      source_scope: 'hard_fact_endpoint',
+      country: '中国',
+      module: '新法律法规政策',
+      published_at: '2026-07-17',
+      detail_status: 'hydrated',
+      evidence_grade: 'hard_fact_ready',
+      article_text: '国家药监局关于发布化妆品新原料注册备案及资料管理规定的公告（2026年第59号）。2026-05-22 福建省药监局召开药品“精透监管”。',
+      hard_facts: {
+        authority: '福建省药监局化妆品监管动态',
+        document_number: '2026年第59号',
+        product_or_batch: '不符合规定化妆品的通告（2026年第19号） 2026-05-22 福建省药监局召开药品“精透监管”',
+        legal_basis: '《化妆品中三价铬和六价铬的检验方法》',
+        affected_processes: ['备案/注册'],
+      },
+    }],
+  });
+
+  assert.equal(delivery.audit.finalItems, 1);
+  const markdown = delivery.messages[0].markdown;
+  assert.match(markdown, /机关：国家药品监督管理局/);
+  assert.match(markdown, /产品\/批次：化妆品新原料注册备案及资料管理规定/);
+  assert.doesNotMatch(markdown, /福建省药监局召开|不符合规定化妆品的通告/);
+}
+
 testHydrationExtractsActionableHardFacts();
 testFormalPromptsRequireAllPremiumHardFactFields();
 testPremiumMarkdownRendersNewHardFactsInFormalCard();
@@ -1436,5 +1507,7 @@ testQualifiedNifdcCosmeticStandardNoticeRendersCleanPolicyCard();
 testHardFactCandidateBackfillsWhenAiReportItemsAreNavigationOnly();
 testHardFactCandidatesCanRenderDirectlyWithoutAiReportItems();
 testBrokenHardFactFragmentsCannotEnterPremiumCard();
+testNoticeTitleCannotBeUsedAsProductBatch();
+testNmpaTitleRepairsRepublishedListChrome();
 
 console.log('premium hard facts tests passed');
