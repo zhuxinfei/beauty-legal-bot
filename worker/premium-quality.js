@@ -316,9 +316,26 @@ function isNavigationOrGenericInformationPage(card) {
   const title = text(card.title);
   if (NAVIGATION_TITLE_PATTERN.test(title)) return true;
   const source = sourceTextForCard(card);
+  if (isHardFactReadyDetailCard(card)) return false;
   if (PORTAL_EVIDENCE_PATTERN.test(source)) return true;
   if (!GENERIC_INFO_PAGE_PATTERN.test([title, source].join(' '))) return false;
   return !hasHardLegalEvent(card);
+}
+
+function isHardFactReadyDetailCard(card = {}) {
+  if (!isHardFactReadyDetailCandidate(card)) return false;
+  return hasSampleGradeHardFactBundle(card);
+}
+
+function isHardFactReadyDetailCandidate(card = {}) {
+  const scope = text(card.source_scope);
+  const grade = text(card.evidence_grade);
+  const url = text(card.source_url || card.url);
+  const isDetailUrl = /\/20\d{12,}\.html?$|\/20\d{2}\/\d{1,2}\/\d{1,2}\/|\/xxgk\/.+\/20\d{12,}\.html?$/i.test(url)
+    && !/\/index\.html?$/i.test(url);
+  if (grade !== 'hard_fact_ready' && scope !== 'hard_fact_endpoint') return false;
+  if (scope !== 'hard_fact_endpoint' && !isDetailUrl) return false;
+  return true;
 }
 
 function isHttpUrl(value) {
@@ -510,6 +527,8 @@ export function validatePremiumEvidenceCard(card = {}) {
     source_name: text(card.source_name || card.name),
     source_type: text(card.source_type),
     authority_type: text(card.authority_type),
+    source_scope: text(card.source_scope),
+    evidence_grade: text(card.evidence_grade),
     published_at: candidateDisplayDate(card, hardFacts, evidenceSource),
     country: text(card.country || card.region || '未知'),
     facts: list(card.facts),
@@ -981,7 +1000,8 @@ function firstEvidenceSentence(value = '') {
   const source = text(value);
   const sentences = source
     .split(/(?<=[。！？!?；;])\s*/)
-    .map(sentence => text(sentence))
+    .map(sentence => text(sentence).replace(/^(?:首页|主页|通知公告|新闻中心|当前位置|网站首页|更多|>>|\s)+/g, '').trim())
+    .map(sentence => sentence.replace(/^(?:首页\s*)?(?:通知公告|新闻中心)\s*更多\s*/g, '').trim())
     .filter(sentence => sentence.length >= 16);
   return sentences.find(sentence => HARD_LEGAL_EVENT_PATTERN.test(sentence))
     || sentences[0]
@@ -1032,6 +1052,8 @@ function premiumCardFromCandidate(candidate = {}) {
     source_name: text(candidate.source_name || candidate.name),
     source_type: text(candidate.source_type),
     authority_type: text(candidate.authority_type),
+    source_scope: text(candidate.source_scope),
+    evidence_grade: text(candidate.evidence_grade),
     published_at: candidateDisplayDate(candidate, { ...(candidate.hard_facts || {}), ...extractedFacts }, source),
     country: text(candidate.country || candidate.region || '未知'),
     facts: [firstEvidenceSentence(source)].filter(Boolean),
@@ -1128,6 +1150,7 @@ function isSampleGradeCard(card = {}) {
   if (!hasSampleGradeHardFactBundle(card)) return false;
   if (!isBeautyRelevantCard(card)) return false;
   if (isNavigationOrGenericInformationPage(card)) return false;
+  if (isHardFactReadyDetailCandidate(card)) return true;
   if (/Crawl4AI|欢迎访问|专题页|入口页|监管入口|安全使用|消费者提示/i.test(sourceTextForCard(card))) return false;
   if (PREMIUM_JUNK_EVIDENCE_PATTERN.test(sourceTextForCard(card))) return false;
   return true;

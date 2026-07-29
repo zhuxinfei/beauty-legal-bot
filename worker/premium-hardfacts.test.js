@@ -442,6 +442,58 @@ function testPremiumDeliveryBuildsChinaCardFromCandidateWhenAiReportDropsChina()
   assert.match(delivery.messages[0].markdown, /国家药品监督管理局/);
 }
 
+function testHardFactReadyEndpointSurvivesNavigationChrome() {
+  const delivery = buildPremiumDingTalkDelivery({
+    period: { start: '2026-07-21', end: '2026-07-29' },
+    sections: [{
+      module: '新法律法规政策',
+      items: [{
+        title: '化妆品标准栏目',
+        source_url: 'https://www.nifdc.org.cn/directory/web/nifdc/bshff/hzhpbzh/hzhpbzhtzgg/index.html',
+        source_name: '中检院',
+        source_type: 'official_site',
+        authority_type: 'regulator',
+        published_at: '2026-07-21',
+        country: '中国',
+        fact_summary: ['首页 通知公告 更多 化妆品标准。'],
+        legal_signal: '来源信号：新增义务：中国权威来源披露化妆品规则、标准、备案、注册或执行口径的具体变化。',
+        business_impact: '影响中国市场美妆产品标签、备案注册、广告素材、平台上架和存量SKU管理。',
+        next_observation: ['观察正式文件、执行口径、配套问答和后续监管公开。'],
+      }],
+    }],
+  }, {
+    candidates: [{
+      title: '中检院关于公开征求《化妆品中铜绿假单胞菌的检验方法（征求意见稿）》等2项化妆品标准意见的通知',
+      url: 'https://www.nifdc.org.cn/directory/web/nifdc/bshff/hzhpbzh/hzhpbzhtzgg/202607211930582131911.html',
+      source_url: 'https://www.nifdc.org.cn/directory/web/nifdc/bshff/hzhpbzh/hzhpbzhtzgg/202607211930582131911.html',
+      source_name: '中检院化妆品标准通知公告',
+      source_type: 'official_site',
+      authority_type: 'regulator',
+      source_scope: 'hard_fact_endpoint',
+      country: '中国',
+      module: '新规及案例动态',
+      published_at: '2026-07-21',
+      detail_status: 'hydrated',
+      evidence_grade: 'hard_fact_ready',
+      article_text: '首页 通知公告 更多 中检院关于公开征求《化妆品中铜绿假单胞菌的检验方法（征求意见稿）》等2项化妆品标准意见的通知。中检院公开征求化妆品中铜绿假单胞菌、耐热大肠菌群检验方法标准意见，意见反馈截止日期：2026年8月10日，反馈渠道：中检院化妆品标准制修订联系邮箱。',
+      hard_facts: {
+        authority: '中检院',
+        document_number: '征求意见稿',
+        deadline: '2026年8月10日',
+        feedback_channel: '中检院化妆品标准制修订联系邮箱',
+        product_or_batch: '化妆品中铜绿假单胞菌、耐热大肠菌群检验方法标准',
+        affected_processes: ['配方开发', '检验标准', '质量放行', '备案资料'],
+      },
+    }],
+    maxItems: 6,
+  });
+
+  assert.equal(delivery.audit.candidateChinaItems, 1);
+  assert.equal(delivery.audit.finalChinaItems, 1);
+  assert.match(delivery.messages[0].markdown, /铜绿假单胞菌/);
+  assert.doesNotMatch(delivery.messages[0].markdown, /首页 通知公告 更多/);
+}
+
 function testPremiumDeliveryRequiresMultipleChinaCardsWhenCandidatesAreAvailable() {
   const foreignItems = Array.from({ length: 5 }, (_, index) => ({
     title: `美国 FDA 化妆品监管事项 ${index + 1}`,
@@ -1055,6 +1107,7 @@ testFormalReportItemUsesEvidenceTextForFinalQuality();
 testPremiumSelectionKeepsChinaAheadOfHigherScoredForeignItems();
 testPremiumDeliveryBackfillsQualifiedChinaItemWhenStrictSelectionIsForeignOnly();
 testPremiumDeliveryBuildsChinaCardFromCandidateWhenAiReportDropsChina();
+testHardFactReadyEndpointSurvivesNavigationChrome();
 testPremiumDeliveryRequiresMultipleChinaCardsWhenCandidatesAreAvailable();
 testPremiumReportItemUsesHardFactDateWhenPublishedAtMissing();
 testPremiumChinaMinimumTracksBackfillableAndSourceOnlyChinaCandidates();
