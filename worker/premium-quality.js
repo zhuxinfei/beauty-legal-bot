@@ -917,7 +917,7 @@ export function buildPremiumDingTalkDelivery(report, options = {}) {
     ? sourceOnlyFallbackCards(options.candidates || [], maxItems)
     : [];
   const candidateCards = uniqueCardsBySelectionKey([
-    ...eligibleCandidates.map(premiumCardFromCandidate),
+    ...backfillableCandidateCards,
     ...sourceOnlyCandidateCards,
   ]);
   const backfillableChinaCandidateItems = candidateCards.filter(isChinaCard).length;
