@@ -214,6 +214,34 @@ function testHydrationMergeAuditReportsEvidenceGrades() {
   assert.equal(merged.candidates[0].evidence_grade, 'hard_fact_ready');
 }
 
+function testHydrationMergeAppendsUnmatchedHardFactReadyRecordsAsCandidates() {
+  const merged = mergeHydratedCandidates([], [{
+    source_url: 'https://www.nifdc.org.cn/directory/web/nifdc/bshff/hzhpbzh/hzhpbzhtzgg/202607211930582131911.html',
+    title: '中检院公开征求2项化妆品检验方法标准意见',
+    source_name: '中检院化妆品标准通知公告',
+    source_type: 'official_site',
+    authority_type: 'regulator',
+    source_scope: 'hard_fact_endpoint',
+    country: '中国',
+    module: '新规及案例动态',
+    published_at: '2026-07-21',
+    article_text: '中检院公开征求化妆品中铜绿假单胞菌、耐热大肠菌群检验方法标准意见，意见反馈截止日期：2026年8月10日，反馈渠道：中检院化妆品标准制修订联系邮箱。标准涉及化妆品检验方法、质量放行、备案资料和存量SKU过渡期管理。',
+    hard_facts: {
+      authority: '中检院',
+      document_number: '征求意见稿',
+      product_or_batch: '化妆品中铜绿假单胞菌、耐热大肠菌群检验方法标准',
+      deadline: '2026年8月10日',
+      feedback_channel: '中检院化妆品标准制修订联系邮箱',
+      affected_processes: ['检验标准', '质量放行', '备案资料', '存量SKU过渡期管理'],
+    },
+  }]);
+
+  assert.equal(merged.candidates.length, 1);
+  assert.equal(merged.candidates[0].detail_status, 'hydrated');
+  assert.equal(merged.candidates[0].evidence_grade, 'hard_fact_ready');
+  assert.equal(merged.audit.appendedHardFactRecords, 1);
+}
+
 testPenaltyCaseExtractsNamedPartiesAndDisposition();
 testProXylaneCaseExtractsTrademarkAndBrushing();
 testPolicyExtractsDeadlineFeedbackAndTransition();
@@ -223,5 +251,6 @@ testPortalDumpWithMixedIndustriesIsRejectedBeforeAiAnalysis();
 testHydrationRecordCarriesEvidenceGradeAndQuotes();
 testNifdcStandardHydrationExtractsPolicyNodesFromTitleAndText();
 testHydrationMergeAuditReportsEvidenceGrades();
+testHydrationMergeAppendsUnmatchedHardFactReadyRecordsAsCandidates();
 
 console.log('hard fact extractor tests passed');

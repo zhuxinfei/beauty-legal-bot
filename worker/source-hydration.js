@@ -376,6 +376,7 @@ export function mergeHydratedCandidates(candidates = [], hydratedRecords = []) {
 
   let hydrated = 0;
   let unmatched = 0;
+  const matchedRecords = new Set();
   const merged = (Array.isArray(candidates) ? candidates : []).map(candidate => {
     const keys = candidateKeys(candidate);
     const record = keys.map(key => recordIndex.get(key)).find(Boolean);
@@ -384,6 +385,7 @@ export function mergeHydratedCandidates(candidates = [], hydratedRecords = []) {
       return candidate;
     }
     hydrated += 1;
+    matchedRecords.add(record);
     const mergedQualityFlags = [
       ...new Set([
         ...(Array.isArray(candidate.quality_flags) ? candidate.quality_flags : []),
@@ -423,13 +425,33 @@ export function mergeHydratedCandidates(candidates = [], hydratedRecords = []) {
     };
   });
 
+  const mergedKeys = new Set(merged.flatMap(candidateKeys));
+  const appendedHardFactRecords = [];
+  for (const record of normalizedRecords) {
+    if (matchedRecords.has(record)) continue;
+    if (record.evidence_grade !== 'hard_fact_ready') continue;
+    const keys = recordKeys(record);
+    if (keys.some(key => mergedKeys.has(key))) continue;
+    appendedHardFactRecords.push({
+      ...record,
+      url: record.final_url || record.url || record.source_url,
+      source_url: record.source_url || record.final_url || record.url,
+      detail_status: 'hydrated',
+      detail_reason: 'crawl4ai-hard-fact-unmatched',
+      hydration_source: record.hydration_source || 'crawl4ai',
+    });
+    for (const key of keys) mergedKeys.add(key);
+  }
+  const outputCandidates = [...merged, ...appendedHardFactRecords];
+
   return {
-    candidates: merged,
+    candidates: outputCandidates,
     audit: {
       input: candidates.length,
       records: normalizedRecords.length,
       hydrated,
       unmatched,
+      appendedHardFactRecords: appendedHardFactRecords.length,
       hardFactReady: normalizedRecords.filter(record => record.evidence_grade === 'hard_fact_ready').length,
       chinaHardFactReady: normalizedRecords.filter(record => record.evidence_grade === 'hard_fact_ready' && record.country === '中国').length,
       leadOnly: normalizedRecords.filter(record => record.evidence_grade === 'lead_only').length,
