@@ -1096,6 +1096,156 @@ function testWeakLabelPackagingWordsCannotCreateBeautyRelevance() {
   assert.equal(delivery.messages.length, 0);
 }
 
+function testCandidateBackfillCannotUseTemplateLegalObservation() {
+  const delivery = buildPremiumDingTalkDelivery({
+    period: { start: '2026-07-23', end: '2026-07-29' },
+    sections: [],
+  }, {
+    maxItems: 3,
+    candidates: [{
+      title: '中检院公开征求2项化妆品检验方法标准意见',
+      url: 'https://www.nifdc.org.cn/directory/web/nifdc/bshff/hzhpbzh/hzhpbzhtzgg/202607211930582131911.html',
+      source_name: '中检院化妆品标准通知公告',
+      source_type: 'official_site',
+      authority_type: 'regulator',
+      source_scope: 'hard_fact_endpoint',
+      country: '中国',
+      module: '新规及案例动态',
+      published_at: '2026-07-21',
+      detail_status: 'hydrated',
+      evidence_grade: 'hard_fact_ready',
+      article_text: '中检院公开征求化妆品中铜绿假单胞菌、耐热大肠菌群检验方法标准意见，意见反馈截止日期：2026年8月10日，反馈渠道：中检院化妆品标准制修订联系邮箱。标准涉及化妆品检验方法、质量放行、备案资料和存量SKU过渡期管理。',
+      hard_facts: {
+        authority: '中检院',
+        document_number: '征求意见稿',
+        deadline: '2026年8月10日',
+        feedback_channel: '中检院化妆品标准制修订联系邮箱',
+        product_or_batch: '化妆品中铜绿假单胞菌、耐热大肠菌群检验方法标准',
+        affected_processes: ['检验标准', '质量放行', '备案资料', '存量SKU过渡期管理'],
+      },
+    }],
+  });
+
+  assert.equal(delivery.audit.finalItems, 1);
+  const markdown = delivery.messages[0].markdown;
+  assert.match(markdown, /意见反馈截止日期：2026年8月10日|截止：2026年8月10日/);
+  assert.doesNotMatch(markdown, /来源信号|中国权威来源披露|中国来源披露|监管信息披露|当前仅能确认|待核验/);
+  assert.match(markdown, /反馈截止/);
+  assert.match(markdown, /检验标准|质量放行|备案资料/);
+}
+
+function testSourceOnlyFallbackIsDisabledForFormalDingTalkDelivery() {
+  const delivery = buildPremiumDingTalkDelivery({
+    period: { start: '2026-07-23', end: '2026-07-29' },
+    sections: [],
+  }, {
+    maxItems: 3,
+    candidates: [{
+      title: '中国化妆品监管线索汇总',
+      url: 'https://example.gov.cn/cosmetics/signals/20260729',
+      source_name: '监管部门',
+      source_type: 'official_site',
+      authority_type: 'regulator',
+      country: '中国',
+      module: '新规及案例动态',
+      published_at: '2026-07-29',
+      detail_status: 'hydrated',
+      evidence_grade: 'lead_only',
+      article_text: '监管部门出现化妆品标准、标签备案、配方开发、执行标准选择、存量SKU过渡期管理等多个信号，企业应持续关注正式文件、执行口径、配套问答和后续监管公开。',
+      hard_facts: {
+        authority: '监管部门',
+        document_number: '征求意见稿',
+        deadline: '2026年8月10日',
+        affected_processes: ['配方开发', '标签备案', '执行标准选择'],
+      },
+    }],
+  });
+
+  assert.equal(delivery.audit.finalItems, 0);
+  assert.equal(delivery.audit.sourceOnlyFallbackItems, 0);
+  assert.equal(delivery.messages.length, 0);
+}
+
+function testNifdcCosmeticStandardNoticeDoesNotRenderNavigationOrWrongModule() {
+  const delivery = buildPremiumDingTalkDelivery({
+    period: { start: '2026-07-23', end: '2026-07-29' },
+    sections: [{
+      module: '进出口动态',
+      items: [{
+        title: '中检院关于公开征求《化妆品中铜绿假单胞菌的检验方法（征求意见稿）》等2项化妆品标准意见的通知',
+        source_url: 'https://www.nifdc.org.cn/directory/web/nifdc/bshff/hzhpbzh/hzhpbzhtzgg/202607211930582131911.html',
+        source_name: '中检院化妆品微生物标准征求意见',
+        source_type: 'official_site',
+        authority_type: 'regulator',
+        source_scope: 'hard_fact_endpoint',
+        evidence_grade: 'hard_fact_ready',
+        country: '中国',
+        published_at: '2026-07-21',
+        fact_summary: [
+          '中检院关于公开征求《化妆品中铜绿假单胞菌的检验方法（征求意见稿）》《化妆品中乙醇等40种原料的检验方法（征求意见稿）》意见。',
+          '[https://www.nifdc.org.cn/directory/web/nifdc/index.html](https://www.nifdc.org.cn/directory/web/nifdc/index.html) 网站首页 机构概况 人才队伍 党群工作 信息公开 办事大厅 业务咨询 建言献策 院介绍 院领导 组织机构 能力资质 联系方式 院士 首席专家 药检菁英 党建要闻 党风廉政 群团统战 纪检举报 法规政策 公告通知 数据查询 化妆品审评 国家抽检管理 医疗器械标准与分类管理。',
+        ],
+        legal_signal: '来源信号：新增义务：中国来源披露进口、出口、海关、清关或市场准入相关事项。',
+        business_impact: '影响中国市场美妆业务的配方开发、标签备案、执行标准选择、存量SKU过渡期管理。',
+        next_observation: ['观察正式稿发布日期、反馈截止日、过渡期安排和执行口径。'],
+        hard_facts: {
+          authority: '国家市场监督管理总局',
+          document_number: '征求意见稿',
+          legal_basis: '《化妆品中铜绿假单胞菌的检验方法（征求意见稿）》《化妆品中乙醇等40种原料的检验方法（征求意见稿）》',
+        },
+      }],
+    }],
+  }, { candidates: [], maxItems: 3 });
+
+  assert.equal(delivery.audit.finalItems, 0);
+  assert.equal(delivery.messages.length, 0);
+}
+
+function testQualifiedNifdcCosmeticStandardNoticeRendersCleanPolicyCard() {
+  const delivery = buildPremiumDingTalkDelivery({
+    period: { start: '2026-07-23', end: '2026-07-29' },
+    sections: [{
+      module: '新规及案例动态',
+      items: [{
+        title: '中检院公开征求2项化妆品检验方法标准意见',
+        source_url: 'https://www.nifdc.org.cn/directory/web/nifdc/bshff/hzhpbzh/hzhpbzhtzgg/202607211930582131911.html',
+        source_name: '中检院化妆品标准通知公告',
+        source_type: 'official_site',
+        authority_type: 'regulator',
+        source_scope: 'hard_fact_endpoint',
+        evidence_grade: 'hard_fact_ready',
+        country: '中国',
+        published_at: '2026-07-21',
+        fact_summary: [
+          '中检院公开征求化妆品中铜绿假单胞菌、耐热大肠菌群检验方法等2项标准意见，反馈截止日期为2026年8月10日。',
+          '[https://www.nifdc.org.cn/directory/web/nifdc/index.html](https://www.nifdc.org.cn/directory/web/nifdc/index.html) 网站首页 机构概况 人才队伍 党群工作 信息公开 办事大厅 业务咨询 数据查询 化妆品审评 国家抽检管理 医疗器械标准与分类管理。',
+        ],
+        legal_signal: '化妆品检验方法标准进入公开征求意见阶段，微生物检验和原料检验方法会影响备案资料、检验标准和质量放行。',
+        business_impact: '影响化妆品配方开发、检验标准选择、质量放行、备案资料和存量 SKU 过渡期管理。',
+        next_observation: ['观察正式稿发布日期、反馈截止日、标准过渡期安排和检验机构执行口径。'],
+        hard_facts: {
+          authority: '中检院',
+          document_number: '征求意见稿',
+          product_or_batch: '化妆品中铜绿假单胞菌、耐热大肠菌群检验方法标准',
+          deadline: '2026年8月10日',
+          feedback_channel: '中检院化妆品标准制修订联系邮箱',
+          affected_processes: ['配方开发', '检验标准选择', '质量放行', '备案资料', '存量SKU过渡期管理'],
+        },
+      }],
+    }],
+  }, { candidates: [], maxItems: 3 });
+
+  assert.equal(delivery.audit.finalItems, 1);
+  const markdown = delivery.messages[0].markdown;
+  assert.match(markdown, /## 新法律法规政策/);
+  assert.match(markdown, /机关：中检院/);
+  assert.match(markdown, /截止：2026年8月10日/);
+  assert.doesNotMatch(markdown, /国家市场监督管理总局/);
+  assert.doesNotMatch(markdown, /进出口/);
+  assert.doesNotMatch(markdown, /directory\/web\/nifdc\/index\.html|网站首页|机构概况|人才队伍|党群工作|信息公开|办事大厅|医疗器械标准与分类管理/);
+  assert.doesNotMatch(markdown, /来源信号|中国权威来源披露|中国来源披露|监管信息披露/);
+}
+
 testHydrationExtractsActionableHardFacts();
 testFormalPromptsRequireAllPremiumHardFactFields();
 testPremiumMarkdownRendersNewHardFactsInFormalCard();
@@ -1122,5 +1272,9 @@ testSamrPortalDumpCannotEnterPremiumCardWithMixedIndustries();
 testGenericTrademarkCampaignCannotEnterWithoutBeautyEvidence();
 testGenericTrademarkLawTextCannotEnterWithoutBeautyEvidence();
 testWeakLabelPackagingWordsCannotCreateBeautyRelevance();
+testCandidateBackfillCannotUseTemplateLegalObservation();
+testSourceOnlyFallbackIsDisabledForFormalDingTalkDelivery();
+testNifdcCosmeticStandardNoticeDoesNotRenderNavigationOrWrongModule();
+testQualifiedNifdcCosmeticStandardNoticeRendersCleanPolicyCard();
 
 console.log('premium hard facts tests passed');
