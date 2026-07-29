@@ -15,6 +15,14 @@ on:
         options:
           - 'false'
           - 'true'
+      no_delivery:
+        description: '只跑正式采集和质量验收，不推送钉钉/飞书'
+        required: false
+        default: 'false'
+        type: choice
+        options:
+          - 'false'
+          - 'true'
 
 permissions:
   contents: write
@@ -45,6 +53,7 @@ jobs:
       CRAWL4AI_ATTACHMENT_LIMIT: 2
       CRAWL4AI_DETAIL_LINK_LIMIT: 12
       FORCE_DELIVERY: ${{ github.event_name == 'workflow_dispatch' && inputs.allow_duplicate_debug == 'true' && '1' || '0' }}
+      NO_DELIVERY: ${{ github.event_name == 'workflow_dispatch' && inputs.no_delivery == 'true' && '1' || '0' }}
       DINGTALK_WEBHOOK_URL: ${{ secrets.DINGTALK_WEBHOOK_URL }}
       DINGTALK_SECRET: ${{ secrets.DINGTALK_SECRET }}
       FEISHU_WEBHOOK_URL: ${{ secrets.FEISHU_WEBHOOK_URL }}

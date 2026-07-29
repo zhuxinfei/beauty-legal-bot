@@ -43,6 +43,7 @@ const env = {
   MIN_SOURCE_COVERAGE: process.env.MIN_SOURCE_COVERAGE || '0.9',
   MIN_CHINA_CRITICAL_COVERAGE: process.env.MIN_CHINA_CRITICAL_COVERAGE || '0.9',
   FORCE_DELIVERY: process.env.FORCE_DELIVERY || (manualPreview ? '1' : '0'),
+  NO_DELIVERY: process.env.NO_DELIVERY || '0',
   DETAIL_FETCH_ENABLED: process.env.DETAIL_FETCH_ENABLED || '1',
   DETAIL_CANDIDATE_LIMIT: manualPreview ? '18' : process.env.DETAIL_CANDIDATE_LIMIT || '48',
   DETAIL_FETCH_TIMEOUT_MS: process.env.DETAIL_FETCH_TIMEOUT_MS || '12000',

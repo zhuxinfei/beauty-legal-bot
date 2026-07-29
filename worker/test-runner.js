@@ -4984,7 +4984,9 @@ function testWeeklyWorkflowRunsLocalReportPipelineWithoutWorkerDeploy() {
   assert.ok(workflow.includes('DINGTALK_WEBHOOK_URL: ${{ secrets.DINGTALK_WEBHOOK_URL }}'));
   assert.ok(workflow.includes('DINGTALK_SECRET: ${{ secrets.DINGTALK_SECRET }}'));
   assert.ok(workflow.includes('allow_duplicate_debug:'));
+  assert.ok(workflow.includes('no_delivery:'));
   assert.ok(workflow.includes("FORCE_DELIVERY: ${{ github.event_name == 'workflow_dispatch' && inputs.allow_duplicate_debug == 'true' && '1' || '0' }}"));
+  assert.ok(workflow.includes("NO_DELIVERY: ${{ github.event_name == 'workflow_dispatch' && inputs.no_delivery == 'true' && '1' || '0' }}"));
   assert.equal(workflow.includes("github.event_name == 'workflow_dispatch' && '1' || '0'"), false);
   for (const documentSetting of [
     'DINGTALK_DOC_URL',

@@ -1190,6 +1190,7 @@ export async function runPipeline(env, requestUrl = 'https://beauty-legal-bot.wo
   const model = env.AI_MODEL || DEFAULT_AI_MODEL;
   const kv = env.SEEN_NEWS;
   const artifactOnly = isArtifactOnlyRun(env);
+  const noDelivery = env.NO_DELIVERY === '1' || env.SKIP_DELIVERY === '1';
   const qualityMode = env.QUALITY_MODE === '1' || env.REPORT_QUALITY_MODE === 'quality' || env.CONTENT_QUALITY_MODE === 'quality';
   const candidateLimit = Number(env.ANALYSIS_CANDIDATE_LIMIT || (qualityMode ? QUALITY_ANALYSIS_CANDIDATE_LIMIT : DEFAULT_ANALYSIS_CANDIDATE_LIMIT));
   const leadLimit = Number(env.ANALYSIS_LEAD_LIMIT || (qualityMode ? QUALITY_ANALYSIS_LEAD_LIMIT : DEFAULT_ANALYSIS_LEAD_LIMIT));
@@ -1197,7 +1198,7 @@ export async function runPipeline(env, requestUrl = 'https://beauty-legal-bot.wo
   const itemsPerModule = Number(env.REPORT_ITEMS_PER_MODULE || (qualityMode ? QUALITY_REPORT_ITEMS_PER_MODULE : DEFAULT_REPORT_ITEMS_PER_MODULE));
 
   if (!aiKey) throw new Error('AI_API_KEY is required');
-  if (!artifactOnly && !dingTalkUrl && !feishuUrl) throw new Error('DINGTALK_WEBHOOK_URL or FEISHU_WEBHOOK_URL is required');
+  if (!artifactOnly && !noDelivery && !dingTalkUrl && !feishuUrl) throw new Error('DINGTALK_WEBHOOK_URL or FEISHU_WEBHOOK_URL is required');
   if (!kv) throw new Error('SEEN_NEWS KV binding is required');
 
   console.log("=== 周报管道启动 ===");
@@ -1285,6 +1286,17 @@ export async function runPipeline(env, requestUrl = 'https://beauty-legal-bot.wo
             stage: 'artifact-only',
             status: 'done',
             message: 'artifact-only hard-fact report written; no delivery attempted',
+            report: directReport,
+            markdown,
+            audit: directDelivery.audit,
+          };
+        }
+        if (noDelivery) {
+          console.log('=== no-delivery hard-fact report generated; delivery and dedupe skipped ===');
+          return {
+            stage: 'no-delivery',
+            status: 'done',
+            message: 'no-delivery hard-fact report generated; no delivery attempted',
             report: directReport,
             markdown,
             audit: directDelivery.audit,
@@ -1410,6 +1422,17 @@ export async function runPipeline(env, requestUrl = 'https://beauty-legal-bot.wo
         message: 'artifact-only report written; no delivery attempted',
         report,
         markdown,
+      };
+    }
+    if (noDelivery) {
+      console.log('=== no-delivery report generated; delivery and dedupe skipped ===');
+      return {
+        stage: 'no-delivery',
+        status: 'done',
+        message: 'no-delivery report generated; no delivery attempted',
+        report,
+        markdown,
+        audit: premiumDelivery.audit,
       };
     }
     console.log("[stage 4/5] 内容去重检查...");

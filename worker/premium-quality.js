@@ -191,6 +191,8 @@ function isoDate(value = '') {
   if (cn) {
     return `${cn[1]}-${String(Number(cn[2])).padStart(2, '0')}-${String(Number(cn[3])).padStart(2, '0')}`;
   }
+  const compact = source.match(/(?:^|[^\d])(20\d{2})(\d{2})(\d{2})(?:[^\d]|$)/);
+  if (compact) return `${compact[1]}-${compact[2]}-${compact[3]}`;
   return '';
 }
 
@@ -256,6 +258,20 @@ function authorityFromCanonicalSource(candidate = {}) {
   if (/nifdc\.org\.cn/i.test(url) || /^中检院/.test(title)) return '中检院';
   if (/customs\.gov\.cn/i.test(url) || /^海关/.test(title)) return '海关总署';
   return '';
+}
+
+function sourceNameFromCanonicalSource(candidate = {}) {
+  const url = text(candidate.source_url || candidate.url);
+  const title = text(candidate.title);
+  if (/nmpa\.gov\.cn/i.test(url) || /^国家药监局/.test(title)) return '国家药品监督管理局';
+  if (/nifdc\.org\.cn/i.test(url) || /^中检院/.test(title)) return '中检院';
+  if (/fda\.gov/i.test(url)) return '美国食品药品监督管理局';
+  if (/ftc\.gov/i.test(url)) return '美国联邦贸易委员会';
+  if (/gov\.uk/i.test(url)) return '英国政府产品安全通报';
+  if (/recalls-rappels\.canada\.ca|healthycanadians\.gc\.ca/i.test(url)) return '加拿大卫生部';
+  if (/fda\.gov\.tw/i.test(url)) return '台湾卫福部食药署';
+  if (/customs\.gov\.cn/i.test(url) || /^海关/.test(title)) return '海关总署';
+  return text(candidate.source_name || candidate.name);
 }
 
 function policyProductFromTitle(title = '') {
@@ -818,7 +834,7 @@ function premiumCardFromItem(item, sectionModule) {
     title: text(item.title),
     module,
     source_url: text(item.source_url),
-    source_name: text(item.source_name),
+    source_name: sourceNameFromCanonicalSource(item),
     source_type: text(item.source_type),
     authority_type: text(item.authority_type),
     source_scope: text(item.source_scope),
@@ -1166,7 +1182,7 @@ function premiumCardFromCandidate(candidate = {}) {
     title: text(candidate.title),
     module,
     source_url: text(candidate.source_url || candidate.url),
-    source_name: text(candidate.source_name || candidate.name),
+    source_name: sourceNameFromCanonicalSource(candidate),
     source_type: text(candidate.source_type),
     authority_type: text(candidate.authority_type),
     source_scope: text(candidate.source_scope),

@@ -1474,6 +1474,39 @@ function testNmpaTitleRepairsRepublishedListChrome() {
   assert.doesNotMatch(markdown, /福建省药监局召开|不符合规定化妆品的通告/);
 }
 
+function testCandidateSourceAndDateAreCanonicalizedFromOfficialUrl() {
+  const delivery = buildPremiumDingTalkDelivery({
+    period: { start: '2026-07-23', end: '2026-07-29' },
+    sections: [],
+  }, {
+    candidates: [{
+      title: '关于发布《化妆品新原料注册备案资料管理规定》的公告',
+      url: 'https://www.nmpa.gov.cn/xxgk/fgwj/xzhgfxwj/20260626114523130.html',
+      source_url: 'https://www.nmpa.gov.cn/xxgk/fgwj/xzhgfxwj/20260626114523130.html',
+      source_name: '福建省药监局化妆品监管动态',
+      source_scope: 'hard_fact_endpoint',
+      source_type: 'official_site',
+      authority_type: 'regulator',
+      country: '中国',
+      module: '新规及案例动态',
+      evidence_grade: 'hard_fact_ready',
+      article_text: '国家药监局发布《化妆品新原料注册备案资料管理规定》，自2026年8月1日起施行，涉及化妆品新原料注册备案资料、过渡期和新旧衔接安排。',
+      hard_facts: {
+        authority: '国家药品监督管理局',
+        document_number: '公告',
+        product_or_batch: '化妆品新原料注册备案资料管理规定',
+        effective_date: '2026-08-01',
+        affected_processes: ['配方开发', '备案/注册', '存量SKU过渡期管理'],
+      },
+    }],
+    maxItems: 1,
+  });
+  assert.equal(delivery.audit.finalItems, 1);
+  const markdown = delivery.messages[0].markdown;
+  assert.match(markdown, /来源\*\*：国家药品监督管理局 \/ 中国 \/ 2026-08-01/);
+  assert.doesNotMatch(markdown, /来源\*\*：福建省药监局化妆品监管动态/);
+}
+
 testHydrationExtractsActionableHardFacts();
 testFormalPromptsRequireAllPremiumHardFactFields();
 testPremiumMarkdownRendersNewHardFactsInFormalCard();
@@ -1509,5 +1542,6 @@ testHardFactCandidatesCanRenderDirectlyWithoutAiReportItems();
 testBrokenHardFactFragmentsCannotEnterPremiumCard();
 testNoticeTitleCannotBeUsedAsProductBatch();
 testNmpaTitleRepairsRepublishedListChrome();
+testCandidateSourceAndDateAreCanonicalizedFromOfficialUrl();
 
 console.log('premium hard facts tests passed');
