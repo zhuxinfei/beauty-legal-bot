@@ -965,11 +965,14 @@ export function buildPremiumDingTalkDelivery(report, options = {}) {
     const audit = auditPremiumEvidenceCards(reportCards);
     console.log(`[premium-card] strict gate accepted 0/${audit.input}; fallback=${cards.length}; reasons=${Object.entries(audit.reasons).map(([reason, count]) => `${reason}=${count}`).join(', ') || 'none'}`);
   }
-  const eligibleCandidates = (options.candidates || []).filter(isPremiumCandidateEligible);
+  const eligibleCandidates = (options.candidates || []).filter(isPremiumCandidateSource);
   const eligibleCandidateCards = eligibleCandidates.map(premiumCardFromCandidate);
   if (options.logCandidateAudit === true) {
     const candidateAudit = auditPremiumEvidenceCards(eligibleCandidateCards);
     console.log(`[premium-card] candidate gate accepted ${candidateAudit.accepted}/${candidateAudit.input}; reasons=${Object.entries(candidateAudit.reasons).map(([reason, count]) => `${reason}=${count}`).join(', ') || 'none'}`);
+    for (const decision of candidateAudit.decisions.filter(item => !item.accepted).slice(0, 8)) {
+      console.log(`[premium-card] reject ${decision.reason}: ${decision.module} | ${decision.title}`);
+    }
   }
   const backfillableCandidateCards = fallbackEvidenceCards(
     eligibleCandidateCards,
@@ -982,9 +985,10 @@ export function buildPremiumDingTalkDelivery(report, options = {}) {
     ...backfillableCandidateCards,
     ...sourceOnlyCandidateCards,
   ]);
-  const backfillableChinaCandidateItems = candidateCards.filter(isChinaCard).length;
-  const candidateChinaItems = candidateCards.filter(isChinaCard).length;
-  const requiredChinaItems = requiredChinaItemCount(candidateCards, maxItems);
+  const sampleCandidateCards = candidateCards.filter(isSampleGradeCard);
+  const backfillableChinaCandidateItems = sampleCandidateCards.filter(isChinaCard).length;
+  const candidateChinaItems = sampleCandidateCards.filter(isChinaCard).length;
+  const requiredChinaItems = requiredChinaItemCount(sampleCandidateCards, maxItems);
   if (cards.length < maxItems) {
     const selectedKeys = new Set(cards.map(cardSelectionKey));
     for (const candidateCard of [...backfillableCandidateCards, ...sourceOnlyCandidateCards]) {
@@ -1000,7 +1004,7 @@ export function buildPremiumDingTalkDelivery(report, options = {}) {
   const audit = {
     reportItems: reportCards.length,
     reportChinaItems: reportCards.filter(isChinaCard).length,
-    candidateItems: candidateCards.length,
+    candidateItems: sampleCandidateCards.length,
     candidateChinaItems,
     backfillableChinaCandidateItems,
     finalItems: cards.length,
@@ -1260,20 +1264,19 @@ function uniqueCardsBySelectionKey(cards = []) {
 
 function fallbackChinaCandidateCards(candidates = [], maxItems = 3) {
   const cards = candidates
-    .filter(isPremiumCandidateEligible)
+    .filter(isPremiumCandidateSource)
     .filter(candidate => /中国/.test(text(candidate.country || candidate.region)) || candidate.china_relevant === true)
     .map(premiumCardFromCandidate);
   return fallbackEvidenceCards(cards, maxItems).filter(isChinaCard);
 }
 
-function isPremiumCandidateEligible(candidate = {}) {
+function isPremiumCandidateSource(candidate = {}) {
   const grade = text(candidate.evidence_grade);
   if (grade === 'reject') return false;
   const scope = text(candidate.source_scope);
   if (grade && grade !== 'hard_fact_ready') return false;
   if (!grade && scope && !['hard_fact_endpoint', 'hard_fact_list'].includes(scope)) return false;
-  const card = premiumCardFromCandidate(candidate);
-  return isSampleGradeCard(card);
+  return true;
 }
 
 function isSampleGradeCard(card = {}) {
