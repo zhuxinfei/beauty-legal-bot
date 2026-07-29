@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
-import { buildAnalysisPrompt } from './index.js';
+import { buildAnalysisPrompt, extractPremiumDeliveryFingerprints } from './index.js';
 import { buildPremiumDingTalkDelivery, buildPremiumDingTalkMarkdown, buildPremiumDingTalkMessages, assertPremiumChinaDelivery } from './premium-quality.js';
 import { normalizeHydratedRecord } from './source-hydration.js';
 
@@ -1304,6 +1304,48 @@ function testHardFactCandidateBackfillsWhenAiReportItemsAreNavigationOnly() {
   assert.doesNotMatch(markdown, /进出口|国家市场监督管理总局|来源信号|网站首页|机构概况|医疗器械标准与分类管理/);
 }
 
+function testHardFactCandidatesCanRenderDirectlyWithoutAiReportItems() {
+  const delivery = buildPremiumDingTalkDelivery({
+    period: { start: '2026-07-23', end: '2026-07-29' },
+    sections: [],
+  }, {
+    maxItems: 6,
+    candidates: [{
+      title: '中检院公开征求2项化妆品检验方法标准意见，反馈截止至2026年8月10日',
+      url: 'https://www.nifdc.org.cn/directory/web/nifdc/bshff/hzhpbzh/hzhpbzhtzgg/202607211930582131911.html',
+      source_url: 'https://www.nifdc.org.cn/directory/web/nifdc/bshff/hzhpbzh/hzhpbzhtzgg/202607211930582131911.html',
+      source_name: '中检院化妆品标准通知公告',
+      source_type: 'official_site',
+      authority_type: 'regulator',
+      source_scope: 'hard_fact_endpoint',
+      country: '中国',
+      module: '新法律法规政策',
+      published_at: '2026-07-21',
+      detail_status: 'hydrated',
+      evidence_grade: 'hard_fact_ready',
+      article_text: '中检院公开征求化妆品中铜绿假单胞菌、耐热大肠菌群检验方法标准意见，意见反馈截止日期：2026年8月10日，反馈渠道：中检院化妆品标准制修订联系邮箱。标准涉及化妆品检验方法、质量放行、备案资料和存量SKU过渡期管理。',
+      hard_facts: {
+        authority: '中检院',
+        document_number: '征求意见稿',
+        product_or_batch: '化妆品中铜绿假单胞菌、耐热大肠菌群检验方法标准',
+        deadline: '2026年8月10日',
+        feedback_channel: '中检院化妆品标准制修订联系邮箱',
+        affected_processes: ['检验标准', '质量放行', '备案资料', '存量SKU过渡期管理'],
+      },
+    }],
+  });
+
+  assert.equal(delivery.audit.reportItems, 0);
+  assert.equal(delivery.audit.finalItems, 1);
+  assert.equal(extractPremiumDeliveryFingerprints(delivery.cards).length, 1);
+  const markdown = delivery.messages[0].markdown;
+  assert.match(markdown, /本期精选 1 条/);
+  assert.ok(markdown.includes('- **事实依据**'));
+  assert.match(markdown, /机关：中检院/);
+  assert.match(markdown, /反馈渠道：中检院化妆品标准制修订联系邮箱/);
+  assert.doesNotMatch(markdown, /Crawl4AI|建议动作|法务判断|来源信号|待核验|网站首页/);
+}
+
 testHydrationExtractsActionableHardFacts();
 testFormalPromptsRequireAllPremiumHardFactFields();
 testPremiumMarkdownRendersNewHardFactsInFormalCard();
@@ -1335,5 +1377,6 @@ testSourceOnlyFallbackIsDisabledForFormalDingTalkDelivery();
 testNifdcCosmeticStandardNoticeDoesNotRenderNavigationOrWrongModule();
 testQualifiedNifdcCosmeticStandardNoticeRendersCleanPolicyCard();
 testHardFactCandidateBackfillsWhenAiReportItemsAreNavigationOnly();
+testHardFactCandidatesCanRenderDirectlyWithoutAiReportItems();
 
 console.log('premium hard facts tests passed');

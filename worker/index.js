@@ -203,6 +203,12 @@ export function extractReportFingerprints(report) {
     .filter(Boolean);
 }
 
+export function extractPremiumDeliveryFingerprints(cards = []) {
+  return (cards || [])
+    .map(card => [card.module, card.country, card.title, card.source_url || card.url].map(value => String(value || '').trim()).join('|'))
+    .filter(Boolean);
+}
+
 export function dedupeReport(report) {
   const seen = new Set();
   return {
@@ -1236,6 +1242,74 @@ export async function runPipeline(env, requestUrl = 'https://beauty-legal-bot.wo
     const editorialFallback = enforceEditorialGate && !editorial.candidates.length && hydratedCandidates.length;
     console.log(`[stage 1/5] 完成，候选 ${fetchedCandidates.length} 条，时效准入 ${freshCandidates.length} 条，全文准入 ${hydratedCandidates.length} 条，编辑准入 ${candidates.length} 条，编辑拒绝 ${editorial.audit.rejected} 条，线索 ${leads.length} 条，恢复源 ${sourceResults.filter(result => result.status === 'recovered').length} 个，失败源 ${failures.length} 个，覆盖率 ${(coverage.overall * 100).toFixed(1)}%`);
     if (editorialFallback) console.log('[stage 1/5] 编辑门槛无准入，改用全文候选进入 AI 精选');
+
+    const directHardFactMode = env.HARD_FACT_DIRECT_DELIVERY === '1'
+      || (qualityMode && env.HARD_FACT_DIRECT_DELIVERY !== '0');
+    const directHardFactCandidates = hardFactReadyCandidates([
+      ...hydratedCandidates,
+      ...candidates,
+    ]);
+    if (directHardFactMode && directHardFactCandidates.length) {
+      console.log(`[stage 2/5] 硬事实直出：跳过 AI 分析，hard_fact_ready ${directHardFactCandidates.length} 条`);
+      const directReport = { period, sections: [] };
+      const directDelivery = buildPremiumDingTalkDelivery(directReport, {
+        candidates: directHardFactCandidates,
+        maxItems: Number(env.PREMIUM_MAX_ITEMS || env.REPORT_TARGET_ITEMS || 18),
+        maxBytes: env.DINGTALK_MAX_BYTES,
+      });
+      const markdown = directDelivery.messages.map(message => message.markdown).join('\n\n---\n\n');
+      console.log(`[stage 3/5] 精品卡验收：中国候选 ${directDelivery.audit.candidateChinaItems}/${directDelivery.audit.candidateItems}，中国入卡 ${directDelivery.audit.finalChinaItems}/${directDelivery.audit.finalItems}`);
+      if (!Number(directDelivery.audit.finalItems || 0)) {
+        console.log('[stage 3/5] 硬事实候选未达到精品证据门槛，继续 AI 分析兜底');
+      } else {
+        assertPremiumChinaDelivery(directDelivery.audit, {
+          allowForeignOnly: env.ALLOW_FOREIGN_ONLY_DELIVERY === '1',
+        });
+        assertFinalDingTalkMarkdownQuality(markdown, directDelivery.audit);
+        const generatedAt = new Date().toISOString();
+        if (typeof env.ON_REPORT_READY === 'function') {
+          await env.ON_REPORT_READY({ report: directReport, markdown, generatedAt, failures, sourceResults, coverage });
+        }
+        if (artifactOnly) {
+          console.log('=== artifact-only hard-fact report written; delivery and dedupe skipped ===');
+          return {
+            stage: 'artifact-only',
+            status: 'done',
+            message: 'artifact-only hard-fact report written; no delivery attempted',
+            report: directReport,
+            markdown,
+            audit: directDelivery.audit,
+          };
+        }
+
+        console.log('[stage 4/5] 内容去重检查...');
+        const { isDup, seen, fps } = await isDuplicateFingerprints(extractPremiumDeliveryFingerprints(directDelivery.cards), kv);
+        if (shouldSkipDuplicateReport(isDup, env.FORCE_DELIVERY === '1')) {
+          console.log('[stage 4/5] 硬事实卡片 30 天内已全部推送过，跳过摘要推送');
+          return { stage: 'dedupe', status: 'skipped', message: 'all hard-fact cards were already pushed in 30 days' };
+        }
+
+        console.log('[stage 5/5] 推送协作平台摘要...');
+        const notification = await notifyReport({
+          report: directReport,
+          reportUrl: '',
+          env: { ...env, SOURCE_COVERAGE: coverage },
+          messages: directDelivery.messages,
+        });
+        const ok = notification.ok;
+        if (ok) await markSeen(fps, seen, kv);
+        console.log(ok ? '=== 周报管道完成 ===' : '=== 周报管道失败 ===');
+        return {
+          stage: notification.channel,
+          status: ok ? 'done' : 'failed',
+          message: ok
+            ? `${notification.channel} sent ${notification.sent || 1}/${notification.total || 1}`
+            : `${notification.channel} delivery failed: ${notification.error || 'unknown error'}`,
+          delivery: notification,
+          audit: directDelivery.audit,
+        };
+      }
+    }
 
     if (enforceEditorialGate && !editorialFallback && env.SOURCE_ONLY_PROOF_REQUIRED !== '0') {
       const proof = evaluateSourceOnlyProof(candidates, { period });
@@ -2761,6 +2835,12 @@ function uniqueCandidatesByUrl(candidates = []) {
     result.push(candidate);
   }
   return result;
+}
+
+function hardFactReadyCandidates(candidates = []) {
+  return uniqueCandidatesByUrl(
+    (candidates || []).filter(candidate => candidate?.evidence_grade === 'hard_fact_ready')
+  );
 }
 
 function sourceIdentityKey(url) {
