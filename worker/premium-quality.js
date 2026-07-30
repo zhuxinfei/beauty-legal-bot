@@ -203,6 +203,7 @@ function candidateDisplayDate(candidate = {}, hardFacts = {}, source = '') {
     || isoDate(candidate.date)
     || isoDate(hardFacts.effective_date)
     || isoDate(hardFacts.deadline)
+    || isoDate(candidate.source_url || candidate.url)
     || isoDate(source);
 }
 
@@ -700,6 +701,7 @@ function fallbackEvidenceCards(cards = [], maxItems = 6) {
     .filter(card => !isNonAuthoritativeRepublisher(card))
     .filter(card => !isNavigationOrGenericInformationPage(card))
     .filter(card => isBeautyRelevantCard(card))
+    .filter(card => /^20\d{2}-\d{2}-\d{2}$/.test(card.published_at))
     .filter(card => card.facts.length && CONCRETE_PATTERNS.test(card.facts.join(' ')))
     .filter(card => card.legal_signal && card.business_impact && card.recommended_action)
     .filter(card => hasHardLegalEvent(card) || objectiveHardFactCount(card.hard_facts || {}) >= 2)

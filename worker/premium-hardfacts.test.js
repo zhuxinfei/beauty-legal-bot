@@ -1545,6 +1545,38 @@ function testCandidateSourceAndDateAreCanonicalizedFromOfficialUrl() {
   assert.doesNotMatch(markdown, /来源\*\*：福建省药监局化妆品监管动态/);
 }
 
+function testCandidateDateFallsBackToOfficialUrlDateInsteadOfBlankSourceDate() {
+  const delivery = buildPremiumDingTalkDelivery({
+    period: { start: '2026-07-24', end: '2026-07-30' },
+    sections: [],
+  }, {
+    candidates: [{
+      title: '国家药监局关于发布化妆品新原料注册备案及资料管理规定的公告（2026年第59号）',
+      url: 'https://www.nmpa.gov.cn/xxgk/fgwj/xzhgfxwj/20260626114523130.html',
+      source_name: '福建省药监局化妆品监管动态',
+      source_scope: 'hard_fact_endpoint',
+      source_type: 'official_site',
+      authority_type: 'regulator',
+      country: '中国',
+      module: '新规及案例动态',
+      evidence_grade: 'hard_fact_ready',
+      article_text: '国家药监局发布化妆品新原料注册备案及资料管理规定，涉及化妆品新原料注册备案资料、配方开发、备案注册、资料管理和存量SKU过渡期管理。',
+      hard_facts: {
+        authority: '国家药品监督管理局',
+        document_number: '2026年第59号',
+        product_or_batch: '化妆品新原料注册备案及资料管理规定',
+        affected_processes: ['配方开发', '备案注册', '资料管理', '存量SKU过渡期管理'],
+      },
+    }],
+    maxItems: 1,
+  });
+
+  assert.equal(delivery.audit.finalItems, 1);
+  const markdown = delivery.messages[0].markdown;
+  assert.match(markdown, /来源\*\*：国家药品监督管理局 \/ 中国 \/ 2026-06-26/);
+  assert.doesNotMatch(markdown, /来源\*\*：[^\\n]+ \/ 中国 \/  \/ \[原文\]/);
+}
+
 testHydrationExtractsActionableHardFacts();
 testFormalPromptsRequireAllPremiumHardFactFields();
 testPremiumMarkdownRendersNewHardFactsInFormalCard();
@@ -1582,5 +1614,6 @@ testBrokenHardFactFragmentsCannotEnterPremiumCard();
 testNoticeTitleCannotBeUsedAsProductBatch();
 testNmpaTitleRepairsRepublishedListChrome();
 testCandidateSourceAndDateAreCanonicalizedFromOfficialUrl();
+testCandidateDateFallsBackToOfficialUrlDateInsteadOfBlankSourceDate();
 
 console.log('premium hard facts tests passed');
