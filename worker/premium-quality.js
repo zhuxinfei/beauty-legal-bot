@@ -239,6 +239,14 @@ function inferFeedbackChannel(value) {
   ]);
 }
 
+function inferPolicyProductOrRule(value) {
+  const source = text(value);
+  if (/化妆品标准管理|标准执行|新旧标准衔接|标准制修订/.test(source)) return '化妆品标准管理规则';
+  if (/新原料注册备案.*资料管理|注册备案资料管理规定/.test(source)) return '化妆品新原料注册备案资料管理规定';
+  if (/三价铬和六价铬/.test(source)) return '化妆品中三价铬和六价铬的检验方法';
+  return '';
+}
+
 function withInferredHardFacts(hardFacts, card) {
   const source = [
     card.evidence_text,
@@ -253,6 +261,7 @@ function withInferredHardFacts(hardFacts, card) {
     : hardFacts.involved_party;
   return {
     ...hardFacts,
+    product_or_batch: hardFacts.product_or_batch || inferPolicyProductOrRule(source),
     involved_party: involvedParty,
     signal_type: hardFacts.signal_type || inferSignalType(source),
     risk_tier: hardFacts.risk_tier || inferRiskTier(source),
@@ -552,6 +561,9 @@ function validateTypeHardFacts(card) {
     const hasPolicyNode = Boolean(hard.effective_date || hard.deadline || hard.action_deadline || hard.document_number || hard.feedback_channel);
     if (!hasPolicyNode) {
       return 'policy-missing-effective-or-deadline';
+    }
+    if (!hardText(hard.product_or_batch)) {
+      return 'policy-missing-product-or-rule';
     }
     if (!/(办法|规定|公告|标准|新规|名单|管理|征求意见|生效|实施|过渡期|条款|执行|备案|注册|禁用|限用)/.test(source)) {
       return 'policy-missing-concrete-change';
@@ -1320,12 +1332,20 @@ function isPremiumCandidateSource(candidate = {}) {
 function isSampleGradeCard(card = {}) {
   const hardCount = objectiveHardFactCount(card.hard_facts || {});
   if (hardCount < 2) return false;
-  if (!hasSampleGradeHardFactBundle(card)) return false;
   if (BROKEN_FIELD_PATTERN.test(JSON.stringify(card.hard_facts || {}))) return false;
   if (BROKEN_FIELD_PATTERN.test(sourceTextForCard(card))) return false;
   if (!isBeautyRelevantCard(card)) return false;
   if (isNavigationOrGenericInformationPage(card)) return false;
-  if (isHardFactReadyDetailCandidate(card)) return true;
+  const evidenceDecision = validatePremiumEvidenceCard(card);
+  if (evidenceDecision.accepted
+    && isHardFactReadyDetailCandidate(evidenceDecision.card)
+    && !DOCUMENT_TITLE_AS_PRODUCT_PATTERN.test(text(evidenceDecision.card?.hard_facts?.product_or_batch))) {
+    return true;
+  }
+  if (!hasSampleGradeHardFactBundle(card)) return false;
+  if (isHardFactReadyDetailCandidate(card)) {
+    return !DOCUMENT_TITLE_AS_PRODUCT_PATTERN.test(text(card.hard_facts?.product_or_batch));
+  }
   if (/Crawl4AI|欢迎访问|专题页|入口页|监管入口|安全使用|消费者提示/i.test(sourceTextForCard(card))) return false;
   if (PREMIUM_JUNK_EVIDENCE_PATTERN.test(sourceTextForCard(card))) return false;
   return true;

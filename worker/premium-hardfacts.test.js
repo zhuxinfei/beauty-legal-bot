@@ -1326,6 +1326,63 @@ function testHardFactCandidateBackfillsWhenAiReportItemsAreNavigationOnly() {
   assert.doesNotMatch(markdown, /进出口|国家市场监督管理总局|来源信号|网站首页|机构概况|医疗器械标准与分类管理/);
 }
 
+function testHardFactCandidateReplacesSameKeyWeakReportCard() {
+  const title = '中检院公开征求2项化妆品检验方法标准意见';
+  const url = 'https://www.nifdc.org.cn/directory/web/nifdc/bshff/hzhpbzh/hzhpbzhtzgg/202607211930582131911.html';
+  const delivery = buildPremiumDingTalkDelivery({
+    period: { start: '2026-07-23', end: '2026-07-29' },
+    sections: [{
+      module: '新规及案例动态',
+      items: [{
+        title,
+        source_url: url,
+        source_name: '中检院化妆品标准通知公告',
+        source_type: 'official_site',
+        authority_type: 'regulator',
+        country: '中国',
+        published_at: '2026-07-21',
+        fact_summary: ['中检院公开征求2项化妆品检验方法标准意见。'],
+        legal_signal: '监管信息披露：需要关注相关标准变化。',
+        business_impact: '影响中国市场美妆业务的备案/注册。',
+        next_observation: ['观察正式文件、执行口径和配套问答。'],
+        hard_facts: {
+          authority: '中检院',
+          document_number: '征求意见稿',
+        },
+      }],
+    }],
+  }, {
+    maxItems: 3,
+    candidates: [{
+      title,
+      url,
+      source_name: '中检院化妆品标准通知公告',
+      source_type: 'official_site',
+      authority_type: 'regulator',
+      source_scope: 'hard_fact_endpoint',
+      country: '中国',
+      module: '新规及案例动态',
+      published_at: '2026-07-21',
+      detail_status: 'hydrated',
+      evidence_grade: 'hard_fact_ready',
+      article_text: '中检院公开征求化妆品中铜绿假单胞菌、耐热大肠菌群检验方法标准意见，意见反馈截止日期：2026年8月10日，反馈渠道：中检院化妆品标准制修订联系邮箱。标准涉及化妆品检验方法、质量放行、备案资料和存量SKU过渡期管理。',
+      hard_facts: {
+        authority: '中检院',
+        document_number: '征求意见稿',
+        product_or_batch: '化妆品中铜绿假单胞菌、耐热大肠菌群检验方法标准',
+        deadline: '2026年8月10日',
+        feedback_channel: '中检院化妆品标准制修订联系邮箱',
+        affected_processes: ['检验标准', '质量放行', '备案资料', '存量SKU过渡期管理'],
+      },
+    }],
+  });
+
+  assert.equal(delivery.audit.finalItems, 1);
+  const markdown = delivery.messages[0].markdown;
+  assert.match(markdown, /反馈渠道：中检院化妆品标准制修订联系邮箱/);
+  assert.doesNotMatch(markdown, /监管信息披露|影响中国市场美妆业务的备案\/注册/);
+}
+
 function testHardFactCandidatesCanRenderDirectlyWithoutAiReportItems() {
   const delivery = buildPremiumDingTalkDelivery({
     period: { start: '2026-07-23', end: '2026-07-29' },
@@ -1612,6 +1669,7 @@ testSourceOnlyFallbackIsDisabledForFormalDingTalkDelivery();
 testNifdcCosmeticStandardNoticeDoesNotRenderNavigationOrWrongModule();
 testQualifiedNifdcCosmeticStandardNoticeRendersCleanPolicyCard();
 testHardFactCandidateBackfillsWhenAiReportItemsAreNavigationOnly();
+testHardFactCandidateReplacesSameKeyWeakReportCard();
 testHardFactCandidatesCanRenderDirectlyWithoutAiReportItems();
 testHardFactCandidateUsesTitleWhenCrawlTextStartsWithNavigation();
 testBrokenHardFactFragmentsCannotEnterPremiumCard();
