@@ -1032,6 +1032,7 @@ export function buildPremiumDingTalkDelivery(report, options = {}) {
   const backfillableChinaCandidateItems = sampleCandidateCards.filter(isChinaCard).length;
   const candidateChinaItems = sampleCandidateCards.filter(isChinaCard).length;
   const requiredChinaItems = requiredChinaItemCount(sampleCandidateCards, maxItems);
+  cards = cards.filter(isSampleGradeCard);
   if (cards.length < maxItems) {
     const selectedKeys = new Set(cards.map(cardSelectionKey));
     for (const candidateCard of [...strictCandidateCards, ...backfillableCandidateCards, ...sourceOnlyCandidateCards]) {

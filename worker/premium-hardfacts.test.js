@@ -1123,7 +1123,7 @@ function testCandidateBackfillCannotUseTemplateLegalObservation() {
     period: { start: '2026-07-23', end: '2026-07-29' },
     sections: [],
   }, {
-    maxItems: 3,
+    maxItems: 1,
     candidates: [{
       title: '中检院公开征求2项化妆品检验方法标准意见',
       url: 'https://www.nifdc.org.cn/directory/web/nifdc/bshff/hzhpbzh/hzhpbzhtzgg/202607211930582131911.html',
