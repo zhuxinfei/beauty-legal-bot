@@ -1005,8 +1005,11 @@ export function buildPremiumDingTalkDelivery(report, options = {}) {
   }
   const eligibleCandidates = (options.candidates || []).filter(isPremiumCandidateSource);
   const eligibleCandidateCards = eligibleCandidates.map(premiumCardFromCandidate);
+  const candidateAudit = auditPremiumEvidenceCards(eligibleCandidateCards);
+  const acceptedCandidateCards = candidateAudit.decisions
+    .filter(item => item.accepted)
+    .map(item => ({ ...item.card, score: item.score || scoreCard(item.card), tier: (item.score || 0) >= 95 ? 'action' : 'watch' }));
   if (options.logCandidateAudit === true) {
-    const candidateAudit = auditPremiumEvidenceCards(eligibleCandidateCards);
     console.log(`[premium-card] candidate gate accepted ${candidateAudit.accepted}/${candidateAudit.input}; reasons=${Object.entries(candidateAudit.reasons).map(([reason, count]) => `${reason}=${count}`).join(', ') || 'none'}`);
     for (const decision of candidateAudit.decisions.filter(item => !item.accepted).slice(0, 8)) {
       console.log(`[premium-card] reject ${decision.reason}: ${decision.module} | ${decision.title}`);
@@ -1024,6 +1027,7 @@ export function buildPremiumDingTalkDelivery(report, options = {}) {
     ? sourceOnlyFallbackCards(options.candidates || [], maxItems)
     : [];
   const candidateCards = uniqueCardsBySelectionKey([
+    ...acceptedCandidateCards,
     ...strictCandidateCards,
     ...backfillableCandidateCards,
     ...sourceOnlyCandidateCards,
@@ -1035,7 +1039,7 @@ export function buildPremiumDingTalkDelivery(report, options = {}) {
   cards = cards.filter(isSampleGradeCard);
   if (cards.length < maxItems) {
     const selectedKeys = new Set(cards.map(cardSelectionKey));
-    for (const candidateCard of [...strictCandidateCards, ...backfillableCandidateCards, ...sourceOnlyCandidateCards]) {
+    for (const candidateCard of [...acceptedCandidateCards, ...strictCandidateCards, ...backfillableCandidateCards, ...sourceOnlyCandidateCards]) {
       if (cards.length >= maxItems) break;
       const key = cardSelectionKey(candidateCard);
       if (selectedKeys.has(key)) continue;
