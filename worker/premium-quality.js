@@ -355,7 +355,7 @@ function hasSampleGradeHardFactBundle(card = {}) {
     return hasProduct && (hasOutcome || hasAct || hasPolicyNode) && /召回|停止销售|抽检|不合格|污染|警示|warning|recall|adverse|contamination/i.test(source);
   }
   if (module === '新法律法规政策') {
-    return hasPolicyNode && hasProduct && /征求意见|反馈截止|生效|实施|过渡期|新旧衔接|发布|公告|通告|修订|标准|规则|办法|条例|法案|requirement|regulation|rule/i.test(source);
+    return hasPolicyNode && hasProduct && /征求意见|公开征求|反馈截止|生效|实施|过渡期|新旧衔接|发布|公告|通告|修订|标准|规则|办法|条例|法案|requirement|regulation|rule/i.test(source);
   }
   if (module === '进出口') {
     return (hasPolicyNode || hardText(hard.hs_code) || hasOutcome) && (hasProduct || hardText(hard.hs_code)) && /海关|进口|出口|口岸|报关|清关|HS\s*编码|扣留|detention/i.test(source);
