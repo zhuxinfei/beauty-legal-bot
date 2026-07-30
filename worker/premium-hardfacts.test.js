@@ -1368,6 +1368,44 @@ function testHardFactCandidatesCanRenderDirectlyWithoutAiReportItems() {
   assert.doesNotMatch(markdown, /Crawl4AI|建议动作|法务判断|来源信号|待核验|网站首页/);
 }
 
+function testHardFactCandidateUsesTitleWhenCrawlTextStartsWithNavigation() {
+  const delivery = buildPremiumDingTalkDelivery({
+    period: { start: '2026-07-23', end: '2026-07-29' },
+    sections: [],
+  }, {
+    maxItems: 3,
+    candidates: [{
+      title: '中检院关于公开征求《化妆品中铜绿假单胞菌的检验方法（征求意见稿）》等2项化妆品标准意见的通知',
+      url: 'https://www.nifdc.org.cn/directory/web/nifdc/bshff/hzhpbzh/hzhpbzhtzgg/202607211930582131911.html',
+      source_name: '中检院化妆品标准通知公告',
+      source_type: 'official_site',
+      authority_type: 'regulator',
+      source_scope: 'hard_fact_endpoint',
+      country: '中国',
+      module: '新规及案例动态',
+      published_at: '2026-07-21',
+      detail_status: 'hydrated',
+      evidence_grade: 'hard_fact_ready',
+      article_text: '首页 通知公告 更多 网站首页 机构概况 人才队伍 党群工作 信息公开 办事大厅 业务咨询 建言献策 院介绍 院领导 组织机构 能力资质 联系方式 院士 首席专家 药检菁英 党建要闻 党风廉政 群团统战 纪检举报 法规政策 公告通知 数据查询 化妆品审评 国家抽检管理 医疗器械标准与分类管理',
+      hard_facts: {
+        authority: '中检院',
+        document_number: '征求意见稿',
+        product_or_batch: '化妆品中铜绿假单胞菌、耐热大肠菌群检验方法标准',
+        deadline: '2026年8月10日',
+        feedback_channel: '中检院化妆品标准制修订联系邮箱',
+        affected_processes: ['检验标准', '质量放行', '备案资料', '存量SKU过渡期管理'],
+      },
+    }],
+  });
+
+  assert.equal(delivery.audit.finalItems, 1);
+  const markdown = delivery.messages[0].markdown;
+  assert.match(markdown, /## 新法律法规政策/);
+  assert.match(markdown, /机关：中检院/);
+  assert.match(markdown, /产品\/批次：化妆品中铜绿假单胞菌、耐热大肠菌群检验方法标准/);
+  assert.doesNotMatch(markdown, /来源信号|待核验|网站首页|机构概况|医疗器械标准与分类管理/);
+}
+
 function testBrokenHardFactFragmentsCannotEnterPremiumCard() {
   const delivery = buildPremiumDingTalkDelivery({
     period: { start: '2026-07-23', end: '2026-07-29' },
@@ -1539,6 +1577,7 @@ testNifdcCosmeticStandardNoticeDoesNotRenderNavigationOrWrongModule();
 testQualifiedNifdcCosmeticStandardNoticeRendersCleanPolicyCard();
 testHardFactCandidateBackfillsWhenAiReportItemsAreNavigationOnly();
 testHardFactCandidatesCanRenderDirectlyWithoutAiReportItems();
+testHardFactCandidateUsesTitleWhenCrawlTextStartsWithNavigation();
 testBrokenHardFactFragmentsCannotEnterPremiumCard();
 testNoticeTitleCannotBeUsedAsProductBatch();
 testNmpaTitleRepairsRepublishedListChrome();

@@ -1165,6 +1165,7 @@ function candidateObservation(module, source = '', hardFacts = {}) {
 function premiumCardFromCandidate(candidate = {}) {
   const source = candidateEvidenceText(candidate);
   const module = normalizeModule(candidate.module);
+  const candidateFacts = uniqueValues([firstEvidenceSentence(source), text(candidate.title)]).filter(Boolean);
   const extractedFacts = extractHardFacts(source, {
     title: candidate.title,
     source_name: candidate.source_name || candidate.name,
@@ -1184,7 +1185,7 @@ function premiumCardFromCandidate(candidate = {}) {
     title: text(candidate.title),
     module,
     evidence_text: source,
-    facts: uniqueValues([firstEvidenceSentence(source), text(candidate.title)]).filter(Boolean),
+    facts: candidateFacts,
     business_impact: candidate.business_impact || '',
   });
   const baseCard = {
@@ -1198,7 +1199,7 @@ function premiumCardFromCandidate(candidate = {}) {
     evidence_grade: text(candidate.evidence_grade),
     published_at: candidateDisplayDate(candidate, { ...(candidate.hard_facts || {}), ...extractedFacts }, source),
     country: text(candidate.country || candidate.region || '未知'),
-    facts: [firstEvidenceSentence(source)].filter(Boolean),
+    facts: candidateFacts,
     legal_signal: candidateLegalSignal(module, source, hardFacts),
     business_impact: '',
     recommended_action: candidateObservation(module, source, hardFacts),
