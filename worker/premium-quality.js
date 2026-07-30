@@ -171,6 +171,17 @@ function inferAffectedProcesses(value) {
   return uniqueValues(rules.filter(([pattern]) => pattern.test(source)).map(([, label]) => label));
 }
 
+function inferPolicySpecificProcesses(value) {
+  const source = text(value);
+  if (/新原料注册备案.*资料管理|注册备案资料管理规定/.test(source)) {
+    return ['配方开发', '新原料注册备案资料', '备案资料管理', '存量SKU过渡期管理'];
+  }
+  if (/三价铬和六价铬|检验方法.*安全技术规范|安全技术规范.*检验方法/.test(source)) {
+    return ['检验方法引用', '配方合规评估', '质量放行', '备案资料'];
+  }
+  return [];
+}
+
 function firstMatch(value, patterns) {
   const source = String(value || '');
   for (const pattern of patterns) {
@@ -288,9 +299,22 @@ function normalizeCandidateHardFacts(candidate = {}, facts = {}) {
   const titleProduct = policyProductFromTitle(candidate.title);
   const authority = authorityFromCanonicalSource(candidate);
   const next = { ...facts };
+  const candidateSource = text([candidate.title, candidate.article_text, candidate.full_text, candidate.evidence_text].filter(Boolean).join('。'));
   if (authority) next.authority = authority;
   if (titleProduct && (!hardText(next.product_or_batch) || DOCUMENT_TITLE_AS_PRODUCT_PATTERN.test(text(next.product_or_batch)))) {
     next.product_or_batch = titleProduct;
+  }
+  if (/新原料注册备案.*资料管理|注册备案资料管理规定/.test(text(next.product_or_batch))
+    && /三价铬和六价铬/.test(text(next.legal_basis))) {
+    next.legal_basis = '';
+  }
+  const specificProcesses = inferPolicySpecificProcesses([candidateSource, next.product_or_batch].join('。'));
+  if (specificProcesses.length) {
+    const genericProcessPattern = /^(?:备案\/注册|配方\/检验标准)$/;
+    next.affected_processes = uniqueValues([
+      ...specificProcesses,
+      ...(Array.isArray(next.affected_processes) ? next.affected_processes.filter(item => !genericProcessPattern.test(text(item))) : []),
+    ]);
   }
   if (authority === '国家药品监督管理局' && /化妆品监督管理条例|化妆品生产经营监督管理办法|化妆品抽样检验管理办法/.test(text(candidate.article_text || candidate.full_text || candidate.evidence_text))) {
     next.legal_basis = firstMatch(text(candidate.article_text || candidate.full_text || candidate.evidence_text), [
@@ -1116,6 +1140,12 @@ function candidateLegalSignal(module, source, hardFacts = {}) {
   const basis = hardText(hard.legal_basis || hard.document_number);
 
   if (module === '新法律法规政策') {
+    if (/新原料注册备案.*资料管理|注册备案资料管理规定/.test(product)) {
+      return `${product}把新原料注册备案资料要求单独成规，企业需要按公告文号复核配方开发、备案资料和存量SKU过渡安排。`;
+    }
+    if (/三价铬和六价铬|检验方法/.test(product) && /安全技术规范|三价铬和六价铬|检验方法/.test(source)) {
+      return `${product}被纳入化妆品安全技术规范体系，检验方法引用、质量放行和备案资料中的检测依据需要同步更新。`;
+    }
     if (deadline && product) return `${product}已经进入意见反馈或过渡安排窗口，企业需要在${deadline}前判断是否提交意见并评估标准切换。`;
     if (effective && product) return `${product}已有明确生效或执行日期，配方、标签、备案和质量放行口径需要按${effective}倒排更新。`;
     if (basis && product) return `${basis}把${product}纳入规则或标准管理，后续执行口径会直接影响产品资料和检验依据。`;

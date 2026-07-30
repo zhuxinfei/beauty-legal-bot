@@ -1509,7 +1509,9 @@ function testNmpaTitleRepairsRepublishedListChrome() {
   const markdown = delivery.messages[0].markdown;
   assert.match(markdown, /机关：国家药品监督管理局/);
   assert.match(markdown, /产品\/批次：化妆品新原料注册备案及资料管理规定/);
+  assert.match(markdown, /配方开发|备案资料|资料管理|存量SKU过渡期管理/);
   assert.doesNotMatch(markdown, /福建省药监局召开|不符合规定化妆品的通告/);
+  assert.doesNotMatch(markdown, /纳入规则或标准管理|影响中国市场美妆业务的备案\/注册/);
 }
 
 function testCandidateSourceAndDateAreCanonicalizedFromOfficialUrl() {
@@ -1574,7 +1576,9 @@ function testCandidateDateFallsBackToOfficialUrlDateInsteadOfBlankSourceDate() {
   assert.equal(delivery.audit.finalItems, 1);
   const markdown = delivery.messages[0].markdown;
   assert.match(markdown, /来源\*\*：国家药品监督管理局 \/ 中国 \/ 2026-06-26/);
+  assert.match(markdown, /新原料注册备案资料|配方开发|备案资料|资料管理|存量SKU过渡期管理/);
   assert.doesNotMatch(markdown, /来源\*\*：[^\\n]+ \/ 中国 \/  \/ \[原文\]/);
+  assert.doesNotMatch(markdown, /纳入规则或标准管理|影响中国市场美妆业务的备案\/注册/);
 }
 
 testHydrationExtractsActionableHardFacts();
