@@ -54,6 +54,9 @@ import {
   classifyAuthorityTrust,
   selectAuthorityResolvedCandidates,
 } from './authority-resolver.js';
+import { buildDiscoveryQueries, discoverOpenWeb } from './open-web-discovery.js';
+import { classifyEvidenceSource, corroborateEvidenceCandidates, hasVerifiedCorroboration } from './evidence-corroboration.js';
+import { isHydrationAcquisitionSource } from './source-acquisition.js';
 import {
   default as worker,
   normalizeUrl,
@@ -2131,6 +2134,60 @@ function testAuthorityResolverTurnsMediaLeadIntoOfficialSearchQueries() {
   assert.ok(queries.some(query => query.includes('PRO-XYLANE') && query.includes('行政处罚决定书')));
   assert.ok(queries.some(query => query.includes('site:gov.cn')));
   assert.ok(queries.some(query => query.includes('市场监督管理局')));
+}
+
+async function testOpenWebDiscoveryIsBoundedAndKeepsDirectLegalArticles() {
+  const xml = `<?xml version="1.0"?><rss><channel><item><title>化妆品商标侵权案罚款17万元 - 专业媒体</title><link>https://news.google.com/rss/articles/opaque</link><pubDate>Thu, 30 Jul 2026 08:00:00 GMT</pubDate><source url="https://media.example">专业媒体</source></item></channel></rss>`;
+  const result = await discoverOpenWeb({
+    period: { start: '2026-07-17', end: '2026-07-31' },
+    fetchRss: async () => xml,
+    resolveCandidates: async rows => rows.map(row => ({ ...row, url: 'https://media.example/legal/cosmetics-17', resolution_status: 'resolved' })),
+    maxItems: 10,
+  });
+  assert.ok(buildDiscoveryQueries().length >= 12);
+  assert.equal(result.candidates.length, 1);
+  assert.equal(result.candidates[0].source_scope, 'discovered_article');
+  assert.equal(result.candidates[0].publisher_host, 'media.example');
+}
+
+function testDiscoveredArticleCanBeHydratedWithoutBecomingAuthoritative() {
+  const candidate = { url: 'https://media.example/legal/cosmetics-17', source_scope: 'discovered_article', published_at: '2026-07-30' };
+  assert.equal(isHydrationAcquisitionSource(candidate), true);
+  assert.equal(classifyAuthorityTrust(candidate).level, 'unknown');
+  assert.equal(isHardFactAcquisitionSource(candidate), false);
+}
+
+function testEvidenceCorroborationRequiresIndependentHardAnchors() {
+  const base = {
+    title: '广州妍瑟化妆品有限公司侵权玻色因商标并刷单，被罚17万元',
+    published_at: '2026-07-30',
+    country: '中国',
+    module: '知识产权动态',
+    source_type: 'discovered_publisher',
+    authority_type: 'media',
+    evidence_grade: 'lead_only',
+    article_text: '广州妍瑟化妆品有限公司侵权使用玻色因相关商标并刷单，被罚17万元。',
+    hard_facts: { involved_party: '广州妍瑟化妆品有限公司', penalty_amount: '17万元', violation_behavior: '侵权使用玻色因相关商标并刷单', product_or_batch: '玻色因相关化妆品' },
+  };
+  const single = corroborateEvidenceCandidates([{ ...base, url: 'https://media-a.example/item' }]);
+  assert.equal(single.candidates.length, 0);
+  const weak = corroborateEvidenceCandidates([
+    { ...base, hard_facts: {}, url: 'https://media-a.example/item' },
+    { ...base, title: '化妆品商标案件', article_text: '监管部门通报一起化妆品商标案件。', hard_facts: {}, url: 'https://media-b.example/item' },
+  ]);
+  assert.equal(weak.candidates.length, 0);
+  const verified = corroborateEvidenceCandidates([
+    { ...base, url: 'https://media-a.example/item' },
+    { ...base, url: 'https://media-b.example/item', article_text: '监管信息显示，广州妍瑟化妆品有限公司因玻色因相关商标侵权及刷单行为受到17万元处罚。' },
+  ]);
+  assert.equal(verified.candidates.length, 1);
+  assert.equal(hasVerifiedCorroboration(verified.candidates[0]), true);
+  assert.equal(classifyEvidenceSource(verified.candidates[0]).tier, 'secondary');
+  const conflict = corroborateEvidenceCandidates([
+    { ...base, url: 'https://media-a.example/item' },
+    { ...base, url: 'https://media-b.example/item', article_text: '广州妍瑟化妆品有限公司侵权使用玻色因相关商标并刷单，被罚19万元。', hard_facts: { ...base.hard_facts, penalty_amount: '19万元' } },
+  ]);
+  assert.equal(conflict.candidates.length, 0);
 }
 
 function testAuthorityResolverBuildsSearchTasksFromLeadOnlySources() {
@@ -5052,6 +5109,10 @@ function testWeeklyWorkflowRunsLocalReportPipelineWithoutWorkerDeploy() {
   assert.ok(workflow.includes('DETAIL_FETCH_ENABLED: 1'));
   assert.ok(workflow.includes('DETAIL_CANDIDATE_LIMIT: 48'));
   assert.ok(workflow.includes('REPORT_TARGET_ITEMS: 18'));
+  assert.ok(workflow.includes('DISCOVERY_ENABLED: 1'));
+  assert.ok(workflow.includes('DISCOVERY_MAX_ITEMS: 120'));
+  assert.ok(workflow.includes('node scripts/discover-open-web.js'));
+  assert.ok(workflow.includes('--input out/acquisition-manifest.json'));
   assert.equal(workflow.includes('fonts-noto-cjk'), false);
   assert.equal(workflow.includes('fc-match'), false);
   assert.ok(workflow.includes('node worker/probe-ai.js'));
@@ -5122,6 +5183,9 @@ testHydratedRecordMergesAttachmentTextForCrawl4AiSecondHopEvidence();
 testHydratedRecordDowngradesEmptyHydratedBody();
 await testLoadHydratedRecordsFromEnvReadsFilePayload();
 testAuthorityResolverTurnsMediaLeadIntoOfficialSearchQueries();
+await testOpenWebDiscoveryIsBoundedAndKeepsDirectLegalArticles();
+testDiscoveredArticleCanBeHydratedWithoutBecomingAuthoritative();
+testEvidenceCorroborationRequiresIndependentHardAnchors();
 testAuthorityResolverBuildsSearchTasksFromLeadOnlySources();
 testAuthorityResolverClassifiesFinalSourceTrust();
 testAuthorityResolverKeepsOnlyAuthorityResolvedCandidates();

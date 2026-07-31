@@ -43,6 +43,10 @@ jobs:
       AI_MAX_TOKENS: 6000
       REPORT_ITEMS_PER_MODULE: 12
       REPORT_TARGET_ITEMS: 18
+      DISCOVERY_ENABLED: 1
+      DISCOVERY_MAX_ITEMS: 120
+      DISCOVERY_MAX_PER_HOST: 8
+      DISCOVERY_MAX_PER_MODULE: 30
       DETAIL_FETCH_ENABLED: 1
       DETAIL_CANDIDATE_LIMIT: 48
       DETAIL_FETCH_TIMEOUT_MS: 12000
@@ -52,6 +56,7 @@ jobs:
       CRAWL4_AI_BASE_DIRECTORY: /tmp/beauty-legal-bot-crawl4ai
       CRAWL4AI_ATTACHMENT_LIMIT: 2
       CRAWL4AI_DETAIL_LINK_LIMIT: 12
+      CRAWL4AI_PREVIEW_LIMIT: 72
       FORCE_DELIVERY: ${{ github.event_name == 'workflow_dispatch' && inputs.allow_duplicate_debug == 'true' && '1' || '0' }}
       NO_DELIVERY: ${{ github.event_name == 'workflow_dispatch' && inputs.no_delivery == 'true' && '1' || '0' }}
       DINGTALK_WEBHOOK_URL: ${{ secrets.DINGTALK_WEBHOOK_URL }}
@@ -83,14 +88,17 @@ jobs:
           npx playwright install --with-deps chromium
           python -m playwright install chromium
 
-      - name: Hydrate authoritative sources
+      - name: Discover open-web legal events
+        run: node scripts/discover-open-web.js out/discovery.json out/acquisition-manifest.json
+
+      - name: Hydrate evidence sources
         run: |
           mkdir -p out
           node scripts/crawl4ai-hydrate.js \
             --python python \
-            --input worker/sources.json \
+            --input out/acquisition-manifest.json \
             --output "$SOURCE_HYDRATION_FILE" \
-            --limit 39 \
+            --limit 72 \
             --page-timeout-ms 25000 \
             --attachment-limit "$CRAWL4AI_ATTACHMENT_LIMIT"
           node -e "const fs=require('fs'); const p=JSON.parse(fs.readFileSync(process.env.SOURCE_HYDRATION_FILE,'utf8')); const rows=(p.records||[]); console.log('hydrated records=' + rows.length + ', withText=' + rows.filter(r => (r.article_text||r.raw_markdown||r.fit_markdown||'').length > 0).length + ', attachments=' + rows.reduce((s,r)=>s+(r.attachment_urls||[]).length,0));"

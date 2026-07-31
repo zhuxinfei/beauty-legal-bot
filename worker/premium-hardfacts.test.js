@@ -77,6 +77,49 @@ function testPremiumMarkdownRendersNewHardFactsInFormalCard() {
   assert.doesNotMatch(markdown, /分级：|类型：|建议动作|Crawl4AI|我们|我/);
 }
 
+function testCorroboratedMediaCandidateStillNeedsAndPassesPremiumHardFacts() {
+  const candidate = {
+    title: '广州妍瑟化妆品有限公司侵权玻色因商标并刷单，被罚17万元',
+    url: 'https://media-a.example/legal/pro-xylane',
+    source_url: 'https://media-a.example/legal/pro-xylane',
+    source_name: '专业法务媒体',
+    source_type: 'discovered_publisher',
+    authority_type: 'media',
+    source_scope: 'discovered_article',
+    evidence_grade: 'corroborated_fact_ready',
+    verification_status: 'corroborated',
+    supporting_sources: [
+      { host: 'media-a.example', url: 'https://media-a.example/legal/pro-xylane' },
+      { host: 'media-b.example', url: 'https://media-b.example/legal/pro-xylane' },
+    ],
+    agreed_anchors: ['parties', 'amounts', 'products_or_batches'],
+    detail_status: 'hydrated',
+    module: '知识产权动态',
+    country: '中国',
+    published_at: '2026-07-24',
+    article_text: '市场监管信息显示，广州妍瑟化妆品有限公司侵权使用玻色因相关商标并刷单，被罚17万元，涉及含玻色因卖点的化妆品。',
+    hard_facts: {
+      authority: '市场监督管理部门',
+      involved_party: '广州妍瑟化妆品有限公司',
+      violation_behavior: '侵权使用玻色因相关商标并刷单',
+      penalty_amount: '17万元',
+      legal_basis: '《商标法》',
+      product_or_batch: '含玻色因卖点的化妆品',
+    },
+  };
+  const single = buildPremiumDingTalkDelivery({ period: { start: '2026-07-17', end: '2026-07-31' }, sections: [] }, {
+    candidates: [{ ...candidate, evidence_grade: 'lead_only', verification_status: 'unverified', supporting_sources: candidate.supporting_sources.slice(0, 1), agreed_anchors: [] }],
+    allowSourceOnlyFallback: true,
+  });
+  assert.equal(single.audit.finalItems, 0);
+  const verified = buildPremiumDingTalkDelivery({ period: { start: '2026-07-17', end: '2026-07-31' }, sections: [] }, {
+    candidates: [candidate],
+    allowSourceOnlyFallback: true,
+  });
+  assert.equal(verified.audit.finalItems, 1);
+  assert.match(verified.messages[0].markdown, /广州妍瑟化妆品有限公司/);
+}
+
 function testPremiumMarkdownInfersAffectedProcessesFromEvidence() {
   const markdown = buildPremiumDingTalkMarkdown({
     period: { start: '2026-07-19', end: '2026-07-25' },
@@ -1720,6 +1763,7 @@ function testCandidateDateFallsBackToOfficialUrlDateInsteadOfBlankSourceDate() {
 testHydrationExtractsActionableHardFacts();
 testFormalPromptsRequireAllPremiumHardFactFields();
 testPremiumMarkdownRendersNewHardFactsInFormalCard();
+testCorroboratedMediaCandidateStillNeedsAndPassesPremiumHardFacts();
 testPremiumMarkdownInfersAffectedProcessesFromEvidence();
 testManualWorkflowRunsAreNotArtifactOnlyByDefault();
 testQualityModeDoesNotShortCircuitAfterHardFactSeeds();

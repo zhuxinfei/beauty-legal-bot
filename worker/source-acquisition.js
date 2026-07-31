@@ -35,6 +35,18 @@ export function isHardFactAcquisitionSource(source = {}) {
   return HARD_FACT_PATH_PATTERN.test(text);
 }
 
+export function isHydrationAcquisitionSource(source = {}) {
+  if (isHardFactAcquisitionSource(source)) return true;
+  if (String(source.source_scope || '') !== 'discovered_article') return false;
+  if (!/^20\d{2}-\d{2}-\d{2}$/.test(String(source.published_at || ''))) return false;
+  const url = String(source.url || source.source_url || '');
+  return /^https?:\/\//i.test(url) && !isLikelyPortalUrl(url) && !/news\.google\.com/i.test(url);
+}
+
+export function filterHydrationAcquisitionSources(sources = []) {
+  return (Array.isArray(sources) ? sources : []).filter(isHydrationAcquisitionSource);
+}
+
 export function isFormalAcquisitionMode(options = {}) {
   const env = options.env || {};
   return Boolean(options.qualityMode || options.hardFactOnly || options.formalRun)

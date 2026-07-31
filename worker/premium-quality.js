@@ -1,5 +1,6 @@
 import { extractHardFacts } from './hard-fact-extractor.js';
 import { cleanArticleEvidence, compactEvidenceText, firstEvidenceSentence as extractFirstEvidenceSentence } from './article-evidence.js';
+import { hasVerifiedCorroboration } from './evidence-corroboration.js';
 
 const UTF8_ENCODER = new TextEncoder();
 const MODULE_ORDER = [
@@ -453,6 +454,7 @@ function hostOf(value) {
 }
 
 function isNonAuthoritativeRepublisher(card = {}) {
+  if (hasVerifiedCorroboration(card)) return false;
   return REPUBLISHER_HOST_PATTERN.test(hostOf(card.source_url || card.url))
     || MEDIA_SOURCE_TYPES.has(text(card.source_type))
     || text(card.authority_type) === 'media'
@@ -1241,6 +1243,9 @@ function premiumCardFromCandidate(candidate = {}) {
     authority_type: text(candidate.authority_type),
     source_scope: text(candidate.source_scope),
     evidence_grade: text(candidate.evidence_grade),
+    verification_status: text(candidate.verification_status),
+    supporting_sources: Array.isArray(candidate.supporting_sources) ? candidate.supporting_sources : [],
+    agreed_anchors: Array.isArray(candidate.agreed_anchors) ? candidate.agreed_anchors : [],
     published_at: candidateDisplayDate(candidate, { ...(candidate.hard_facts || {}), ...extractedFacts }, source),
     country: text(candidate.country || candidate.region || '未知'),
     facts: candidateFacts,
@@ -1324,7 +1329,7 @@ function isPremiumCandidateSource(candidate = {}) {
   const grade = text(candidate.evidence_grade);
   if (grade === 'reject') return false;
   const scope = text(candidate.source_scope);
-  if (grade && grade !== 'hard_fact_ready') return false;
+  if (grade && !['hard_fact_ready', 'corroborated_fact_ready'].includes(grade)) return false;
   if (!grade && scope && !['hard_fact_endpoint', 'hard_fact_list'].includes(scope)) return false;
   return true;
 }

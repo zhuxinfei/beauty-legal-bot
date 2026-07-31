@@ -4,7 +4,7 @@ import { resolve } from 'node:path';
 import { pathToFileURL } from 'node:url';
 import { normalizeHydratedPayload } from '../worker/source-hydration.js';
 import {
-  filterHardFactAcquisitionSources,
+  filterHydrationAcquisitionSources,
   isHardFactAcquisitionSource,
 } from '../worker/source-acquisition.js';
 
@@ -139,6 +139,13 @@ async def crawl_one(crawler, url, item, module, config, attachment=False):
         "region": item.get("region", "") or "",
         "module": module,
         "source_name": item.get("name", "") or item.get("source_name", "") or "",
+        "source_scope": item.get("source_scope", "") or "",
+        "source_type": item.get("source_type", "") or "",
+        "authority_type": item.get("authority_type", "") or "",
+        "publisher_host": item.get("publisher_host", "") or "",
+        "discovery_provider": item.get("discovery_provider", "") or "",
+        "priority": item.get("priority", "") or "",
+        "topics": item.get("topics", []) or [],
         "raw_markdown": markdown,
         "fit_markdown": fit_markdown,
         "references_markdown": references_markdown,
@@ -391,7 +398,7 @@ async function main() {
     throw new Error('Usage: node scripts/crawl4ai-hydrate.js --input worker/sources.json --output out/hydrated-sources.json');
   }
 
-  const loaded = filterHardFactAcquisitionSources(await loadInput(resolve(input)), { env: process.env, hardFactOnly: true });
+  const loaded = filterHydrationAcquisitionSources(await loadInput(resolve(input)));
   const manualPreviewLimit = process.env.GITHUB_EVENT_NAME === 'workflow_dispatch'
     ? Number(process.env.CRAWL4AI_PREVIEW_LIMIT || 39)
     : 0;

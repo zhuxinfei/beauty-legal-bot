@@ -1,4 +1,5 @@
 import { cleanArticleEvidence } from './article-evidence.js';
+import { hasVerifiedCorroboration } from './evidence-corroboration.js';
 
 const MODULES = Object.freeze([
   '广告合规及处罚案例',
@@ -124,7 +125,7 @@ export function evaluateEditorialCandidate(candidate = {}) {
   if (NAVIGATION_TITLE.test(title)) {
     return { accepted: false, reason: 'navigation-shell' };
   }
-  if (isNonAuthoritativeRepublisher(candidate)) {
+  if (isNonAuthoritativeRepublisher(candidate) && !hasVerifiedCorroboration(candidate)) {
     return { accepted: false, reason: 'non-authoritative-source' };
   }
   if (!BEAUTY_DOMAIN_PATTERN.test(leadText)) return { accepted: false, reason: 'not-beauty-industry' };

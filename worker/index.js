@@ -33,6 +33,7 @@ import {
   mergeHydratedCandidates,
 } from './source-hydration.js';
 import { buildAuthoritySearchTasks } from './authority-resolver.js';
+import { corroborateEvidenceCandidates } from './evidence-corroboration.js';
 import {
   assertPremiumChinaDelivery,
   buildPremiumDingTalkDelivery,
@@ -1210,7 +1211,10 @@ export async function runPipeline(env, requestUrl = 'https://beauty-legal-bot.wo
       : selectSourcesForWorkerBudget(sourceCatalog.sources, Number(env.WORKER_FETCH_SOURCE_BUDGET || WORKER_FETCH_SOURCE_BUDGET));
     const { fetchableSources } = splitSources(sources);
     console.log(`[stage 1/5] Worker 抓取预算：${fetchableSources.length} 个可抓取源，${sources.length - fetchableSources.length} 个线索源`);
-    const hydrationRecords = await loadHydratedRecordsFromEnv(env, env.HYDRATION_FETCH || fetch);
+    const loadedHydrationRecords = await loadHydratedRecordsFromEnv(env, env.HYDRATION_FETCH || fetch);
+    const corroboration = corroborateEvidenceCandidates(loadedHydrationRecords);
+    const hydrationRecords = corroboration.candidates;
+    console.log(`[stage 1/5] 证据验证：记录 ${corroboration.audit.records}，事件 ${corroboration.audit.events}，官方 ${corroboration.audit.primaryVerified}，双源 ${corroboration.audit.corroborated}，未验证 ${corroboration.audit.unverified}`);
     const { candidates: fetchedCandidates, leads, failures, sourceResults, coverage } = await collectCandidates(sources, async () => {}, {
       fetcher: env.SOURCE_FETCH || fetch,
       browserFetcher: env.BROWSER_FETCH_HTML,
@@ -1249,7 +1253,7 @@ export async function runPipeline(env, requestUrl = 'https://beauty-legal-bot.wo
 
     const directHardFactMode = env.HARD_FACT_DIRECT_DELIVERY === '1';
     const freshHydrationHardFactRecords = filterCandidatesByFreshness(
-      (hydrationRecords || []).filter(candidate => candidate?.evidence_grade === 'hard_fact_ready'),
+      (hydrationRecords || []).filter(candidate => ['hard_fact_ready', 'corroborated_fact_ready'].includes(candidate?.evidence_grade)),
       period
     );
     const directHardFactCandidates = hardFactReadyCandidates([
@@ -1389,7 +1393,7 @@ export async function runPipeline(env, requestUrl = 'https://beauty-legal-bot.wo
     const generatedAt = new Date().toISOString();
     const premiumCandidates = uniqueCandidatesByUrl([
       ...candidates,
-      ...hydratedCandidates.filter(candidate => candidate.evidence_grade === 'hard_fact_ready'),
+      ...hydratedCandidates.filter(candidate => ['hard_fact_ready', 'corroborated_fact_ready'].includes(candidate.evidence_grade)),
     ]);
     const premiumDelivery = buildPremiumDingTalkDelivery(report, {
       candidates: premiumCandidates,
@@ -2874,7 +2878,7 @@ function uniqueCandidatesByUrl(candidates = []) {
 
 function hardFactReadyCandidates(candidates = []) {
   return uniqueCandidatesByUrl(
-    (candidates || []).filter(candidate => candidate?.evidence_grade === 'hard_fact_ready')
+    (candidates || []).filter(candidate => ['hard_fact_ready', 'corroborated_fact_ready'].includes(candidate?.evidence_grade))
   );
 }
 

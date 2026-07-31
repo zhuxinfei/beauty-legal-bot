@@ -454,7 +454,7 @@ export function mergeHydratedCandidates(candidates = [], hydratedRecords = []) {
   const appendedHardFactRecords = [];
   for (const record of normalizedRecords) {
     if (matchedRecords.has(record)) continue;
-    if (record.evidence_grade !== 'hard_fact_ready') continue;
+    if (!['hard_fact_ready', 'corroborated_fact_ready'].includes(record.evidence_grade)) continue;
     const keys = recordKeys(record);
     if (keys.some(key => mergedKeys.has(key))) continue;
     appendedHardFactRecords.push({
