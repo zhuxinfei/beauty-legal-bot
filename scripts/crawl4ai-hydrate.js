@@ -365,10 +365,11 @@ export function selectHydrationSources(records = [], { limit = 0, minimumPerModu
   const capacity = limit > 0 ? Math.min(limit, eligible.length) : eligible.length;
   const selected = [];
   const selectedKeys = new Set();
-  const keyFor = item => String(item.url || item.source_url || '').trim();
+  const keyFor = item => String(item?.url || item?.source_url || '').trim();
   const take = item => {
+    if (!item) return false;
     const key = keyFor(item);
-    if (!item || !key || selectedKeys.has(key) || selected.length >= capacity) return false;
+    if (!key || selectedKeys.has(key) || selected.length >= capacity) return false;
     selected.push(item);
     selectedKeys.add(key);
     return true;

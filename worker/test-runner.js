@@ -4859,6 +4859,21 @@ function testHydrationSelectionReservesEvidenceBudgetForEveryModule() {
   assert.equal(selected.includes(leadOnly), false);
 }
 
+function testHydrationSelectionHandlesModulesBelowConfiguredFloor() {
+  const sparse = [{
+    title: '化妆品行政处罚详情',
+    url: 'https://official.example.gov.cn/xxgk/penalty-1',
+    module: '广告合规及处罚案例',
+    source_scope: 'hard_fact_endpoint',
+  }];
+  const selected = selectHydrationSources(sparse, {
+    limit: 12,
+    minimumPerModule: 6,
+    modules: REPORT_MODULES,
+  });
+  assert.deepEqual(selected, sparse);
+}
+
 function testAnalysisPromptKeepsChinaEvidenceFirst() {
   const prompt = buildAnalysisPrompt({
     candidates: [
@@ -5583,6 +5598,7 @@ testCandidateFreshnessAndInfluenceRanking();
 testPrioritizeCandidatesForAnalysisPutsChinaEvidenceFirst();
 testModuleAnalysisBatchesChinaCandidatesBeforeForeignCandidates();
 testHydrationSelectionReservesEvidenceBudgetForEveryModule();
+testHydrationSelectionHandlesModulesBelowConfiguredFloor();
 testAnalysisPromptKeepsChinaEvidenceFirst();
 testFreshnessGateAcceptsCurrentWeekAndFourteenDayBoundary();
 testFreshnessGateAllowsOnlyStructuredHistoricalExceptions();
