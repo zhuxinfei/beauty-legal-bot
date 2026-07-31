@@ -34,6 +34,7 @@ import {
 } from './source-hydration.js';
 import { buildAuthoritySearchTasks } from './authority-resolver.js';
 import { corroborateEvidenceCandidates } from './evidence-corroboration.js';
+import { cleanArticleEvidence } from './article-evidence.js';
 import {
   assertPremiumChinaDelivery,
   buildPremiumDingTalkDelivery,
@@ -2369,6 +2370,32 @@ function beautyEvidenceExcerpt(value) {
   return text.slice(Math.max(0, index - 800), index + 4000);
 }
 
+function candidateEvidenceExcerpt(candidate = {}) {
+  const source = cleanArticleEvidence(
+    candidate.article_text
+      || candidate.full_text
+      || candidate.evidence_text
+      || candidate.snippet
+      || ''
+  );
+  const title = String(candidate.title || '').trim();
+  const titleIndex = title ? source.indexOf(title) : -1;
+  const article = titleIndex >= 0 ? source.slice(titleIndex) : source;
+  return beautyEvidenceExcerpt(article);
+}
+
+function candidateEvidenceMetadata(candidate = {}) {
+  return {
+    source_scope: candidate.source_scope || '',
+    evidence_grade: candidate.evidence_grade || '',
+    verification_status: candidate.verification_status || '',
+    supporting_sources: Array.isArray(candidate.supporting_sources) ? candidate.supporting_sources : [],
+    agreed_anchors: Array.isArray(candidate.agreed_anchors) ? candidate.agreed_anchors : [],
+    detail_status: candidate.detail_status || '',
+    hydration_source: candidate.hydration_source || '',
+  };
+}
+
 function materializeCandidateBackedReport(report, candidates, targetModule) {
   const reviewed = Array.isArray(report.reviewed_candidates) ? report.reviewed_candidates : [];
   const decisions = new Map();
@@ -2405,7 +2432,8 @@ function materializeCandidateBackedReport(report, candidates, targetModule) {
       module: targetModule,
       title,
       evidence_title: candidate.title,
-      evidence_excerpt: beautyEvidenceExcerpt(candidate.snippet),
+      evidence_excerpt: candidateEvidenceExcerpt(candidate),
+      ...candidateEvidenceMetadata(candidate),
       source_name: preferredDisplaySourceName(item.source_name_zh, candidate.source_name || candidate.name),
       evidence_source_name: candidate.source_name || candidate.name || '',
       source_url: candidate.url || candidate.source_url,
@@ -2569,7 +2597,8 @@ function rescueItemFromSelection(selection, candidate) {
     country: candidate.country || '全球',
     title: preferredDisplayTitle(selection.title_zh, candidate.title || `${candidate.source_name || candidate.name || '公开来源'}监管动态`, candidate.country),
     evidence_title: candidate.title || '',
-    evidence_excerpt: beautyEvidenceExcerpt(candidate.snippet),
+    evidence_excerpt: candidateEvidenceExcerpt(candidate),
+    ...candidateEvidenceMetadata(candidate),
     source_name: preferredDisplaySourceName(selection.source_name_zh, candidate.source_name || candidate.name || '公开来源'),
     evidence_source_name: candidate.source_name || candidate.name || '',
     source_url: candidate.url || candidate.source_url,

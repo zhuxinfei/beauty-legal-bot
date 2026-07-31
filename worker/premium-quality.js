@@ -428,12 +428,18 @@ function isHardFactReadyDetailCard(card = {}) {
 function isHardFactReadyDetailCandidate(card = {}) {
   const scope = text(card.source_scope);
   const grade = text(card.evidence_grade);
+  const detailStatus = text(card.detail_status);
+  const hydrationSource = text(card.hydration_source);
   const url = text(card.source_url || card.url);
   const isDetailUrl = /\/20\d{12,}\.html?$|\/20\d{2}\/\d{1,2}\/\d{1,2}\/|\/xxgk\/.+\/20\d{12,}\.html?$/i.test(url)
     && !/\/index\.html?$/i.test(url);
-  if (grade !== 'hard_fact_ready' && scope !== 'hard_fact_endpoint') return false;
-  if (scope !== 'hard_fact_endpoint' && !isDetailUrl) return false;
-  return true;
+  const trustedGrade = ['hard_fact_ready', 'corroborated_fact_ready'].includes(grade);
+  const trustedAuthority = ['official_site', 'regulator', 'court', 'official_database'].includes(text(card.source_type))
+    || ['official', 'regulator', 'court'].includes(text(card.authority_type));
+  const hydratedDetail = detailStatus === 'hydrated'
+    && (hydrationSource === 'crawl4ai' || trustedAuthority);
+  if (!trustedGrade && scope !== 'hard_fact_endpoint' && !(hydratedDetail && trustedAuthority)) return false;
+  return scope === 'hard_fact_endpoint' || isDetailUrl || hydratedDetail;
 }
 
 function isHttpUrl(value) {
@@ -882,6 +888,11 @@ function premiumCardFromItem(item, sectionModule) {
     authority_type: text(item.authority_type),
     source_scope: text(item.source_scope),
     evidence_grade: text(item.evidence_grade),
+    verification_status: text(item.verification_status),
+    supporting_sources: Array.isArray(item.supporting_sources) ? item.supporting_sources : [],
+    agreed_anchors: Array.isArray(item.agreed_anchors) ? item.agreed_anchors : [],
+    detail_status: text(item.detail_status),
+    hydration_source: text(item.hydration_source),
     published_at: candidateDisplayDate(item, hardFactsInput, evidenceText || [
       item.what_changed,
       item.facts,

@@ -961,6 +961,33 @@ function testPremiumGateRejectsNavigationAndGenericInformationPages() {
       action_deadline: '本周',
     },
   }).reason, 'navigation-or-generic-page');
+
+  const hydratedDetail = validatePremiumEvidenceCard({
+    title: '中检院公开征求化妆品检验方法标准意见',
+    module: '新法律法规政策',
+    source_url: 'https://www.nifdc.org.cn/directory/web/nifdc/notices/202607211930582131911.html',
+    source_name: '中检院',
+    source_type: 'official_site',
+    authority_type: 'regulator',
+    source_scope: 'hard_fact_list',
+    detail_status: 'hydrated',
+    hydration_source: 'crawl4ai',
+    published_at: '2026-07-21',
+    country: '中国',
+    evidence_text: '快捷检索 高级检索 友情链接。中检院于2026年7月21日公开征求化妆品检验方法标准意见，反馈截止日为2026年8月20日。',
+    facts: ['中检院于2026年7月21日公开征求化妆品检验方法标准意见，反馈截止日为2026年8月20日。'],
+    legal_signal: '征求意见稿将化妆品检验方法纳入标准执行和质量放行管理。',
+    business_impact: '影响化妆品检验依据、质量放行、备案资料和存量SKU管理。',
+    recommended_action: '观察正式稿发布日期、反馈截止日和检验方法过渡安排。',
+    hard_facts: {
+      authority: '中检院',
+      document_number: '征求意见稿',
+      product_or_batch: '化妆品检验方法标准',
+      deadline: '2026年8月20日',
+      affected_processes: ['检验依据', '质量放行', '备案资料', '存量SKU管理'],
+    },
+  });
+  assert.equal(hydratedDetail.accepted, true, hydratedDetail.reason);
 }
 
 function testPremiumGateAcceptsManualHardInformationSamples() {
@@ -2678,7 +2705,13 @@ async function testDeepseekRescueAnalyzeUsesObservedCandidateIdentity() {
     region: '亚洲',
     published_at: '2026-07-22',
     priority: 'high',
-    snippet: '监管通报要求化妆品功效宣称与备案证据保持一致。',
+    source_scope: 'hard_fact_list',
+    evidence_grade: 'hard_fact_ready',
+    verification_status: 'primary_verified',
+    detail_status: 'hydrated',
+    hydration_source: 'crawl4ai',
+    snippet: '网站首页 机构概况 信息公开 办事大厅 快捷检索 高级检索 友情链接',
+    article_text: '中国监管机构于2026年7月22日通报，要求化妆品功效宣称与备案资料和功效证据保持一致。',
   };
   const response = {
     reviewed_candidates: [{ candidate_index: 0, decision: 'include', reason: '正文直接涉及化妆品功效宣称' }],
@@ -2716,6 +2749,11 @@ async function testDeepseekRescueAnalyzeUsesObservedCandidateIdentity() {
   assert.equal(item.source_name, candidate.source_name);
   assert.equal(item.evidence_title, candidate.title);
   assert.equal(item.confidence, 'high');
+  assert.ok(item.evidence_excerpt.includes('功效证据保持一致'));
+  assert.equal(item.evidence_excerpt.includes('快捷检索'), false);
+  assert.equal(item.source_scope, candidate.source_scope);
+  assert.equal(item.evidence_grade, candidate.evidence_grade);
+  assert.equal(item.detail_status, candidate.detail_status);
   const processed = processAnalyzedReport(report, { candidates: [candidate], sources: [] });
   assert.equal(processed.audit.acceptedItems, 1);
 }
@@ -4101,7 +4139,24 @@ function testBuildAnalysisPromptUsesModuleTarget() {
 async function testModuleAnalysisRequiresARecordedDecisionForEveryCandidate() {
   const period = { start: '2026-07-13', end: '2026-07-19' };
   const candidates = [
-    { candidate_index: 0, title: '化妆品标签新规', url: 'https://official.example.cn/rules/label', source_name: '监管机构', source_type: 'official_site', authority_type: 'regulator', module: '新规及案例动态', region: '亚洲', country: '中国', snippet: '化妆品标签新规全文。'.repeat(80) },
+    {
+      candidate_index: 0,
+      title: '化妆品标签新规',
+      url: 'https://official.example.cn/rules/label',
+      source_name: '监管机构',
+      source_type: 'official_site',
+      authority_type: 'regulator',
+      source_scope: 'hard_fact_list',
+      evidence_grade: 'hard_fact_ready',
+      verification_status: 'primary_verified',
+      detail_status: 'hydrated',
+      hydration_source: 'crawl4ai',
+      module: '新规及案例动态',
+      region: '亚洲',
+      country: '中国',
+      snippet: '网站首页 机构概况 信息公开 办事大厅 快捷检索 高级检索 友情链接',
+      article_text: '监管机构于2026年7月18日发布化妆品标签新规，明确标签备案、存量SKU过渡和企业反馈截止日要求。',
+    },
     { candidate_index: 1, title: '普通食品安全新闻', url: 'https://official.example.cn/news/food', source_name: '监管机构', source_type: 'official_site', authority_type: 'regulator', module: '新规及案例动态', region: '亚洲', country: '中国', published_at: '2026-07-18', snippet: '食品安全新闻全文。'.repeat(80) },
   ];
   const includedItem = {
@@ -4153,6 +4208,13 @@ async function testModuleAnalysisRequiresARecordedDecisionForEveryCandidate() {
   assert.equal(item.evidence_title, candidates[0].title);
   assert.equal(item.published_at, '未知');
   assert.equal(item.updated_at, '未知');
+  assert.ok(item.evidence_excerpt.includes('标签备案'));
+  assert.equal(item.evidence_excerpt.includes('快捷检索'), false);
+  assert.equal(item.source_scope, candidates[0].source_scope);
+  assert.equal(item.evidence_grade, candidates[0].evidence_grade);
+  assert.equal(item.verification_status, candidates[0].verification_status);
+  assert.equal(item.detail_status, candidates[0].detail_status);
+  assert.equal(item.hydration_source, candidates[0].hydration_source);
 }
 
 async function testModuleAnalysisFallsBackFromGenericChineseDisplayText() {
