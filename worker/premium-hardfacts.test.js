@@ -166,7 +166,7 @@ function testQualityModeUsesStrictSourceOnlyBackfillAndFullModuleCoverage() {
   assert.match(source, /const DEFAULT_ANALYSIS_BATCHES_PER_MODULE = 6;/);
   assert.match(source, /allowSourceOnlyFallback:\s*qualityMode/);
   const workflow = readFileSync(new URL('../.github/workflows/weekly.yml', import.meta.url), 'utf8');
-  assert.match(workflow, /REPORT_TARGET_ITEMS:\s*18/);
+  assert.match(workflow, /REPORT_TARGET_ITEMS:\s*20/);
 }
 
 function testPremiumMarkdownCompactsPageChromeAndOversizedFactLines() {

@@ -712,6 +712,47 @@ export function selectPremiumEvidenceCards(cards = [], { maxItems = 8, minItems 
   return selected.slice(0, Math.max(minItems, Math.min(maxItems, selected.length)));
 }
 
+export function selectPremiumPortfolio(cards = [], {
+  targetItems = 20,
+  minimumPerModule = 2,
+  maximumPerModule = 5,
+} = {}) {
+  const seen = new Set();
+  const accepted = [];
+  for (const input of cards) {
+    const decision = validatePremiumEvidenceCard(input);
+    if (!decision.accepted || !isSampleGradeCard(decision.card)) continue;
+    const key = `${decision.card.source_url.toLowerCase()}|${decision.card.title.replace(/\s+/g, '')}`;
+    if (seen.has(key)) continue;
+    seen.add(key);
+    accepted.push({ ...decision.card, tier: decision.tier, score: decision.score });
+  }
+  accepted.sort(compareSelectionCards);
+
+  const selected = [];
+  const selectedKeys = new Set();
+  const moduleCounts = new Map();
+  const take = card => {
+    if (!card || selected.length >= targetItems) return false;
+    const key = cardSelectionKey(card);
+    if (selectedKeys.has(key) || (moduleCounts.get(card.module) || 0) >= maximumPerModule) return false;
+    selected.push(card);
+    selectedKeys.add(key);
+    moduleCounts.set(card.module, (moduleCounts.get(card.module) || 0) + 1);
+    return true;
+  };
+
+  for (let round = 0; round < minimumPerModule; round += 1) {
+    const roundCards = MODULE_ORDER
+      .map(module => accepted.filter(card => card.module === module)[round])
+      .filter(Boolean)
+      .sort(compareSelectionCards);
+    for (const card of roundCards) take(card);
+  }
+  for (const card of accepted) take(card);
+  return selected;
+}
+
 export function auditPremiumEvidenceCards(cards = []) {
   const reasons = {};
   const decisions = [];
@@ -1011,7 +1052,9 @@ export function buildPremiumDingTalkDelivery(report, options = {}) {
   const reportCards = (report.sections || []).flatMap(section =>
     (section.items || []).map(item => premiumCardFromItem(item, section.module))
   );
-  const maxItems = Number(options.maxItems || 18);
+  const maxItems = Number(options.maxItems || options.targetItems || 20);
+  const minimumPerModule = Number(options.minimumPerModule ?? 1);
+  const maximumPerModule = Number(options.maximumPerModule ?? maxItems);
   const premiumCards = cardsForPremiumDelivery(reportCards, maxItems);
   let cards = premiumCards.length ? premiumCards : fallbackEvidenceCards(reportCards, maxItems);
   cards = backfillChinaFromCandidates(cards, options.candidates || [], maxItems);
@@ -1052,19 +1095,24 @@ export function buildPremiumDingTalkDelivery(report, options = {}) {
   const backfillableChinaCandidateItems = sampleCandidateCards.filter(isChinaCard).length;
   const candidateChinaItems = sampleCandidateCards.filter(isChinaCard).length;
   const requiredChinaItems = requiredChinaItemCount(sampleCandidateCards, maxItems);
-  cards = cards.filter(isSampleGradeCard);
-  if (cards.length < maxItems) {
-    const selectedKeys = new Set(cards.map(cardSelectionKey));
-    for (const candidateCard of [...acceptedCandidateCards, ...strictCandidateCards, ...backfillableCandidateCards, ...sourceOnlyCandidateCards]) {
-      if (cards.length >= maxItems) break;
-      const key = cardSelectionKey(candidateCard);
-      if (selectedKeys.has(key)) continue;
-      cards.push(candidateCard);
-      selectedKeys.add(key);
-    }
-    cards.sort(compareSelectionCards);
-  }
-  cards = cards.filter(isSampleGradeCard).slice(0, maxItems).sort(compareSelectionCards);
+  cards = selectPremiumPortfolio(uniqueCardsBySelectionKey([
+    ...cards,
+    ...reportCards,
+    ...acceptedCandidateCards,
+    ...strictCandidateCards,
+    ...backfillableCandidateCards,
+    ...sourceOnlyCandidateCards,
+  ]), {
+    targetItems: maxItems,
+    minimumPerModule,
+    maximumPerModule,
+  }).sort(compareSelectionCards);
+  const finalItemsByModule = Object.fromEntries(MODULE_ORDER.map(module => [
+    module,
+    cards.filter(card => card.module === module).length,
+  ]));
+  const missingModules = MODULE_ORDER.filter(module => !finalItemsByModule[module]);
+  const underfilledModules = MODULE_ORDER.filter(module => finalItemsByModule[module] < minimumPerModule);
   const audit = {
     reportItems: reportCards.length,
     reportChinaItems: reportCards.filter(isChinaCard).length,
@@ -1079,6 +1127,14 @@ export function buildPremiumDingTalkDelivery(report, options = {}) {
     requiredChinaItems,
     requiredSampleGradeItems: Math.min(3, cards.length),
     chinaShortfall: candidateChinaItems > cards.filter(isChinaCard).length || backfillableChinaCandidateItems > cards.filter(isChinaCard).length,
+    finalItemsByModule,
+    missingModules,
+    underfilledModules,
+    targetItems: maxItems,
+    minimumItems: Number(options.minimumItems || 18),
+    maximumItems: Number(options.maximumItems || 22),
+    minimumPerModule,
+    maximumPerModule,
   };
   if (!cards.length) return { messages: [], cards, audit };
   return {
@@ -1105,6 +1161,20 @@ export function assertPremiumChinaDelivery(audit = {}, { allowForeignOnly = fals
   }
   if (Number(audit.finalSampleGradeItems || 0) < Number(audit.requiredSampleGradeItems || 0)) {
     throw new Error(`Premium delivery hard-fact gate failed: requiredSampleGrade=${audit.requiredSampleGradeItems || 0}, finalSampleGrade=${audit.finalSampleGradeItems || 0}`);
+  }
+  return audit;
+}
+
+export function assertPremiumPortfolioDelivery(audit = {}, options = {}) {
+  const minimumItems = Number(options.minimumItems ?? audit.minimumItems ?? 18);
+  const maximumItems = Number(options.maximumItems ?? audit.maximumItems ?? 22);
+  const minimumPerModule = Number(options.minimumPerModule ?? audit.minimumPerModule ?? 2);
+  const finalItems = Number(audit.finalItems || 0);
+  const counts = audit.finalItemsByModule || {};
+  const missingModules = MODULE_ORDER.filter(module => !Object.hasOwn(counts, module) || Number(counts[module] || 0) === 0);
+  const underfilledModules = MODULE_ORDER.filter(module => Number(counts[module] || 0) < minimumPerModule);
+  if (finalItems < minimumItems || finalItems > maximumItems || missingModules.length || underfilledModules.length) {
+    throw new Error(`Premium portfolio gate failed: finalItems=${finalItems}, required=${minimumItems}-${maximumItems}, missingModules=${missingModules.join(',') || 'none'}, underfilledModules=${underfilledModules.join(',') || 'none'}, minimumPerModule=${minimumPerModule}`);
   }
   return audit;
 }

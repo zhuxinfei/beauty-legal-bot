@@ -1,6 +1,6 @@
 import { mkdir, readFile, writeFile } from 'node:fs/promises';
 import { dirname, resolve } from 'node:path';
-import { discoverOpenWeb } from '../worker/open-web-discovery.js';
+import { buildDiscoveryQueries, discoverOpenWeb, discoverOpenWebWithRecovery } from '../worker/open-web-discovery.js';
 import { resolveGoogleNewsCandidates } from '../worker/google-rss-discovery.js';
 
 function period() {
@@ -13,8 +13,8 @@ function period() {
 const output = resolve(process.argv[2] || 'out/discovery.json');
 const manifestOutput = resolve(process.argv[3] || 'out/acquisition-manifest.json');
 const catalog = JSON.parse(await readFile(resolve('worker/sources.json'), 'utf8'));
-const fetchRss = async query => {
-  const url = `https://news.google.com/rss/search?q=${encodeURIComponent(`${query} when:14d`)}&hl=zh-CN&gl=CN&ceid=CN:zh-Hans`;
+const fetchRssForDays = days => async query => {
+  const url = `https://news.google.com/rss/search?q=${encodeURIComponent(`${query} when:${days}d`)}&hl=zh-CN&gl=CN&ceid=CN:zh-Hans`;
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), Number(process.env.DISCOVERY_QUERY_TIMEOUT_MS || 8000));
   const response = await fetch(url, { headers: { 'User-Agent': 'Mozilla/5.0 beauty-legal-bot/2.0' }, signal: controller.signal });
@@ -22,11 +22,11 @@ const fetchRss = async query => {
   if (!response.ok) throw new Error(`Google News RSS HTTP ${response.status}`);
   return response.text();
 };
-const fetchSecondary = async (query, module) => {
+const fetchSecondaryForDays = days => async (query, module) => {
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), Number(process.env.DISCOVERY_QUERY_TIMEOUT_MS || 8000));
   try {
-    const url = `https://api.gdeltproject.org/api/v2/doc/doc?query=${encodeURIComponent(query)}&mode=ArtList&maxrecords=20&timespan=2weeks&format=json&sort=DateDesc`;
+    const url = `https://api.gdeltproject.org/api/v2/doc/doc?query=${encodeURIComponent(query)}&mode=ArtList&maxrecords=20&timespan=${days}days&format=json&sort=DateDesc`;
     const response = await fetch(url, { signal: controller.signal, headers: { 'User-Agent': 'beauty-legal-bot/2.0' } });
     if (!response.ok) return [];
     const payload = await response.json();
@@ -48,14 +48,21 @@ const fetchSecondary = async (query, module) => {
 
 let result;
 try {
-  const discovery = discoverOpenWeb({
+  const discovery = discoverOpenWebWithRecovery({
     period: period(),
-    fetchRss,
-    fetchSecondary,
-    resolveCandidates: rows => resolveGoogleNewsCandidates(rows, 6),
-    maxItems: Number(process.env.DISCOVERY_MAX_ITEMS || 120),
-    maxPerHost: Number(process.env.DISCOVERY_MAX_PER_HOST || 8),
-    maxPerModule: Number(process.env.DISCOVERY_MAX_PER_MODULE || 30),
+    queryRows: buildDiscoveryQueries(),
+    minimumPerModule: Number(process.env.DISCOVERY_MIN_PER_MODULE || 8),
+    recoveryDays: Number(process.env.DISCOVERY_RECOVERY_DAYS || 30),
+    runPass: ({ period: passPeriod, queryRows, recovery }) => discoverOpenWeb({
+      period: passPeriod,
+      queryRows,
+      fetchRss: fetchRssForDays(recovery ? Number(process.env.DISCOVERY_RECOVERY_DAYS || 30) : 14),
+      fetchSecondary: fetchSecondaryForDays(recovery ? Number(process.env.DISCOVERY_RECOVERY_DAYS || 30) : 14),
+      resolveCandidates: rows => resolveGoogleNewsCandidates(rows, 6),
+      maxItems: Number(process.env.DISCOVERY_MAX_ITEMS || 120),
+      maxPerHost: Number(process.env.DISCOVERY_MAX_PER_HOST || 8),
+      maxPerModule: Number(process.env.DISCOVERY_MAX_PER_MODULE || 30),
+    }),
   });
   let timeout;
   try {
@@ -74,4 +81,5 @@ await mkdir(dirname(output), { recursive: true });
 await writeFile(output, `${JSON.stringify({ period: period(), ...result }, null, 2)}\n`);
 await writeFile(manifestOutput, `${JSON.stringify({ sources: [...(catalog.sources || []), ...result.candidates] }, null, 2)}\n`);
 console.log(`Discovery queries=${result.audit.queries}, raw=${result.audit.raw}, resolved=${result.audit.resolved}, unique=${result.audit.unique}`);
+console.log(`Discovery modules=${JSON.stringify(result.audit.acceptedByModule || {})}, recovery=${JSON.stringify(result.audit.recoveryModules || [])}`);
 console.log(`Generated ${manifestOutput}`);

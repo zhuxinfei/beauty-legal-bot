@@ -37,6 +37,7 @@ import { corroborateEvidenceCandidates } from './evidence-corroboration.js';
 import { cleanArticleEvidence } from './article-evidence.js';
 import {
   assertPremiumChinaDelivery,
+  assertPremiumPortfolioDelivery,
   buildPremiumDingTalkDelivery,
 } from './premium-quality.js';
 import {
@@ -1267,7 +1268,11 @@ export async function runPipeline(env, requestUrl = 'https://beauty-legal-bot.wo
       const directReport = { period, sections: [] };
       const directDelivery = buildPremiumDingTalkDelivery(directReport, {
         candidates: directHardFactCandidates,
-        maxItems: Number(env.PREMIUM_MAX_ITEMS || env.REPORT_TARGET_ITEMS || 18),
+        maxItems: Number(env.PREMIUM_TARGET_ITEMS || env.REPORT_TARGET_ITEMS || 20),
+        minimumItems: Number(env.PREMIUM_MIN_ITEMS || 18),
+        maximumItems: Number(env.PREMIUM_MAX_ITEMS || 22),
+        minimumPerModule: Number(env.PREMIUM_MIN_PER_MODULE || 2),
+        maximumPerModule: Number(env.PREMIUM_MAX_PER_MODULE || 5),
         maxBytes: env.DINGTALK_MAX_BYTES,
         logCandidateAudit: true,
       });
@@ -1279,6 +1284,9 @@ export async function runPipeline(env, requestUrl = 'https://beauty-legal-bot.wo
         assertPremiumChinaDelivery(directDelivery.audit, {
           allowForeignOnly: env.ALLOW_FOREIGN_ONLY_DELIVERY === '1',
         });
+        if (qualityMode && !artifactOnly && env.PREMIUM_PORTFOLIO_GATE !== '0') {
+          assertPremiumPortfolioDelivery(directDelivery.audit);
+        }
         assertFinalDingTalkMarkdownQuality(markdown, directDelivery.audit);
         const generatedAt = new Date().toISOString();
         if (typeof env.ON_REPORT_READY === 'function') {
@@ -1400,6 +1408,11 @@ export async function runPipeline(env, requestUrl = 'https://beauty-legal-bot.wo
       candidates: premiumCandidates,
       allowSourceOnlyFallback: qualityMode,
       logCandidateAudit: qualityMode,
+      maxItems: Number(env.PREMIUM_TARGET_ITEMS || env.REPORT_TARGET_ITEMS || 20),
+      minimumItems: Number(env.PREMIUM_MIN_ITEMS || 18),
+      maximumItems: Number(env.PREMIUM_MAX_ITEMS || 22),
+      minimumPerModule: Number(env.PREMIUM_MIN_PER_MODULE || 2),
+      maximumPerModule: Number(env.PREMIUM_MAX_PER_MODULE || 5),
     });
     const previewMessages = premiumDelivery.messages;
     const markdown = previewMessages.map(message => message.markdown).join('\n\n---\n\n');
@@ -1407,6 +1420,9 @@ export async function runPipeline(env, requestUrl = 'https://beauty-legal-bot.wo
 	    assertPremiumChinaDelivery(premiumDelivery.audit, {
 	      allowForeignOnly: env.ALLOW_FOREIGN_ONLY_DELIVERY === '1',
 	    });
+	    if (qualityMode && !artifactOnly && env.PREMIUM_PORTFOLIO_GATE !== '0') {
+	      assertPremiumPortfolioDelivery(premiumDelivery.audit);
+	    }
 	    if (!Number(premiumDelivery.audit.finalItems || 0)) {
 	      console.log('[stage 3/5] 无达到精品证据门槛的事项，跳过推送');
 	      return {
@@ -3668,12 +3684,21 @@ async function runFinalizePhase(date, env, requestUrl) {
   const premiumDelivery = buildPremiumDingTalkDelivery(report, {
     candidates: candidatesMeta.candidates || [],
     sources: candidatesMeta.sources || sourceCatalog.sources,
+    maxItems: Number(env.PREMIUM_TARGET_ITEMS || env.REPORT_TARGET_ITEMS || 20),
+    minimumItems: Number(env.PREMIUM_MIN_ITEMS || 18),
+    maximumItems: Number(env.PREMIUM_MAX_ITEMS || 22),
+    minimumPerModule: Number(env.PREMIUM_MIN_PER_MODULE || 2),
+    maximumPerModule: Number(env.PREMIUM_MAX_PER_MODULE || 5),
   });
   const markdown = premiumDelivery.messages.map(message => message.markdown).join('\n\n---\n\n');
   console.log(`[finalize] 精品卡验收：中国候选 ${premiumDelivery.audit.candidateChinaItems}/${premiumDelivery.audit.candidateItems}，中国准入 ${premiumDelivery.audit.reportChinaItems}/${premiumDelivery.audit.reportItems}，中国入卡 ${premiumDelivery.audit.finalChinaItems}/${premiumDelivery.audit.finalItems}`);
   assertPremiumChinaDelivery(premiumDelivery.audit, {
     allowForeignOnly: env.ALLOW_FOREIGN_ONLY_DELIVERY === '1',
   });
+  if ((env.REPORT_QUALITY_MODE === 'quality' || env.QUALITY_MODE === '1' || env.CONTENT_QUALITY_MODE === 'quality')
+    && env.PREMIUM_PORTFOLIO_GATE !== '0') {
+    assertPremiumPortfolioDelivery(premiumDelivery.audit);
+  }
   assertFinalDingTalkMarkdownQuality(markdown, premiumDelivery.audit);
 
   const notification = await notifyReport({

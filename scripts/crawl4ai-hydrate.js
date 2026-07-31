@@ -138,6 +138,8 @@ async def crawl_one(crawler, url, item, module, config, attachment=False):
         "country": item.get("country", "") or "",
         "region": item.get("region", "") or "",
         "module": module,
+        "discovery_module": item.get("discovery_module", "") or module,
+        "discovery_query": item.get("discovery_query", "") or "",
         "source_name": item.get("name", "") or item.get("source_name", "") or "",
         "source_scope": item.get("source_scope", "") or "",
         "source_type": item.get("source_type", "") or "",
@@ -165,7 +167,7 @@ async def run():
         async with AsyncWebCrawler(config=browser_config, base_directory=base_directory) as crawler:
             for item in spec:
                 url = item.get("url") or item.get("source_url") or ""
-                module = item.get("module") or ""
+                module = item.get("discovery_module") or item.get("module") or ""
                 try:
                     config = CrawlerRunConfig(
                         word_count_threshold=80,
@@ -258,6 +260,8 @@ async def run():
                                 "country": item.get("country", "") or "",
                                 "region": item.get("region", "") or "",
                                 "module": module,
+                                "discovery_module": item.get("discovery_module", "") or module,
+                                "discovery_query": item.get("discovery_query", "") or "",
                                 "source_name": item.get("name", "") or item.get("source_name", "") or "",
                                 "raw_markdown": "",
                                 "fit_markdown": "",
@@ -281,6 +285,8 @@ async def run():
                         "country": item.get("country", "") or "",
                         "region": item.get("region", "") or "",
                         "module": module,
+                        "discovery_module": item.get("discovery_module", "") or module,
+                        "discovery_query": item.get("discovery_query", "") or "",
                         "source_name": item.get("name", "") or item.get("source_name", "") or "",
                         "raw_markdown": "",
                         "fit_markdown": "",
@@ -354,6 +360,30 @@ export function prioritizeHydrationSources(records = []) {
   });
 }
 
+export function selectHydrationSources(records = [], { limit = 0, minimumPerModule = 0, modules = [] } = {}) {
+  const eligible = prioritizeHydrationSources(filterHydrationAcquisitionSources(records));
+  const capacity = limit > 0 ? Math.min(limit, eligible.length) : eligible.length;
+  const selected = [];
+  const selectedKeys = new Set();
+  const keyFor = item => String(item.url || item.source_url || '').trim();
+  const take = item => {
+    const key = keyFor(item);
+    if (!item || !key || selectedKeys.has(key) || selected.length >= capacity) return false;
+    selected.push(item);
+    selectedKeys.add(key);
+    return true;
+  };
+
+  const floorEligible = eligible.filter(isHardFactAcquisitionSource);
+  for (let round = 0; round < Math.max(0, minimumPerModule); round += 1) {
+    for (const module of modules) {
+      take(floorEligible.filter(item => (item.discovery_module || item.module) === module)[round]);
+    }
+  }
+  for (const item of eligible) take(item);
+  return selected;
+}
+
 function hydrationTextStats(records = []) {
   const rows = Array.isArray(records) ? records : [];
   return {
@@ -411,8 +441,11 @@ async function main() {
   const effectiveLimit = manualPreviewLimit > 0
     ? Math.min(limit > 0 ? limit : loaded.length, manualPreviewLimit)
     : limit;
-  const prioritized = prioritizeHydrationSources(loaded);
-  const spec = effectiveLimit > 0 ? prioritized.slice(0, effectiveLimit) : prioritized;
+  const spec = selectHydrationSources(loaded, {
+    limit: effectiveLimit,
+    minimumPerModule: Number(process.env.CRAWL4AI_MIN_PER_MODULE || 6),
+    modules: [...new Set(loaded.map(item => item.discovery_module || item.module).filter(Boolean))],
+  });
   if (manualPreviewLimit > 0) {
     console.log(`Manual preview Crawl4AI limit: ${spec.length}/${loaded.length} sources`);
   }

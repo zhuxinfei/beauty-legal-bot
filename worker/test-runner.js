@@ -40,6 +40,8 @@ import {
   buildPremiumDingTalkMarkdown,
   buildPremiumDingTalkDelivery,
   assertPremiumChinaDelivery,
+  assertPremiumPortfolioDelivery,
+  selectPremiumPortfolio,
   selectPremiumEvidenceCards,
   validatePremiumEvidenceCard,
 } from './premium-quality.js';
@@ -54,7 +56,8 @@ import {
   classifyAuthorityTrust,
   selectAuthorityResolvedCandidates,
 } from './authority-resolver.js';
-import { buildDiscoveryQueries, discoverOpenWeb } from './open-web-discovery.js';
+import { buildDiscoveryQueries, discoverOpenWeb, discoverOpenWebWithRecovery } from './open-web-discovery.js';
+import { selectHydrationSources } from '../scripts/crawl4ai-hydrate.js';
 import { classifyEvidenceSource, corroborateEvidenceCandidates, hasVerifiedCorroboration } from './evidence-corroboration.js';
 import { isHydrationAcquisitionSource } from './source-acquisition.js';
 import {
@@ -634,6 +637,89 @@ function testPremiumSelectionRanksByImpactBeforeModuleOrder() {
   ], { maxItems: 2, minItems: 0 });
 
   assert.equal(selected[0].title, '两家美妆企业冒用爱马仕商标被罚没63.5万元');
+}
+
+function testPremiumPortfolioBalancesOnlyValidatedCards() {
+  const modules = [
+    '新法律法规政策', '广告处罚案例', '知识产权保护或者侵权',
+    '进出口', '产品质量/召回与安全风险', '美妆动态',
+  ];
+  const makeCard = (module, index) => {
+    const hardFacts = {
+      authority: '市场监督管理部门',
+      document_number: `2026年第${index + 1}号`,
+      involved_party: `广州测试化妆品有限公司${index}`,
+      violation_behavior: '在化妆品宣传中作虚假功效宣称并被处罚',
+      penalty_amount: `${index + 1}万元`,
+      confiscation_result: '责令停止销售并召回相关化妆品批次',
+      legal_basis: '《广告法》',
+      product_or_batch: `护肤化妆品批次${index}`,
+      hs_code: '330499',
+      deadline: '2026-08-31',
+      affected_processes: ['配方开发', '标签备案', '平台店铺'],
+    };
+    const eventText = module === '进出口'
+      ? '海关更新进口化妆品清关要求和HS编码申报规则。'
+      : module === '产品质量/召回与安全风险'
+        ? '监管部门通报护肤化妆品抽检不合格并召回相关批次。'
+        : module === '新法律法规政策'
+          ? '监管部门发布化妆品标准规则并设置反馈截止日期。'
+          : '市场监管部门公布化妆品处罚、商标及平台治理事项。';
+    return {
+      title: `${module}化妆品硬事实事项${index}`,
+      module,
+      source_url: `https://official.example.gov.cn/xxgk/${encodeURIComponent(module)}/${index}`,
+      source_name: '市场监督管理部门',
+      source_type: 'official_site',
+      authority_type: 'regulator',
+      source_scope: 'hard_fact_endpoint',
+      evidence_grade: 'hard_fact_ready',
+      detail_status: 'hydrated',
+      published_at: '2026-07-30',
+      country: '中国',
+      facts: [eventText],
+      legal_signal: `${eventText}形成可核验的具体监管要求。`,
+      business_impact: '影响护肤化妆品SKU的配方开发、标签备案、平台店铺和批次管理。',
+      recommended_action: '观察2026年8月31日前的正式文件、处罚后续和执行口径。',
+      evidence_text: eventText,
+      hard_facts: hardFacts,
+    };
+  };
+  const cards = modules.flatMap(module => Array.from({ length: module === '新法律法规政策' ? 8 : 4 }, (_, index) => makeCard(module, index)));
+  cards.push({ title: '弱卡', module: '美妆动态', source_url: 'https://weak.example/item' });
+
+  const selected = selectPremiumPortfolio(cards, {
+    targetItems: 20,
+    minimumPerModule: 2,
+    maximumPerModule: 5,
+  });
+  const counts = Object.fromEntries(modules.map(module => [module, selected.filter(card => card.module === module).length]));
+
+  assert.equal(selected.length, 20);
+  assert.equal(selected.some(card => card.title === '弱卡'), false);
+  assert.equal(Object.values(counts).every(count => count >= 2 && count <= 5), true);
+}
+
+function testPremiumPortfolioDeliveryRejectsIncompleteReports() {
+  const modules = [
+    '新法律法规政策', '广告处罚案例', '知识产权保护或者侵权',
+    '进出口', '产品质量/召回与安全风险', '美妆动态',
+  ];
+  const audit = counts => ({
+    finalItems: Object.values(counts).reduce((sum, count) => sum + count, 0),
+    finalItemsByModule: counts,
+    minimumItems: 18,
+    maximumItems: 22,
+    minimumPerModule: 2,
+  });
+  const validCounts = Object.fromEntries(modules.map(module => [module, 3]));
+
+  assert.doesNotThrow(() => assertPremiumPortfolioDelivery(audit(validCounts)));
+  assert.throws(() => assertPremiumPortfolioDelivery(audit({ ...validCounts, '美妆动态': 2 })), /Premium portfolio gate failed.*finalItems=17/);
+  const missing = { ...validCounts };
+  delete missing['进出口'];
+  assert.throws(() => assertPremiumPortfolioDelivery(audit(missing)), /missingModules=进出口/);
+  assert.throws(() => assertPremiumPortfolioDelivery(audit({ ...validCounts, '知识产权保护或者侵权': 1, '新法律法规政策': 5 })), /underfilledModules=知识产权保护或者侵权/);
 }
 
 function testPremiumDingTalkMarkdownDoesNotExposeRiskTierAndSignalType() {
@@ -2175,6 +2261,106 @@ async function testOpenWebDiscoveryIsBoundedAndKeepsDirectLegalArticles() {
   assert.equal(result.candidates.length, 1);
   assert.equal(result.candidates[0].source_scope, 'discovered_article');
   assert.equal(result.candidates[0].publisher_host, 'media.example');
+}
+
+async function testOpenWebDiscoveryKeepsQueryBackedLegalTitlesByModule() {
+  const legalXml = `<?xml version="1.0"?><rss><channel><item><title>某公司虚假宣传被罚20万元 - 案例通报</title><link>https://news.google.com/rss/articles/penalty</link><pubDate>Thu, 30 Jul 2026 08:00:00 GMT</pubDate><source url="https://case.example">案例通报</source></item></channel></rss>`;
+  const promotionXml = `<?xml version="1.0"?><rss><channel><item><title>美妆品牌加盟招商促销排行榜 - 商业平台</title><link>https://news.google.com/rss/articles/promotion</link><pubDate>Thu, 30 Jul 2026 08:00:00 GMT</pubDate><source url="https://promo.example">商业平台</source></item></channel></rss>`;
+  const queryRows = [
+    { module: '广告合规及处罚案例', query: '化妆品 行政处罚 虚假宣传', beautyScoped: true },
+    { module: '美妆动态', query: '美妆 平台规则', beautyScoped: true },
+  ];
+  const result = await discoverOpenWeb({
+    period: { start: '2026-07-17', end: '2026-07-31' },
+    queryRows,
+    fetchRss: async (_query, module) => module === '广告合规及处罚案例' ? legalXml : promotionXml,
+    resolveCandidates: async rows => rows.map(row => ({
+      ...row,
+      url: row.module === '广告合规及处罚案例'
+        ? 'https://case.example/penalty-20'
+        : 'https://promo.example/ranking',
+      resolution_status: 'resolved',
+    })),
+    maxItems: 10,
+    maxPerModule: 2,
+  });
+
+  assert.deepEqual(result.candidates.map(candidate => candidate.title), ['某公司虚假宣传被罚20万元']);
+  assert.equal(result.candidates[0].discovery_query, queryRows[0].query);
+  assert.equal(result.candidates[0].discovery_module, queryRows[0].module);
+  assert.equal(result.audit.rawByModule['广告合规及处罚案例'], 1);
+  assert.equal(result.audit.acceptedByModule['广告合规及处罚案例'], 1);
+  assert.equal(result.audit.acceptedByModule['美妆动态'] || 0, 0);
+}
+
+async function testOpenWebDiscoveryRecoversOnlyUnderfilledModules() {
+  const queryRows = [
+    { module: '广告合规及处罚案例', query: '化妆品 处罚', beautyScoped: true },
+    { module: '知识产权动态', query: '化妆品 商标 侵权', beautyScoped: true },
+  ];
+  const calls = [];
+  const result = await discoverOpenWebWithRecovery({
+    period: { start: '2026-07-17', end: '2026-07-31' },
+    queryRows,
+    minimumPerModule: 2,
+    recoveryDays: 30,
+    runPass: async options => {
+      calls.push(options);
+      if (!options.recovery) return {
+        candidates: [
+          { url: 'https://case.example/ad-1', module: '广告合规及处罚案例' },
+          { url: 'https://case.example/ad-2', module: '广告合规及处罚案例' },
+          { url: 'https://case.example/ip-1', module: '知识产权动态' },
+        ],
+        audit: { raw: 3, resolved: 3, unique: 3, acceptedByModule: { '广告合规及处罚案例': 2, '知识产权动态': 1 } },
+      };
+      return {
+        candidates: [
+          { url: 'https://case.example/ip-1', module: '知识产权动态' },
+          { url: 'https://case.example/ip-2', module: '知识产权动态' },
+        ],
+        audit: { raw: 2, resolved: 2, unique: 2, acceptedByModule: { '知识产权动态': 2 } },
+      };
+    },
+  });
+
+  assert.equal(calls.length, 2);
+  assert.deepEqual(calls[1].queryRows.map(row => row.module), ['知识产权动态']);
+  assert.equal(calls[1].period.start, '2026-07-02');
+  assert.equal(calls[1].recovery, true);
+  assert.deepEqual(result.candidates.map(item => item.url), [
+    'https://case.example/ad-1',
+    'https://case.example/ad-2',
+    'https://case.example/ip-1',
+    'https://case.example/ip-2',
+  ]);
+  assert.equal(result.audit.acceptedByModule['知识产权动态'], 2);
+  assert.deepEqual(result.audit.recoveryModules, ['知识产权动态']);
+}
+
+async function testOpenWebDiscoveryBalancesGoogleResolutionBudgetByModule() {
+  const rss = titles => `<?xml version="1.0"?><rss><channel>${titles.map((title, index) => `<item><title>${title} - 监管资讯</title><link>https://news.google.com/rss/articles/${encodeURIComponent(title)}-${index}</link><pubDate>Thu, 30 Jul 2026 08:00:00 GMT</pubDate><source url="https://case.example">监管资讯</source></item>`).join('')}</channel></rss>`;
+  const queryRows = [
+    { module: '广告合规及处罚案例', query: '化妆品 处罚', beautyScoped: true },
+    { module: '知识产权动态', query: '化妆品 商标', beautyScoped: true },
+  ];
+  const resolvedModules = [];
+  const result = await discoverOpenWeb({
+    period: { start: '2026-07-17', end: '2026-07-31' },
+    queryRows,
+    fetchRss: async (_query, module) => module === '广告合规及处罚案例'
+      ? rss(['企业虚假宣传被罚1万元', '企业虚假宣传被罚2万元', '企业虚假宣传被罚3万元'])
+      : rss(['企业商标侵权判决公开']),
+    resolveCandidates: async rows => rows.map((row, index) => {
+      resolvedModules.push(row.module);
+      return { ...row, url: `https://case.example/${encodeURIComponent(row.module)}/${index}`, resolution_status: 'resolved' };
+    }),
+    maxItems: 2,
+    maxPerModule: 2,
+  });
+
+  assert.deepEqual(resolvedModules.sort(), ['广告合规及处罚案例', '知识产权动态'].sort());
+  assert.equal(new Set(result.candidates.map(item => item.module)).size, 2);
 }
 
 function testDiscoveredArticleCanBeHydratedWithoutBecomingAuthoritative() {
@@ -4625,6 +4811,54 @@ function testModuleAnalysisBatchesChinaCandidatesBeforeForeignCandidates() {
   assert.equal(batches.flat().map(candidate => candidate.country).join(','), '中国,美国,欧盟');
 }
 
+function testHydrationSelectionReservesEvidenceBudgetForEveryModule() {
+  const regulations = Array.from({ length: 10 }, (_, index) => ({
+    title: `化妆品法规公告 ${index}`,
+    url: `https://official.example.gov.cn/xxgk/regulation-${index}`,
+    module: '新规及案例动态',
+    country: '中国',
+    authority_type: 'regulator',
+    source_type: 'official_site',
+    source_scope: 'hard_fact_endpoint',
+    priority: 'high',
+  }));
+  const balanced = REPORT_MODULES.filter(module => module !== '新规及案例动态').flatMap((module, moduleIndex) =>
+    Array.from({ length: 2 }, (_, index) => ({
+      title: `${module}详情 ${index}`,
+      url: `https://evidence-${moduleIndex}.example.gov.cn/xxgk/item-${index}`,
+      module,
+      country: '中国',
+      authority_type: 'regulator',
+      source_type: 'official_site',
+      source_scope: 'hard_fact_endpoint',
+      priority: 'medium',
+    })));
+  const leadOnly = {
+    title: '高分线索门户',
+    url: 'https://portal.example.gov.cn/',
+    module: '美妆动态',
+    country: '中国',
+    authority_type: 'regulator',
+    source_type: 'official_site',
+    source_scope: 'lead_only',
+    priority: 'high',
+  };
+
+  const selected = selectHydrationSources([...regulations, ...balanced, leadOnly], {
+    limit: 12,
+    minimumPerModule: 2,
+    modules: REPORT_MODULES,
+  });
+  const counts = Object.fromEntries(REPORT_MODULES.map(module => [
+    module,
+    selected.filter(item => item.module === module).length,
+  ]));
+
+  assert.equal(selected.length, 12);
+  assert.deepEqual(counts, Object.fromEntries(REPORT_MODULES.map(module => [module, 2])));
+  assert.equal(selected.includes(leadOnly), false);
+}
+
 function testAnalysisPromptKeepsChinaEvidenceFirst() {
   const prompt = buildAnalysisPrompt({
     candidates: [
@@ -5170,7 +5404,13 @@ function testWeeklyWorkflowRunsLocalReportPipelineWithoutWorkerDeploy() {
   assert.match(hydrateSource, /CRAWL4AI_DETAIL_LINK_LIMIT/);
   assert.ok(workflow.includes('DETAIL_FETCH_ENABLED: 1'));
   assert.ok(workflow.includes('DETAIL_CANDIDATE_LIMIT: 48'));
-  assert.ok(workflow.includes('REPORT_TARGET_ITEMS: 18'));
+  assert.ok(workflow.includes('REPORT_TARGET_ITEMS: 20'));
+  assert.ok(workflow.includes('PREMIUM_MIN_ITEMS: 18'));
+  assert.ok(workflow.includes('PREMIUM_MAX_ITEMS: 22'));
+  assert.ok(workflow.includes('PREMIUM_MIN_PER_MODULE: 2'));
+  assert.ok(workflow.includes('PREMIUM_MAX_PER_MODULE: 5'));
+  assert.ok(workflow.includes('DISCOVERY_RECOVERY_DAYS: 30'));
+  assert.ok(workflow.includes('CRAWL4AI_MIN_PER_MODULE: 6'));
   assert.ok(workflow.includes('DISCOVERY_ENABLED: 1'));
   assert.ok(workflow.includes('DISCOVERY_MAX_ITEMS: 120'));
   assert.ok(workflow.includes('node scripts/discover-open-web.js'));
@@ -5246,6 +5486,9 @@ testHydratedRecordDowngradesEmptyHydratedBody();
 await testLoadHydratedRecordsFromEnvReadsFilePayload();
 testAuthorityResolverTurnsMediaLeadIntoOfficialSearchQueries();
 await testOpenWebDiscoveryIsBoundedAndKeepsDirectLegalArticles();
+await testOpenWebDiscoveryKeepsQueryBackedLegalTitlesByModule();
+await testOpenWebDiscoveryRecoversOnlyUnderfilledModules();
+await testOpenWebDiscoveryBalancesGoogleResolutionBudgetByModule();
 testDiscoveredArticleCanBeHydratedWithoutBecomingAuthoritative();
 testEvidenceCorroborationRequiresIndependentHardAnchors();
 testAuthorityResolverBuildsSearchTasksFromLeadOnlySources();
@@ -5339,6 +5582,7 @@ testEnterprisePromptRequiresGlobalLegalIntelligence();
 testCandidateFreshnessAndInfluenceRanking();
 testPrioritizeCandidatesForAnalysisPutsChinaEvidenceFirst();
 testModuleAnalysisBatchesChinaCandidatesBeforeForeignCandidates();
+testHydrationSelectionReservesEvidenceBudgetForEveryModule();
 testAnalysisPromptKeepsChinaEvidenceFirst();
 testFreshnessGateAcceptsCurrentWeekAndFourteenDayBoundary();
 testFreshnessGateAllowsOnlyStructuredHistoricalExceptions();
@@ -5380,6 +5624,8 @@ testPremiumEvidenceGateRejectsRepublisherSourceEvenWhenFactsAreHard();
 testPremiumSelectionPrioritizesQualityBeforeQuantityAndCoreModules();
 testPremiumDingTalkMarkdownUsesCompactEvidenceCardFormat();
 testPremiumSelectionRanksByImpactBeforeModuleOrder();
+testPremiumPortfolioBalancesOnlyValidatedCards();
+testPremiumPortfolioDeliveryRejectsIncompleteReports();
 testPremiumDingTalkMarkdownDoesNotExposeRiskTierAndSignalType();
 testPremiumDingTalkMarkdownKeepsPolicyPlanningObservationNeutral();
 testPremiumDingTalkMarkdownAcceptsEvidenceObservationWithoutOwnerAssignment();
