@@ -17,7 +17,7 @@ const content = await requestAiChat({
   temperature: 0,
   maxTokens: 16,
   timeoutMs: 45000,
-  maxAttempts: 1,
+  maxAttempts: 3,
 });
 
 if (!content.trim()) throw new Error('AI probe returned empty content');

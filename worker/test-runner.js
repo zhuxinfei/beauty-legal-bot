@@ -4979,6 +4979,8 @@ function testWeeklyWorkflowRunsLocalReportPipelineWithoutWorkerDeploy() {
   assert.equal(workflow.includes('fc-match'), false);
   assert.ok(workflow.includes('node worker/probe-ai.js'));
   assert.ok(workflow.indexOf('node worker/probe-ai.js') < workflow.indexOf('node worker/run-local.js'));
+  const probeSource = readFileSync(new URL('./probe-ai.js', import.meta.url), 'utf8');
+  assert.match(probeSource, /maxAttempts:\s*3/);
   assert.ok(workflow.includes('CLOUDFLARE_KV_NAMESPACE_ID'));
   assert.equal(workflow.includes('wrangler kv key put'), false);
   assert.ok(workflow.includes('DINGTALK_WEBHOOK_URL: ${{ secrets.DINGTALK_WEBHOOK_URL }}'));
