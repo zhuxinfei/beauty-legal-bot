@@ -1425,6 +1425,43 @@ function testHardFactCandidatesCanRenderDirectlyWithoutAiReportItems() {
   assert.doesNotMatch(markdown, /Crawl4AI|建议动作|法务判断|来源信号|待核验|网站首页/);
 }
 
+function testAcceptedHardFactCandidateIsNotDroppedBySecondSampleGate() {
+  const delivery = buildPremiumDingTalkDelivery({
+    period: { start: '2026-07-23', end: '2026-07-29' },
+    sections: [],
+  }, {
+    maxItems: 3,
+    candidates: [{
+      title: '中检院公开征求2项化妆品检验方法标准意见，反馈截止至2026年8月10日',
+      url: 'https://www.nifdc.org.cn/directory/web/nifdc/bshff/hzhpbzh/hzhpbzhtzgg/202607211930582131911.html',
+      source_name: '中检院化妆品标准通知公告',
+      source_type: 'official_site',
+      authority_type: 'regulator',
+      source_scope: 'hard_fact_endpoint',
+      country: '中国',
+      module: '新法律法规政策',
+      published_at: '2026-07-21',
+      detail_status: 'hydrated',
+      evidence_grade: 'hard_fact_ready',
+      article_text: '中检院公开征求化妆品检验方法标准意见，反馈截止日期为2026年8月10日。[](javascript:void(0)) 标准涉及质量放行、备案资料和存量SKU过渡期管理。',
+      hard_facts: {
+        authority: '中检院',
+        document_number: '征求意见稿',
+        product_or_batch: '化妆品检验方法标准',
+        deadline: '2026年8月10日',
+        affected_processes: ['质量放行', '备案资料', '存量SKU过渡期管理'],
+      },
+    }],
+  });
+
+  assert.equal(delivery.audit.candidateChinaItems, 1);
+  assert.equal(delivery.audit.finalChinaItems, 1);
+  assert.equal(delivery.audit.finalItems, 1);
+  assert.match(delivery.messages[0].markdown, /化妆品检验方法标准/);
+  assert.doesNotMatch(delivery.messages[0].markdown, /javascript:void|\[\]\(/);
+  assert.doesNotThrow(() => assertPremiumChinaDelivery(delivery.audit));
+}
+
 function testHardFactCandidateUsesTitleWhenCrawlTextStartsWithNavigation() {
   const delivery = buildPremiumDingTalkDelivery({
     period: { start: '2026-07-23', end: '2026-07-29' },
@@ -1671,6 +1708,7 @@ testQualifiedNifdcCosmeticStandardNoticeRendersCleanPolicyCard();
 testHardFactCandidateBackfillsWhenAiReportItemsAreNavigationOnly();
 testHardFactCandidateReplacesSameKeyWeakReportCard();
 testHardFactCandidatesCanRenderDirectlyWithoutAiReportItems();
+testAcceptedHardFactCandidateIsNotDroppedBySecondSampleGate();
 testHardFactCandidateUsesTitleWhenCrawlTextStartsWithNavigation();
 testBrokenHardFactFragmentsCannotEnterPremiumCard();
 testNoticeTitleCannotBeUsedAsProductBatch();

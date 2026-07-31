@@ -44,6 +44,8 @@ function utf8Bytes(value) {
 
 function sanitizeBriefingText(value) {
   return text(value)
+    .replace(/\[([^\]]*)\]\(\s*javascript:void\([^)]*\)\s*\)/gi, '$1')
+    .replace(/\[\s*\]\([^)]*\)/g, '')
     .replace(/!\[([^\]]*)\]\(([^)]+)\)/g, '$1')
     .replace(/\[([^\]]+)\]\(([^)]+)\)/g, (_match, label) => /^https?:\/\//i.test(label) ? '' : label)
     .replace(/https?:\/\/\S+/gi, '')
@@ -1122,7 +1124,7 @@ function backfillChinaCoverage(selected = [], sourceCards = [], maxItems = 6) {
 }
 
 function candidateEvidenceText(candidate = {}) {
-  return text([
+  return sanitizeBriefingText([
     candidate.evidence_text,
     candidate.article_text,
     candidate.full_text,
