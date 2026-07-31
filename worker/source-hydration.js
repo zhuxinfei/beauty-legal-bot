@@ -1,5 +1,6 @@
 import { readFile } from 'node:fs/promises';
 import { extractHardFacts, gradeEvidence } from './hard-fact-extractor.js';
+import { cleanArticleEvidence } from './article-evidence.js';
 
 function text(value) {
   return String(value || '').replace(/\s+/g, ' ').trim();
@@ -129,11 +130,15 @@ function extractAttachmentUrls(markdown = '', baseUrl = '') {
 function normalizeAttachmentRecord(record = {}, baseUrl = '') {
   const sourceUrl = text(record.source_url || record.url);
   const finalUrl = text(record.final_url || record.url || record.source_url);
-  const fitMarkdown = text(record.fit_markdown);
-  const rawMarkdown = text(record.raw_markdown);
-  const articleText = fitMarkdown
+  const fitMarkdown = String(record.fit_markdown || '').trim();
+  const rawMarkdown = String(record.raw_markdown || '').trim();
+  const articleText = cleanArticleEvidence(fitMarkdown
     || rawMarkdown
-    || text(record.article_text || record.extraction?.article_text || record.extraction?.text || record.extraction?.summary || '');
+    || record.article_text
+    || record.extraction?.article_text
+    || record.extraction?.text
+    || record.extraction?.summary
+    || '');
   return {
     ...record,
     url: finalUrl || sourceUrl,
@@ -293,12 +298,12 @@ function recordKeys(record = {}) {
 export function normalizeHydratedRecord(record = {}) {
   const sourceUrl = text(record.source_url || record.url);
   const finalUrl = text(record.final_url || record.url || record.source_url);
-  const fitMarkdown = text(record.fit_markdown);
-  const rawMarkdown = text(record.raw_markdown);
+  const fitMarkdown = String(record.fit_markdown || '').trim();
+  const rawMarkdown = String(record.raw_markdown || '').trim();
   const attachmentRecords = (Array.isArray(record.attachment_records) ? record.attachment_records : [])
     .map(item => normalizeAttachmentRecord(item, finalUrl || sourceUrl))
     .filter(item => item.url || item.title || item.article_text);
-  const extractedText = text(
+  const extractedText = cleanArticleEvidence(
     record.article_text
       || record.extraction?.article_text
       || record.extraction?.text
@@ -311,7 +316,7 @@ export function normalizeHydratedRecord(record = {}) {
     .map(item => [item.title, item.article_text].filter(Boolean).join('\n'))
     .filter(Boolean)
     .join('\n\n');
-  const extractedMarkdown = text(
+  const extractedMarkdown = cleanArticleEvidence(
     record.extraction?.markdown
       || record.extraction?.fit_markdown
       || record.extraction?.markdown_with_citations
@@ -319,7 +324,7 @@ export function normalizeHydratedRecord(record = {}) {
       || record.extraction?.summary
       || ''
   );
-  const articleText = [primaryArticleText, extractedMarkdown, attachmentText].filter(Boolean).join('\n\n');
+  const articleText = cleanArticleEvidence([primaryArticleText, extractedMarkdown, attachmentText].filter(Boolean).join('\n\n'));
   const qualityFlags = Array.isArray(record.quality_flags)
     ? record.quality_flags.map(text).filter(Boolean)
     : text(record.quality_flags)

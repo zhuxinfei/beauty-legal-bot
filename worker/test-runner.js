@@ -201,6 +201,14 @@ function testEditorialModuleUsesArticleFactsAndChinaEvidence() {
   assert.equal(inferCandidateModule({ title: '市场消息', article_text: '海关公布化妆品进口关税调整，企业需补充报关文件。' }), '进出口动态');
   assert.equal(inferCandidateModule({ title: '产品通报', article_text: '监管部门召回含禁用成分的护肤品，涉及1200件。' }), '产品质量/召回与安全风险');
   assert.equal(inferCandidateModule({ title: '企业公告', article_text: '某公司与经销商签订300万美元化妆品品牌合作合同。' }), '美妆动态');
+  assert.equal(inferCandidateModule({
+    title: '国家药监局关于将《邻苯基苯酚及其盐类》等3项标准纳入化妆品安全技术规范的公告',
+    article_text: '首页 进口化妆品备案查询 海关信息 下载 打印 分享。国家药监局发布3项化妆品检验标准。',
+  }), '新规及案例动态');
+  assert.equal(inferCandidateModule({
+    title: '国家药监局关于40批次不符合规定化妆品的通告',
+    article_text: '首页 进口化妆品备案查询。国家药监局通报40批次产品不符合规定并要求调查处理。',
+  }), '产品质量/召回与安全风险');
 
   assert.equal(inferArticleChinaRelevance({ title: 'China NMPA发布化妆品通知', article_text: 'China NMPA要求企业在中国市场完成备案。' }).relevant, true);
   assert.equal(inferArticleChinaRelevance({ title: '最新欧盟化妆品法规更新', article_text: '欧盟委员会修订附录II，意见征集截止9月6日。' }).relevant, false);
@@ -1935,6 +1943,49 @@ function testHydratedRecordsOverrideWeakCandidateText() {
   assert.equal(merged.candidates[0].article_text.includes('普通化妆品不得暗示医疗功效'), true);
   assert.equal(merged.candidates[0].source_name, '国家市场监管总局');
   assert.equal(merged.audit.hydrated, 1);
+}
+
+function testHydratedRecordSeparatesArticleEvidenceFromPageChrome() {
+  const record = normalizeHydratedRecord({
+    url: 'https://www.nmpa.gov.cn/xxgk/ggtg/20260529150154170.html',
+    title: '国家药监局关于将《化妆品中三价铬和六价铬的检验方法》等8项方法纳入化妆品安全技术规范的公告（2026年第51号）',
+    source_name: '国家药品监督管理局',
+    published_at: '2026-05-29',
+    country: '中国',
+    module: '新规及案例动态',
+    fit_markdown: [
+      '## 国家药监局关于将《化妆品中三价铬和六价铬的检验方法》等8项方法纳入化妆品安全技术规范的公告（2026年第51号）',
+      '| 下载 打印 | 分享到新浪微博 分享到QQ空间 分享到微信 |',
+      '| --- | --- |',
+      '发布时间：2026-05-29',
+      '国家药监局组织起草8项检验方法，经审查通过后予以发布，自2027年3月1日起实施。',
+    ].join('\n'),
+  });
+
+  assert.match(record.article_text, /经审查通过后予以发布/);
+  assert.equal(record.article_text.includes('分享到新浪微博'), false);
+  assert.equal(record.article_text.includes('| --- |'), false);
+  assert.equal(record.article_text.startsWith('##'), false);
+}
+
+function testHydratedRecordDropsNavigationBlocksAroundArticleBody() {
+  const record = normalizeHydratedRecord({
+    url: 'https://www.nmpa.gov.cn/xxgk/ggtg/20260724150154170.html',
+    title: '国家药监局关于公开征求化妆品标准意见的通知',
+    fit_markdown: [
+      '机构 新闻 政务 服务 互动 专题',
+      '时政要闻 总局 司局 地方 新闻发布厅 媒体聚焦 图片 视频',
+      '快捷检索 高级检索 友情链接',
+      '国家药监局关于公开征求化妆品标准意见的通知',
+      '国家药监局公开征求化妆品标准意见，反馈截止日期为2026年8月20日。',
+      '上一篇 下一篇 返回顶部',
+    ].join('\n'),
+  });
+
+  assert.match(record.article_text, /反馈截止日期为2026年8月20日/);
+  assert.equal(record.article_text.includes('时政要闻'), false);
+  assert.equal(record.article_text.includes('友情链接'), false);
+  assert.equal(record.article_text.includes('返回顶部'), false);
 }
 
 function testHydratedRecordExtractsHardLegalFactsFromCrawl4AiText() {
@@ -5000,7 +5051,7 @@ function testWeeklyWorkflowRunsLocalReportPipelineWithoutWorkerDeploy() {
   assert.match(hydrateSource, /CRAWL4AI_DETAIL_LINK_LIMIT/);
   assert.ok(workflow.includes('DETAIL_FETCH_ENABLED: 1'));
   assert.ok(workflow.includes('DETAIL_CANDIDATE_LIMIT: 48'));
-  assert.ok(workflow.includes('REPORT_TARGET_ITEMS: 8'));
+  assert.ok(workflow.includes('REPORT_TARGET_ITEMS: 18'));
   assert.equal(workflow.includes('fonts-noto-cjk'), false);
   assert.equal(workflow.includes('fc-match'), false);
   assert.ok(workflow.includes('node worker/probe-ai.js'));
@@ -5062,6 +5113,8 @@ testExtractArticleTextRemovesPageChromeAndKeepsMetadata();
 testExtractArticleTextDoesNotSilentlyTruncateTheOriginalBody();
 await testHydrateCandidateDetailsFetchesArticleBodiesWithoutDroppingFailures();
 testHydratedRecordsOverrideWeakCandidateText();
+testHydratedRecordSeparatesArticleEvidenceFromPageChrome();
+testHydratedRecordDropsNavigationBlocksAroundArticleBody();
 testHydratedRecordExtractsHardLegalFactsFromCrawl4AiText();
 testHydratedRecordExtractsConcreteCompanyNamesFromCrawl4AiText();
 testHydratedRecordExtractsAttachmentLinksForCrawl4AiSecondHop();

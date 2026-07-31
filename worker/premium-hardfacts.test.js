@@ -122,6 +122,36 @@ function testQualityModeUsesStrictSourceOnlyBackfillAndFullModuleCoverage() {
   const source = readFileSync(new URL('./index.js', import.meta.url), 'utf8');
   assert.match(source, /const DEFAULT_ANALYSIS_BATCHES_PER_MODULE = 6;/);
   assert.match(source, /allowSourceOnlyFallback:\s*qualityMode/);
+  const workflow = readFileSync(new URL('../.github/workflows/weekly.yml', import.meta.url), 'utf8');
+  assert.match(workflow, /REPORT_TARGET_ITEMS:\s*18/);
+}
+
+function testPremiumMarkdownCompactsPageChromeAndOversizedFactLines() {
+  const longFact = `## 国家药监局发布化妆品检验方法公告 | 下载 打印 | 分享到微信 | 发布时间：2026-05-29 ${'国家药监局组织起草检验方法并经审查通过后予以发布。'.repeat(18)}`;
+  const markdown = buildPremiumDingTalkMarkdown({
+    period: { start: '2026-07-25', end: '2026-07-31' },
+    cards: [{
+      title: '国家药监局发布化妆品检验方法公告',
+      module: '新法律法规政策',
+      source_url: 'https://www.nmpa.gov.cn/xxgk/ggtg/20260529150154170.html',
+      source_name: '国家药品监督管理局',
+      published_at: '2026-05-29',
+      country: '中国',
+      facts: [longFact],
+      legal_signal: '检验方法纳入化妆品安全技术规范并设置实施日期。',
+      business_impact: '影响化妆品检验方法引用、质量放行和备案资料。',
+      recommended_action: '观察2027年3月1日实施后的检验口径和配套问答。',
+      hard_facts: {
+        authority: '国家药品监督管理局',
+        document_number: '2026年第51号',
+        product_or_batch: '化妆品中三价铬和六价铬的检验方法',
+        effective_date: '2027-03-01',
+      },
+    }],
+  });
+  assert.equal(markdown.includes('分享到微信'), false);
+  assert.equal(markdown.includes('  - ##'), false);
+  assert.ok(Math.max(...markdown.split('\n').map(line => line.length)) <= 260);
 }
 
 function testPremiumDeliveryFallsBackInsteadOfSendingEmptyCard() {
@@ -1694,6 +1724,7 @@ testPremiumMarkdownInfersAffectedProcessesFromEvidence();
 testManualWorkflowRunsAreNotArtifactOnlyByDefault();
 testQualityModeDoesNotShortCircuitAfterHardFactSeeds();
 testQualityModeUsesStrictSourceOnlyBackfillAndFullModuleCoverage();
+testPremiumMarkdownCompactsPageChromeAndOversizedFactLines();
 testPremiumDeliveryFallsBackInsteadOfSendingEmptyCard();
 testManualBaselineGetsOnlyConcreteClarifications();
 testFormalReportItemUsesEvidenceTextForFinalQuality();

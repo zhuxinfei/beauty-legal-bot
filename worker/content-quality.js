@@ -1,3 +1,5 @@
+import { cleanArticleEvidence } from './article-evidence.js';
+
 const MODULES = Object.freeze([
   '广告合规及处罚案例',
   '美妆动态',
@@ -73,7 +75,7 @@ function textOf(candidate = {}) {
 }
 
 export function substantiveArticleText(candidate = {}, maxParagraphs = 5) {
-  const raw = textOf(candidate);
+  const raw = cleanArticleEvidence(textOf(candidate));
   const paragraphs = raw
     .split(/\n+|(?<=[。！？!?])\s+/)
     .map(value => value.replace(/\s+/g, ' ').trim())
@@ -88,12 +90,21 @@ export function inferArticleChinaRelevance(candidate = {}) {
 }
 
 export function inferCandidateModule(candidate = {}) {
-  const text = `${String(candidate.title || '')} ${substantiveArticleText(candidate, 5)}`;
-  if (/商标|专利|著作权|知识产权|侵权|判决|裁定|赔偿/.test(text)) return '知识产权动态';
-  if (/进出口|出口|进口|海关|清关|关税|报关|跨境/.test(text)) return '进出口动态';
-  if (/召回|抽检|不合格|安全风险|禁用|限用|重金属|菌落|微生物|过敏|超标|下架/.test(text)) return '产品质量/召回与安全风险';
-  if (/广告|虚假宣传|功效宣称|直播|处罚|罚款|行政处罚|取缔/.test(text)) return '广告合规及处罚案例';
-  if (/法规|条例|通知|征求意见|备案|注册|规则|标准|监管|实施|生效|监管部门/.test(text)) return '新规及案例动态';
+  const title = String(candidate.title || '').trim();
+  const body = substantiveArticleText(candidate, 5);
+  const classify = value => {
+    if (/召回|抽检|不符合规定|不合格|安全风险|禁用成分|限用成分|重金属|菌落|微生物|过敏|超标|停止销售/.test(value)) return '产品质量/召回与安全风险';
+    if (/商标|专利|著作权|知识产权|侵权|判决|裁定|赔偿/.test(value)) return '知识产权动态';
+    if (/(?:广告|虚假宣传|功效宣称|直播).*(?:处罚|罚款|查处|取缔)|(?:处罚|罚款|查处|取缔).*(?:广告|虚假宣传|功效宣称|直播)/.test(value)) return '广告合规及处罚案例';
+    if (/法规|条例|征求意见|备案|注册|规则|标准|技术规范|管理办法|实施|生效|修订/.test(value)) return '新规及案例动态';
+    if (/进出口|出口|进口|海关|清关|关税|报关|跨境|口岸|HS\s*编码/i.test(value)) return '进出口动态';
+    if (/行政处罚|处罚决定|罚款|查处|取缔/.test(value)) return '广告合规及处罚案例';
+    return '';
+  };
+  const titleModule = classify(title);
+  if (titleModule) return titleModule;
+  const bodyModule = classify(body);
+  if (bodyModule) return bodyModule;
   return '美妆动态';
 }
 

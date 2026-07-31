@@ -1,4 +1,5 @@
 import { extractHardFacts } from './hard-fact-extractor.js';
+import { cleanArticleEvidence, compactEvidenceText, firstEvidenceSentence as extractFirstEvidenceSentence } from './article-evidence.js';
 
 const UTF8_ENCODER = new TextEncoder();
 const MODULE_ORDER = [
@@ -43,7 +44,7 @@ function utf8Bytes(value) {
 }
 
 function sanitizeBriefingText(value) {
-  return text(value)
+  return text(cleanArticleEvidence(value))
     .replace(/\[([^\]]*)\]\(\s*javascript:void\([^)]*\)\s*\)/gi, '$1')
     .replace(/\[\s*\]\([^)]*\)/g, '')
     .replace(/!\[([^\]]*)\]\(([^)]+)\)/g, '$1')
@@ -759,7 +760,7 @@ function esc(value) {
 }
 
 function cleanBriefPart(value) {
-  return text(value).replace(/[。；;,\s]+$/g, '');
+  return compactEvidenceText(value, 220).replace(/[。；;,\s]+$/g, '');
 }
 
 function briefParts(parts = []) {
@@ -1124,7 +1125,7 @@ function backfillChinaCoverage(selected = [], sourceCards = [], maxItems = 6) {
 }
 
 function candidateEvidenceText(candidate = {}) {
-  return sanitizeBriefingText([
+  return cleanArticleEvidence([
     candidate.evidence_text,
     candidate.article_text,
     candidate.full_text,
@@ -1136,15 +1137,7 @@ function candidateEvidenceText(candidate = {}) {
 }
 
 function firstEvidenceSentence(value = '') {
-  const source = text(value);
-  const sentences = source
-    .split(/(?<=[。！？!?；;])\s*/)
-    .map(sentence => text(sentence).replace(/^(?:首页|主页|通知公告|新闻中心|当前位置|网站首页|更多|>>|\s)+/g, '').trim())
-    .map(sentence => sentence.replace(/^(?:首页\s*)?(?:通知公告|新闻中心)\s*更多\s*/g, '').trim())
-    .filter(sentence => sentence.length >= 16);
-  return sentences.find(sentence => HARD_LEGAL_EVENT_PATTERN.test(sentence))
-    || sentences[0]
-    || source.slice(0, 180);
+  return extractFirstEvidenceSentence(value, 220);
 }
 
 function candidateLegalSignal(module, source, hardFacts = {}) {
