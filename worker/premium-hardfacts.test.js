@@ -118,6 +118,12 @@ function testQualityModeDoesNotShortCircuitAfterHardFactSeeds() {
   assert.doesNotMatch(source, /qualityMode\s*&&\s*env\.HARD_FACT_DIRECT_DELIVERY/);
 }
 
+function testQualityModeUsesStrictSourceOnlyBackfillAndFullModuleCoverage() {
+  const source = readFileSync(new URL('./index.js', import.meta.url), 'utf8');
+  assert.match(source, /const DEFAULT_ANALYSIS_BATCHES_PER_MODULE = 6;/);
+  assert.match(source, /allowSourceOnlyFallback:\s*qualityMode/);
+}
+
 function testPremiumDeliveryFallsBackInsteadOfSendingEmptyCard() {
   const messages = buildPremiumDingTalkMessages({
     period: { start: '2026-07-20', end: '2026-07-26' },
@@ -1687,6 +1693,7 @@ testPremiumMarkdownRendersNewHardFactsInFormalCard();
 testPremiumMarkdownInfersAffectedProcessesFromEvidence();
 testManualWorkflowRunsAreNotArtifactOnlyByDefault();
 testQualityModeDoesNotShortCircuitAfterHardFactSeeds();
+testQualityModeUsesStrictSourceOnlyBackfillAndFullModuleCoverage();
 testPremiumDeliveryFallsBackInsteadOfSendingEmptyCard();
 testManualBaselineGetsOnlyConcreteClarifications();
 testFormalReportItemUsesEvidenceTextForFinalQuality();

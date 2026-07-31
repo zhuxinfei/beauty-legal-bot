@@ -3738,6 +3738,27 @@ async function testModuleAnalysisFailureReturnsEmptySectionWithoutPlaceholder() 
   assert.deepEqual(report.sections[0].items, []);
 }
 
+async function testModuleAnalysisRoutesExplicitCandidateToOneModuleOnly() {
+  const seen = [];
+  await analyzeReportByModule({
+    modules: ['美妆动态', '新规及案例动态'],
+    candidates: [{
+      module: '新规及案例动态',
+      title: '国家药监局发布化妆品标准管理新规',
+      snippet: '国家药监局发布化妆品标准管理新规并明确实施日期。',
+      url: 'https://www.nmpa.gov.cn/rules/cosmetics-standard',
+    }],
+    leads: [],
+    sources: [],
+    period: { start: '2026-07-25', end: '2026-07-31' },
+    analyze: async ({ module, candidates }) => {
+      if (candidates.length) seen.push({ module, count: candidates.length });
+      return { period: { start: '2026-07-25', end: '2026-07-31' }, summary: [], risk_alerts: [], sections: [{ module, items: [] }] };
+    },
+  });
+  assert.deepEqual(seen, [{ module: '新规及案例动态', count: 1 }]);
+}
+
 function reportWithCoreJudgements(prefix) {
   const report = structuredClone(sampleReport);
   report.sections = report.sections.map(section => ({
@@ -5112,6 +5133,7 @@ testBuildAnalysisPromptUsesConfigurableInputLimits();
 testBuildAnalysisPromptRequiresLegalIntelligenceCardFields();
 testAnalysisPromptSupportsWatchItemsWithoutForcedModuleFilling();
 await testModuleAnalysisFailureReturnsEmptySectionWithoutPlaceholder();
+await testModuleAnalysisRoutesExplicitCandidateToOneModuleOnly();
 await testDeepseekAnalyzeUsesValidatedEvidenceReview();
 await testDeepseekAnalyzeFallsBackWhenEvidenceReviewFails();
 await testDeepseekAnalyzeFallsBackWhenEvidenceReviewIsMalformed();

@@ -156,6 +156,25 @@ function normalizeArray(value) {
   return (Array.isArray(value) ? value : [value]).map(text).filter(Boolean);
 }
 
+function attachmentMatchesPrimaryEvent(primaryTitle = '', attachmentTitle = '') {
+  const compact = value => text(value)
+    .replace(/^(?:附件\s*[一二三四五六七八九十\d]+[：:]?\s*)/i, '')
+    .replace(/[\s\p{P}\p{S}]+/gu, '')
+    .toLowerCase();
+  const primary = compact(primaryTitle);
+  const attachment = compact(attachmentTitle);
+  if (!primary || !attachment) return false;
+  const shorter = primary.length <= attachment.length ? primary : attachment;
+  const longer = shorter === primary ? attachment : primary;
+  for (let index = 0; index <= shorter.length - 4; index += 1) {
+    if (longer.includes(shorter.slice(index, index + 4))) return true;
+  }
+  const words = value => new Set(text(value).toLowerCase().match(/[a-z0-9]{4,}/g) || []);
+  const primaryWords = words(primaryTitle);
+  const sharedWords = [...words(attachmentTitle)].filter(word => primaryWords.has(word));
+  return sharedWords.length >= 2;
+}
+
 function cleanInvolvedParty(value = '') {
   return uniqueValues(text(value).split(/[、,，]/)
     .map(item => item.trim())
@@ -288,6 +307,7 @@ export function normalizeHydratedRecord(record = {}) {
   );
   const primaryArticleText = fitMarkdown || rawMarkdown || extractedText;
   const attachmentText = attachmentRecords
+    .filter(item => attachmentMatchesPrimaryEvent(record.title, item.title))
     .map(item => [item.title, item.article_text].filter(Boolean).join('\n'))
     .filter(Boolean)
     .join('\n\n');

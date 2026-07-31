@@ -102,7 +102,7 @@ const DEFAULT_ANALYSIS_CANDIDATE_LIMIT = 140;
 const QUALITY_ANALYSIS_CANDIDATE_LIMIT = 220;
 const DEFAULT_ANALYSIS_LEAD_LIMIT = 120;
 const QUALITY_ANALYSIS_LEAD_LIMIT = 180;
-const DEFAULT_ANALYSIS_BATCHES_PER_MODULE = 2;
+const DEFAULT_ANALYSIS_BATCHES_PER_MODULE = 6;
 const DEFAULT_REPORT_ITEMS_PER_MODULE = 8;
 const QUALITY_REPORT_ITEMS_PER_MODULE = 12;
 const TYPE_REQUIRED_FIELDS = {
@@ -1391,7 +1391,11 @@ export async function runPipeline(env, requestUrl = 'https://beauty-legal-bot.wo
       ...candidates,
       ...hydratedCandidates.filter(candidate => candidate.evidence_grade === 'hard_fact_ready'),
     ]);
-    const premiumDelivery = buildPremiumDingTalkDelivery(report, { candidates: premiumCandidates });
+    const premiumDelivery = buildPremiumDingTalkDelivery(report, {
+      candidates: premiumCandidates,
+      allowSourceOnlyFallback: qualityMode,
+      logCandidateAudit: qualityMode,
+    });
     const previewMessages = premiumDelivery.messages;
     const markdown = previewMessages.map(message => message.markdown).join('\n\n---\n\n');
     console.log(`[stage 3/5] 精品卡验收：中国候选 ${premiumDelivery.audit.candidateChinaItems}/${premiumDelivery.audit.candidateItems}，中国准入 ${premiumDelivery.audit.reportChinaItems}/${premiumDelivery.audit.reportItems}，中国入卡 ${premiumDelivery.audit.finalChinaItems}/${premiumDelivery.audit.finalItems}`);
@@ -3039,7 +3043,10 @@ export async function analyzeReportByModule({
   logger = console,
 }) {
   const reports = await mapWithConcurrency(modules, 2, async module => {
-    const moduleCandidates = candidates.filter(candidate => candidate.module === module || signalMatchesModule(candidate, module));
+    const moduleCandidates = candidates.filter(candidate => {
+      const assignedModule = REPORT_MODULES.includes(candidate.module) ? candidate.module : '';
+      return assignedModule ? assignedModule === module : signalMatchesModule(candidate, module);
+    });
     const moduleLeads = leads.filter(lead => lead.module === module || signalMatchesModule(lead, module));
     try {
       const report = await analyze({

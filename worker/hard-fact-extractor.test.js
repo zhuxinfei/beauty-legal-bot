@@ -158,6 +158,30 @@ function testHydrationRecordCarriesEvidenceGradeAndQuotes() {
   assert.equal(record.attachment_records[0].extraction_status, 'hydrated');
 }
 
+function testHydrationRecordDoesNotMergeUnrelatedAttachmentEvent() {
+  const record = normalizeHydratedRecord({
+    source_url: 'https://www.nmpa.gov.cn/notices/noncompliant-40',
+    title: '国家药监局关于40批次不符合规定化妆品的通告（2026年第19号）',
+    source_name: '国家药品监督管理局',
+    country: '中国',
+    module: '产品质量/召回与安全风险',
+    fit_markdown: '国家药监局通报40批次化妆品不符合规定，并要求依法调查处理。',
+    attachment_records: [{
+      url: 'https://www.nmpa.gov.cn/attachments/new-ingredient-rule.pdf',
+      title: '化妆品新原料注册备案资料管理规定',
+      article_text: '化妆品新原料注册备案资料管理规定自2026年8月1日起实施。',
+    }, {
+      url: 'https://www.nmpa.gov.cn/attachments/chromium-test.pdf',
+      title: '化妆品中三价铬和六价铬的检验方法',
+      article_text: '依据《化妆品中三价铬和六价铬的检验方法》开展检测。',
+    }],
+  });
+
+  assert.equal(record.article_text.includes('新原料注册备案资料管理规定自'), false);
+  assert.equal(record.article_text.includes('三价铬和六价铬的检验方法》开展检测'), false);
+  assert.notEqual(record.hard_facts.product_or_batch, '化妆品新原料注册备案资料管理规定');
+}
+
 function testNifdcStandardHydrationExtractsPolicyNodesFromTitleAndText() {
   const record = normalizeHydratedRecord({
     source_url: 'https://www.nifdc.org.cn/directory/web/nifdc/bshff/hzhpbzh/hzhpbzhtzgg/202607211930582131911.html',
@@ -249,6 +273,7 @@ testCustomsExtractsHsCodeAndImportProcess();
 testLeadOnlyAndGenericPagesCannotEnterPremiumEvidence();
 testPortalDumpWithMixedIndustriesIsRejectedBeforeAiAnalysis();
 testHydrationRecordCarriesEvidenceGradeAndQuotes();
+testHydrationRecordDoesNotMergeUnrelatedAttachmentEvent();
 testNifdcStandardHydrationExtractsPolicyNodesFromTitleAndText();
 testHydrationMergeAuditReportsEvidenceGrades();
 testHydrationMergeAppendsUnmatchedHardFactReadyRecordsAsCandidates();
