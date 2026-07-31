@@ -1247,8 +1247,7 @@ export async function runPipeline(env, requestUrl = 'https://beauty-legal-bot.wo
     console.log(`[stage 1/5] 完成，候选 ${fetchedCandidates.length} 条，时效准入 ${freshCandidates.length} 条，全文准入 ${hydratedCandidates.length} 条，编辑准入 ${candidates.length} 条，编辑拒绝 ${editorial.audit.rejected} 条，线索 ${leads.length} 条，恢复源 ${sourceResults.filter(result => result.status === 'recovered').length} 个，失败源 ${failures.length} 个，覆盖率 ${(coverage.overall * 100).toFixed(1)}%`);
     if (editorialFallback) console.log('[stage 1/5] 编辑门槛无准入，改用全文候选进入 AI 精选');
 
-    const directHardFactMode = env.HARD_FACT_DIRECT_DELIVERY === '1'
-      || (qualityMode && env.HARD_FACT_DIRECT_DELIVERY !== '0');
+    const directHardFactMode = env.HARD_FACT_DIRECT_DELIVERY === '1';
     const freshHydrationHardFactRecords = filterCandidatesByFreshness(
       (hydrationRecords || []).filter(candidate => candidate?.evidence_grade === 'hard_fact_ready'),
       period

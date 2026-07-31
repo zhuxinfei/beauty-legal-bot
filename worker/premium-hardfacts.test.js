@@ -112,6 +112,12 @@ function testManualWorkflowRunsAreNotArtifactOnlyByDefault() {
   assert.ok(source.includes("const defaultArtifactOnly = '0';"));
 }
 
+function testQualityModeDoesNotShortCircuitAfterHardFactSeeds() {
+  const source = readFileSync(new URL('./index.js', import.meta.url), 'utf8');
+  assert.match(source, /const directHardFactMode = env\.HARD_FACT_DIRECT_DELIVERY === '1';/);
+  assert.doesNotMatch(source, /qualityMode\s*&&\s*env\.HARD_FACT_DIRECT_DELIVERY/);
+}
+
 function testPremiumDeliveryFallsBackInsteadOfSendingEmptyCard() {
   const messages = buildPremiumDingTalkMessages({
     period: { start: '2026-07-20', end: '2026-07-26' },
@@ -1680,6 +1686,7 @@ testFormalPromptsRequireAllPremiumHardFactFields();
 testPremiumMarkdownRendersNewHardFactsInFormalCard();
 testPremiumMarkdownInfersAffectedProcessesFromEvidence();
 testManualWorkflowRunsAreNotArtifactOnlyByDefault();
+testQualityModeDoesNotShortCircuitAfterHardFactSeeds();
 testPremiumDeliveryFallsBackInsteadOfSendingEmptyCard();
 testManualBaselineGetsOnlyConcreteClarifications();
 testFormalReportItemUsesEvidenceTextForFinalQuality();

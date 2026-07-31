@@ -438,7 +438,11 @@ function testPremiumEvidenceGateRejectsWeakAndKeepsActionableItems() {
     legal_signal: '非法添加行为将触发更高信用惩戒和公开限制。',
     business_impact: '配方、功效宣称和供应商准入需要纳入失信风险排查。',
     recommended_action: '法务牵头更新违法失信筛查清单，质量团队复核高风险原料和代工厂准入记录。',
-    hard_facts: { effective_date: '2026-08-01' },
+    hard_facts: {
+      authority: '国家市场监督管理总局',
+      product_or_batch: '化妆品严重违法失信名单管理规则',
+      effective_date: '2026-08-01',
+    },
   });
   assert.equal(strong.accepted, true);
   assert.equal(strong.tier, 'action');
@@ -514,6 +518,7 @@ function testPremiumSelectionPrioritizesQualityBeforeQuantityAndCoreModules() {
       hard_facts: {
         authority: '欧盟委员会',
         document_number: 'Regulation (EC) No 1223/2009',
+        product_or_batch: '化妆品禁限用物质清单',
         deadline: '2026-09-30',
         affected_processes: ['配方复核', '标签', '供应链替换评估'],
       },
