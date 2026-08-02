@@ -91,6 +91,7 @@ import {
   deepseekRescueAnalyze,
   selectRescueEvidenceCandidates,
   analyzeReportByModule,
+  enrichHydrationRecordsWithCorroboration,
   analyzeReportWithRecovery,
   processAnalyzedReport,
   shouldPublishDecisionMap,
@@ -2368,6 +2369,28 @@ function testDiscoveredArticleCanBeHydratedWithoutBecomingAuthoritative() {
   assert.equal(isHydrationAcquisitionSource(candidate), true);
   assert.equal(classifyAuthorityTrust(candidate).level, 'unknown');
   assert.equal(isHardFactAcquisitionSource(candidate), false);
+}
+
+function testHydrationKeepsSingleSourceRecordsForLaterQualityGates() {
+  const records = [{
+    url: 'https://official.example.gov.cn/notice/1',
+    title: '化妆品标准公告',
+    evidence_grade: 'hard_fact_ready',
+    module: '新规及案例动态',
+  }];
+  const result = enrichHydrationRecordsWithCorroboration(records, { candidates: [] });
+  assert.equal(result.length, 1);
+  assert.equal(result[0].url, records[0].url);
+  assert.equal(result[0].evidence_grade, 'hard_fact_ready');
+
+  const media = enrichHydrationRecordsWithCorroboration([{
+    url: 'https://media.example/article/1',
+    title: '美妆企业处罚案例',
+    source_type: 'discovered_publisher',
+    authority_type: 'media',
+    evidence_grade: 'hard_fact_ready',
+  }], { candidates: [] });
+  assert.equal(media[0].evidence_grade, 'lead_only');
 }
 
 function testEvidenceCorroborationRequiresIndependentHardAnchors() {
@@ -5505,6 +5528,7 @@ await testOpenWebDiscoveryKeepsQueryBackedLegalTitlesByModule();
 await testOpenWebDiscoveryRecoversOnlyUnderfilledModules();
 await testOpenWebDiscoveryBalancesGoogleResolutionBudgetByModule();
 testDiscoveredArticleCanBeHydratedWithoutBecomingAuthoritative();
+testHydrationKeepsSingleSourceRecordsForLaterQualityGates();
 testEvidenceCorroborationRequiresIndependentHardAnchors();
 testAuthorityResolverBuildsSearchTasksFromLeadOnlySources();
 testAuthorityResolverClassifiesFinalSourceTrust();

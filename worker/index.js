@@ -33,7 +33,7 @@ import {
   mergeHydratedCandidates,
 } from './source-hydration.js';
 import { buildAuthoritySearchTasks } from './authority-resolver.js';
-import { corroborateEvidenceCandidates } from './evidence-corroboration.js';
+import { classifyEvidenceSource, corroborateEvidenceCandidates } from './evidence-corroboration.js';
 import { cleanArticleEvidence } from './article-evidence.js';
 import {
   assertPremiumChinaDelivery,
@@ -1185,6 +1185,48 @@ export function isArtifactOnlyRun(env = {}) {
   return env.ARTIFACT_ONLY === '1';
 }
 
+function hydrationRecordKey(record = {}) {
+  const raw = String(record.final_url || record.url || record.source_url || '').trim();
+  if (!raw) return '';
+  try {
+    const url = new URL(raw);
+    url.hash = '';
+    return `${url.origin}${url.pathname.replace(/\/+$/, '')}${url.search}`;
+  } catch {
+    return raw.replace(/#.*$/, '').replace(/\/+$/, '');
+  }
+}
+
+export function enrichHydrationRecordsWithCorroboration(records = [], corroboration = {}) {
+  const verified = new Map((corroboration.candidates || [])
+    .map(candidate => [hydrationRecordKey(candidate), candidate])
+    .filter(([key]) => key));
+  return (records || []).map(record => {
+    const candidate = verified.get(hydrationRecordKey(record));
+    if (!candidate) {
+      const sourceClass = classifyEvidenceSource(record);
+      if (record.evidence_grade === 'hard_fact_ready' && sourceClass.tier === 'secondary') {
+        return {
+          ...record,
+          evidence_grade: 'lead_only',
+          verification_status: 'unverified',
+          supporting_sources: [],
+          agreed_anchors: [],
+        };
+      }
+      return record;
+    }
+    return {
+      ...record,
+      evidence_grade: candidate.evidence_grade || record.evidence_grade,
+      verification_status: candidate.verification_status || record.verification_status,
+      supporting_sources: candidate.supporting_sources || record.supporting_sources,
+      agreed_anchors: candidate.agreed_anchors || record.agreed_anchors,
+      event_id: candidate.event_id || record.event_id,
+    };
+  });
+}
+
 export async function runPipeline(env, requestUrl = 'https://beauty-legal-bot.workers.dev/') {
   const aiKey = env.AI_API_KEY;
   const aiBaseUrl = env.AI_API_BASE_URL || DEFAULT_AI_API_BASE_URL;
@@ -1215,7 +1257,7 @@ export async function runPipeline(env, requestUrl = 'https://beauty-legal-bot.wo
     console.log(`[stage 1/5] Worker 抓取预算：${fetchableSources.length} 个可抓取源，${sources.length - fetchableSources.length} 个线索源`);
     const loadedHydrationRecords = await loadHydratedRecordsFromEnv(env, env.HYDRATION_FETCH || fetch);
     const corroboration = corroborateEvidenceCandidates(loadedHydrationRecords);
-    const hydrationRecords = corroboration.candidates;
+    const hydrationRecords = enrichHydrationRecordsWithCorroboration(loadedHydrationRecords, corroboration);
     console.log(`[stage 1/5] 证据验证：记录 ${corroboration.audit.records}，事件 ${corroboration.audit.events}，官方 ${corroboration.audit.primaryVerified}，双源 ${corroboration.audit.corroborated}，未验证 ${corroboration.audit.unverified}`);
     const { candidates: fetchedCandidates, leads, failures, sourceResults, coverage } = await collectCandidates(sources, async () => {}, {
       fetcher: env.SOURCE_FETCH || fetch,
