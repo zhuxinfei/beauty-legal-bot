@@ -1,7 +1,8 @@
 import { mkdir, readFile, writeFile } from 'node:fs/promises';
 import { dirname, resolve } from 'node:path';
 import { buildDiscoveryQueries, discoverOpenWeb, discoverOpenWebWithRecovery } from '../worker/open-web-discovery.js';
-import { resolveGoogleNewsCandidates } from '../worker/google-rss-discovery.js';
+import { parseGoogleNewsRss, resolveGoogleNewsCandidates } from '../worker/google-rss-discovery.js';
+import { attachAuthorityResolutionProvenance, buildAuthoritySearchRows } from '../worker/authority-resolver.js';
 
 function period() {
   const end = process.env.REPORT_PERIOD_END || new Date().toISOString().slice(0, 10);
@@ -46,6 +47,71 @@ const fetchSecondaryForDays = days => async (query, module) => {
   }
 };
 
+function mergeCandidates(...groups) {
+  const seen = new Set();
+  return groups.flat().filter(item => {
+    const key = String(item.url || item.source_url || '').trim();
+    if (!key || seen.has(key)) return false;
+    seen.add(key);
+    return true;
+  });
+}
+
+function countByModule(candidates = []) {
+  return candidates.reduce((counts, item) => {
+    const module = item.discovery_module || item.module || '';
+    if (module) counts[module] = (counts[module] || 0) + 1;
+    return counts;
+  }, {});
+}
+
+async function resolveAuthorityOriginals(leads, days) {
+  const rows = buildAuthoritySearchRows(leads, Number(process.env.AUTHORITY_RESOLUTION_LEAD_LIMIT || 24));
+  if (!rows.length) return { candidates: [], rows: 0, raw: 0, resolved: 0 };
+  const fetchRss = fetchRssForDays(days);
+  const perQuery = Math.max(1, Number(process.env.AUTHORITY_RESULTS_PER_QUERY || 4));
+  const rawGroups = await Promise.all(rows.map(async row => {
+    try {
+      return parseGoogleNewsRss(await fetchRss(row.query, row.module), row.module)
+        .slice(0, perQuery)
+        .map(item => ({ ...item, discovery_query: row.query, discovery_module: row.module }));
+    } catch {
+      return [];
+    }
+  }));
+  const raw = rawGroups.flat();
+  const resolved = await resolveGoogleNewsCandidates(raw, 6);
+  const candidates = attachAuthorityResolutionProvenance(resolved, rows);
+  return { candidates, rows: rows.length, raw: raw.length, resolved: candidates.length };
+}
+
+async function runDiscoveryPass({ period: passPeriod, queryRows, recovery }) {
+  const days = recovery ? Number(process.env.DISCOVERY_RECOVERY_DAYS || 30) : 14;
+  const discovered = await discoverOpenWeb({
+    period: passPeriod,
+    queryRows,
+    fetchRss: fetchRssForDays(days),
+    fetchSecondary: fetchSecondaryForDays(days),
+    resolveCandidates: rows => resolveGoogleNewsCandidates(rows, 6),
+    maxItems: Number(process.env.DISCOVERY_MAX_ITEMS || 120),
+    maxPerHost: Number(process.env.DISCOVERY_MAX_PER_HOST || 8),
+    maxPerModule: Number(process.env.DISCOVERY_MAX_PER_MODULE || 30),
+  });
+  const authority = await resolveAuthorityOriginals(discovered.candidates, days);
+  const candidates = mergeCandidates(authority.candidates, discovered.candidates);
+  return {
+    candidates,
+    audit: {
+      ...discovered.audit,
+      unique: candidates.length,
+      acceptedByModule: countByModule(candidates),
+      authorityQueries: authority.rows,
+      authorityRaw: authority.raw,
+      authorityResolved: authority.resolved,
+    },
+  };
+}
+
 let result;
 try {
   const discovery = discoverOpenWebWithRecovery({
@@ -53,22 +119,13 @@ try {
     queryRows: buildDiscoveryQueries(),
     minimumPerModule: Number(process.env.DISCOVERY_MIN_PER_MODULE || 8),
     recoveryDays: Number(process.env.DISCOVERY_RECOVERY_DAYS || 30),
-    runPass: ({ period: passPeriod, queryRows, recovery }) => discoverOpenWeb({
-      period: passPeriod,
-      queryRows,
-      fetchRss: fetchRssForDays(recovery ? Number(process.env.DISCOVERY_RECOVERY_DAYS || 30) : 14),
-      fetchSecondary: fetchSecondaryForDays(recovery ? Number(process.env.DISCOVERY_RECOVERY_DAYS || 30) : 14),
-      resolveCandidates: rows => resolveGoogleNewsCandidates(rows, 6),
-      maxItems: Number(process.env.DISCOVERY_MAX_ITEMS || 120),
-      maxPerHost: Number(process.env.DISCOVERY_MAX_PER_HOST || 8),
-      maxPerModule: Number(process.env.DISCOVERY_MAX_PER_MODULE || 30),
-    }),
+    runPass: runDiscoveryPass,
   });
   let timeout;
   try {
     result = await Promise.race([
       discovery,
-      new Promise((_, reject) => { timeout = setTimeout(() => reject(new Error('open-web discovery timed out')), Number(process.env.DISCOVERY_TOTAL_TIMEOUT_MS || 90000)); }),
+      new Promise((_, reject) => { timeout = setTimeout(() => reject(new Error('open-web discovery timed out')), Number(process.env.DISCOVERY_TOTAL_TIMEOUT_MS || 180000)); }),
     ]);
   } finally {
     clearTimeout(timeout);
@@ -82,4 +139,5 @@ await writeFile(output, `${JSON.stringify({ period: period(), ...result }, null,
 await writeFile(manifestOutput, `${JSON.stringify({ sources: [...(catalog.sources || []), ...result.candidates] }, null, 2)}\n`);
 console.log(`Discovery queries=${result.audit.queries}, raw=${result.audit.raw}, resolved=${result.audit.resolved}, unique=${result.audit.unique}`);
 console.log(`Discovery modules=${JSON.stringify(result.audit.acceptedByModule || {})}, recovery=${JSON.stringify(result.audit.recoveryModules || [])}`);
+console.log(`Authority resolution queries=${result.audit.authorityQueries || 0}, raw=${result.audit.authorityRaw || 0}, resolved=${result.audit.authorityResolved || 0}`);
 console.log(`Generated ${manifestOutput}`);

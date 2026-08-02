@@ -52,7 +52,9 @@ import {
 } from './source-hydration.js';
 import {
   buildAuthoritySearchTasks,
+  buildAuthoritySearchRows,
   buildAuthoritySearchQueries,
+  attachAuthorityResolutionProvenance,
   classifyAuthorityTrust,
   selectAuthorityResolvedCandidates,
 } from './authority-resolver.js';
@@ -2367,7 +2369,7 @@ async function testOpenWebDiscoveryBalancesGoogleResolutionBudgetByModule() {
 function testDiscoveredArticleCanBeHydratedWithoutBecomingAuthoritative() {
   const candidate = { url: 'https://media.example/legal/cosmetics-17', source_scope: 'discovered_article', published_at: '2026-07-30' };
   assert.equal(isHydrationAcquisitionSource(candidate), true);
-  assert.equal(classifyAuthorityTrust(candidate).level, 'unknown');
+  assert.equal(classifyAuthorityTrust(candidate).level, 'lead_only');
   assert.equal(isHardFactAcquisitionSource(candidate), false);
 }
 
@@ -2438,7 +2440,48 @@ function testAuthorityResolverBuildsSearchTasksFromLeadOnlySources() {
   assert.equal(tasks.length, 1);
   assert.equal(tasks[0].module, '知识产权动态');
   assert.equal(tasks[0].trust.level, 'lead_only');
-  assert.ok(tasks[0].queries[0].includes('行政处罚决定书'));
+  assert.ok(tasks[0].queries[0].includes('site:gov.cn'));
+}
+
+function testAuthorityResolutionKeepsLeadProvenanceAndRejectsMedia() {
+  const lead = {
+    url: 'https://media.example/item-17',
+    title: '美妆企业商标侵权被罚17万元',
+    source_name: '行业媒体',
+    source_type: 'discovered_publisher',
+    source_scope: 'discovered_article',
+    module: '知识产权动态',
+    snippet: '市场监管部门查处商标侵权行为。',
+  };
+  const rows = buildAuthoritySearchRows([lead], 1);
+  assert.ok(rows.length >= 1);
+  assert.equal(rows[0].module, '知识产权动态');
+  assert.equal(rows[0].authorityLeadUrl, lead.url);
+  const selected = attachAuthorityResolutionProvenance([
+    {
+      title: '行政处罚决定书：美妆企业商标侵权被罚17万元',
+      url: 'https://amr.example.gov.cn/penalty/17',
+      source_name: '某市市场监督管理局',
+      source_type: 'discovered_publisher',
+      source_scope: 'discovered_article',
+      discovery_query: rows[0].query,
+      published_at: '2026-07-30',
+    },
+    {
+      title: lead.title,
+      url: lead.url,
+      source_name: lead.source_name,
+      source_type: 'discovered_publisher',
+      source_scope: 'discovered_article',
+      discovery_query: rows[0].query,
+    },
+  ], rows);
+  assert.equal(selected.length, 1);
+  assert.equal(selected[0].authority_resolved, true);
+  assert.equal(selected[0].authority_lead_url, lead.url);
+  assert.equal(selected[0].module, lead.module);
+  assert.equal(selected[0].source_scope, 'discovered_article');
+  assert.equal(classifyAuthorityTrust(lead).level, 'lead_only');
 }
 
 function testAuthorityResolverClassifiesFinalSourceTrust() {
@@ -5531,6 +5574,7 @@ testDiscoveredArticleCanBeHydratedWithoutBecomingAuthoritative();
 testHydrationKeepsSingleSourceRecordsForLaterQualityGates();
 testEvidenceCorroborationRequiresIndependentHardAnchors();
 testAuthorityResolverBuildsSearchTasksFromLeadOnlySources();
+testAuthorityResolutionKeepsLeadProvenanceAndRejectsMedia();
 testAuthorityResolverClassifiesFinalSourceTrust();
 testAuthorityResolverKeepsOnlyAuthorityResolvedCandidates();
 await testHydrateCandidateDetailsContainsBrowserRecoveryFailures();
