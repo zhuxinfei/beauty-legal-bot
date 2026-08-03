@@ -5509,6 +5509,20 @@ function testHardFactAcquisitionRejectsPortalHomepages() {
   }), true);
 }
 
+function testOfficialPortalIsHydrationSeedButNotHardFactSource() {
+  const source = {
+    name: '国家知识产权局',
+    url: 'https://www.cnipa.gov.cn/',
+    source_type: 'official_site',
+    authority_type: 'regulator',
+    source_scope: 'portal',
+    country: '中国',
+    module: '知识产权动态',
+  };
+  assert.equal(isHydrationAcquisitionSource(source), true);
+  assert.equal(isHardFactAcquisitionSource(source), false);
+}
+
 function testCheckedInCatalogMarksOnlyHardFactSourcesForFormalAcquisition() {
   const formalSources = sourceCatalog.sources.filter(isHardFactAcquisitionSource);
   assert.ok(formalSources.length >= 4, 'expected checked-in hard fact endpoint and list sources');
@@ -5759,6 +5773,7 @@ testSourceCatalogUsesWorkbookModulesAndGlobalMarkets();
 testSelectSourcesForWorkerBudgetKeepsImportantCoverageUnderLimit();
 testPreviewSourceSelectionPrioritizesHardChinaLegalSources();
 testHardFactAcquisitionRejectsPortalHomepages();
+testOfficialPortalIsHydrationSeedButNotHardFactSource();
 testCheckedInCatalogMarksOnlyHardFactSourcesForFormalAcquisition();
 testPortalSourcePageCannotBecomeCandidate();
 testPromptIncludesProductQualityRecallModule();

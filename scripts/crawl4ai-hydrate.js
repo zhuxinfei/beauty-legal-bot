@@ -87,19 +87,28 @@ def extract_attachment_urls(markdown, base_url):
         normalized.append(absolute)
     return normalized[:attachment_limit]
 
-def extract_detail_urls(markdown, base_url):
+def extract_detail_urls(markdown, base_url, module=""):
     source = text_value(markdown)
+    module_patterns = {
+        "知识产权动态": r"商标|专利|著作权|版权|侵权|仿冒|包装装潢|判决|裁定|赔偿|品牌",
+        "进出口动态": r"海关|进口|出口|清关|扣留|退运|通关|跨境|口岸|关税|报关|HS\\s*编码|原产地",
+        "美妆动态": r"平台规则|平台治理|电商|品牌|商家|下架|禁售|合规|公告|通知|政策|规则",
+        "广告合规及处罚案例": r"广告|虚假宣传|功效宣称|直播|刷单|处罚|罚款|行政执法",
+        "产品质量/召回与安全风险": r"召回|抽检|不合格|不符合规定|风险|安全|禁用|限用|批次|成分|微生物",
+        "新规及案例动态": r"法规|办法|条例|标准|征求意见|备案|注册|公告|通告|实施|生效|原料|成分",
+    }
     beauty_pattern = re.compile(r"化妆品|美妆|护肤|彩妆|香水|防晒|染发|着色剂|功效宣称|备案|注册人|标签|包装|配方|原料|成分", re.I)
+    module_pattern = re.compile(module_patterns.get(module, r""), re.I)
     hard_pattern = re.compile(r"行政处罚|处罚决定|典型案例|征求意见|公告|通告|标准|新旧衔接|商标|专利|侵权|海关|进口|出口|HS\\s*编码|附件|pdf|xlsx?", re.I)
     urls = []
     for match in re.finditer(r"\\[([^\\]]{2,120})\\]\\(([^)]+)\\)", source, flags=re.I):
         label = match.group(1) or ""
         href = match.group(2) or ""
-        if (beauty_pattern.search(label) or beauty_pattern.search(href)) and (hard_pattern.search(label) or hard_pattern.search(href)):
+        if (beauty_pattern.search(label) or beauty_pattern.search(href) or module_pattern.search(label) or module_pattern.search(href)) and (hard_pattern.search(label) or hard_pattern.search(href) or module_pattern.search(label) or module_pattern.search(href)):
             urls.append((label, href))
     for match in re.finditer(r"https?://[^\\s)]+", source, flags=re.I):
         href = match.group(0)
-        if beauty_pattern.search(href) and hard_pattern.search(href):
+        if (beauty_pattern.search(href) or module_pattern.search(href)) and (hard_pattern.search(href) or module_pattern.search(href)):
             urls.append((href, href))
     seen = set()
     normalized = []
@@ -184,7 +193,7 @@ async def run():
                         record.get("fit_markdown", ""),
                         record.get("raw_markdown", ""),
                         record.get("references_markdown", ""),
-                    ]), record.get("final_url") or url)
+                    ]), record.get("final_url") or url, module)
                     record["detail_urls"] = [detail.get("url") for detail in detail_links if detail.get("url")]
                     attachment_records = []
                     for attachment_url in extract_attachment_urls("\\n".join([
@@ -229,7 +238,7 @@ async def run():
                                 detail_record.get("fit_markdown", ""),
                                 detail_record.get("raw_markdown", ""),
                                 detail_record.get("references_markdown", ""),
-                            ]), detail_record.get("final_url") or detail_url):
+                            ]), detail_record.get("final_url") or detail_url, module):
                                 try:
                                     attachment_record = await crawl_one(crawler, attachment_url, item, module, config, attachment=True)
                                     attachment_record["parent_url"] = detail_record.get("final_url") or detail_url
@@ -375,7 +384,10 @@ export function selectHydrationSources(records = [], { limit = 0, minimumPerModu
     return true;
   };
 
-  const floorEligible = eligible.filter(isHardFactAcquisitionSource);
+  // Reserve a crawl slot for every module, including official list pages.
+  // List pages are seeds only; premium evidence still requires a concrete
+  // detail record after hydration.
+  const floorEligible = eligible;
   for (let round = 0; round < Math.max(0, minimumPerModule); round += 1) {
     for (const module of modules) {
       take(floorEligible.filter(item => (item.discovery_module || item.module) === module)[round]);

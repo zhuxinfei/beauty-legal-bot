@@ -37,6 +37,12 @@ export function isHardFactAcquisitionSource(source = {}) {
 
 export function isHydrationAcquisitionSource(source = {}) {
   if (isHardFactAcquisitionSource(source)) return true;
+  // Official list/portal pages are crawl seeds only. Their own content is
+  // still rejected as evidence; Crawl4AI follows their concrete detail links.
+  const officialSeed = ['official_site', 'regulator', 'court'].includes(String(source.source_type || '').trim())
+    && !source.monitor_only
+    && /^https?:\/\//i.test(String(source.url || source.source_url || '').trim());
+  if (officialSeed) return true;
   if (String(source.source_scope || '') !== 'discovered_article') return false;
   if (!/^20\d{2}-\d{2}-\d{2}$/.test(String(source.published_at || ''))) return false;
   const url = String(source.url || source.source_url || '');
