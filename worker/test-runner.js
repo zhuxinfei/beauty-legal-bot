@@ -5795,7 +5795,7 @@ function testSelectSourcesForWorkerBudgetKeepsImportantCoverageUnderLimit() {
   assert.ok(selected.some(source => source.name.includes('国家知识产权局')));
   assert.ok(fetchable.filter(source => source.country === '中国').length >= 8);
   assert.ok(fetchable.findIndex(source => source.country === '中国') < fetchable.findIndex(source => source.country !== '中国'));
-  for (const module of ['广告合规及处罚案例', '知识产权动态', '新规及案例动态', '进出口动态']) {
+  for (const module of ['广告合规及处罚案例', '知识产权动态', '新规及案例动态', '进出口动态', '产品质量/召回与安全风险', '美妆动态']) {
     assert.ok(fetchable.some(source => source.module === module), `missing fetchable module ${module}`);
   }
 }
@@ -5810,6 +5810,7 @@ function testPreviewSourceSelectionPrioritizesHardChinaLegalSources() {
   assert.ok(fetchable.some(source => /知识产权|商标/.test(source.name)), 'missing IP/trademark source');
   assert.ok(fetchable.some(source => source.module === '新规及案例动态'), 'missing regulatory policy source');
   assert.ok(fetchable.some(source => source.module === '进出口动态'), 'missing import/export source');
+  assert.ok(fetchable.some(source => source.module === '美妆动态'), 'missing beauty dynamics source');
   assert.ok(fetchable.filter(source => source.country === '中国').length >= 5);
 }
 

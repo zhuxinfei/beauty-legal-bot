@@ -99,7 +99,7 @@ def extract_detail_urls(markdown, base_url, module=""):
     }
     beauty_pattern = re.compile(r"化妆品|美妆|护肤|彩妆|香水|防晒|染发|着色剂|功效宣称|备案|注册人|标签|包装|配方|原料|成分", re.I)
     module_pattern = re.compile(module_patterns.get(module, r""), re.I)
-    hard_pattern = re.compile(r"行政处罚|处罚决定|典型案例|征求意见|公告|通告|标准|新旧衔接|商标|专利|侵权|海关|进口|出口|HS\\s*编码|附件|pdf|xlsx?", re.I)
+    hard_pattern = re.compile(r"行政处罚|处罚决定|典型案例|征求意见|公告|通告|标准|新旧衔接|商标|专利|侵权|虚假宣传|功效宣称|平台治理|专项治理|治理公告|海关|进口|出口|HS\\s*编码|附件|pdf|xlsx?", re.I)
     urls = []
     for match in re.finditer(r"\\[([^\\]]{2,120})\\]\\(([^)]+)\\)", source, flags=re.I):
         label = match.group(1) or ""
@@ -357,7 +357,7 @@ function hydrationSourceScore(item = {}) {
   if (item.authority_type === 'regulator') score += 1000;
   if (item.source_type === 'official_site') score += 500;
   if (item.priority === 'high') score += 300;
-  if (/药监|市场监督|市场监管|海关|法院|知识产权|标准|处罚|商标|进出口/.test(text)) score += 200;
+  if (/药监|市场监督|市场监管|海关|法院|知识产权|标准|处罚|商标|进出口|平台治理|功效宣称|虚假宣传|美妆合规/.test(text)) score += 200;
   if (item.monitor_only) score -= 100;
   return score;
 }

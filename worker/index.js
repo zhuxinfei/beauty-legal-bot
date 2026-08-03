@@ -1909,8 +1909,8 @@ function sourceHardIntelScore(source = {}) {
   if (source.authority_type === 'regulator') score += 180;
   if (source.source_type === 'official_site') score += 80;
   if (source.priority === 'high') score += 80;
-  if (/市场监督|市场监管|药品监督|药监|知识产权|商标|海关|法院|裁判|检察|广告监管/i.test(text)) score += 240;
-  if (/处罚|行政处罚|案例|违法|征求意见|公告|政策|法规|标准|知识产权|商标|专利|海关|进口|出口|进出口|通关/i.test(text)) score += 180;
+  if (/市场监督|市场监管|药品监督|药监|知识产权|商标|海关|法院|裁判|检察|广告监管|平台治理|功效宣称|美妆合规/i.test(text)) score += 240;
+  if (/处罚|行政处罚|案例|违法|征求意见|公告|政策|法规|标准|知识产权|商标|专利|虚假宣传|功效宣称|平台治理|海关|进口|出口|进出口|通关/i.test(text)) score += 180;
   if (/上海|广州|杭州|北京|浙江|广东|国家市场监督管理总局|国家知识产权局|商标局|海关总署|国家药品监督管理局/.test(text)) score += 90;
   if (/中国政府网|首页|综合|资讯|动态|行业|协会|服务站/i.test(text)) score -= 160;
   if (source.monitor_only) score -= 10000;
@@ -1929,7 +1929,7 @@ export function selectSourcesForWorkerBudget(sources = sourceCatalog.sources, fe
     }
   };
 
-  for (const module of ['广告合规及处罚案例', '知识产权动态', '新规及案例动态', '进出口动态', '产品质量/召回与安全风险']) {
+  for (const module of ['广告合规及处罚案例', '知识产权动态', '新规及案例动态', '进出口动态', '产品质量/召回与安全风险', '美妆动态']) {
     const moduleSources = fetchableSources
       .filter(source => source.module === module)
       .sort((a, b) => sourceHardIntelScore(b) - sourceHardIntelScore(a));
