@@ -17,6 +17,11 @@ function text(value) {
   return String(value || '').replace(/\s+/g, ' ').trim();
 }
 
+function knownGeo(value) {
+  const normalized = text(value);
+  return normalized && !/^(?:未知|不详|不明|全球)$/i.test(normalized) ? normalized : '';
+}
+
 function hostOf(value) {
   try {
     return new URL(String(value || '')).hostname;
@@ -106,6 +111,8 @@ export function buildAuthoritySearchRows(leads = [], limit = 24) {
   const maximum = Math.max(0, Number(limit) || 0);
   const moduleRows = Object.entries(MODULE_AUTHORITY_ANCHORS).map(([module, query]) => ({
     module,
+    region: '亚洲',
+    country: '中国',
     query,
     beautyScoped: true,
     authorityResolution: true,
@@ -117,6 +124,8 @@ export function buildAuthoritySearchRows(leads = [], limit = 24) {
   if (maximum < moduleRows.length && leadTasks.length) {
     return leadTasks.slice(0, maximum).flatMap((task, index) => task.queries.slice(0, 1).map(query => ({
       module: task.module,
+      region: task.region || '亚洲',
+      country: task.country || '中国',
       query,
       beautyScoped: true,
       authorityResolution: true,
@@ -130,6 +139,8 @@ export function buildAuthoritySearchRows(leads = [], limit = 24) {
   const tasks = leadTasks.slice(0, leadBudget);
   const leadRows = tasks.flatMap((task, index) => task.queries.slice(0, 1).map(query => ({
     module: task.module,
+    region: task.region || '亚洲',
+    country: task.country || '中国',
     query,
     beautyScoped: true,
     authorityResolution: true,
@@ -149,6 +160,8 @@ export function attachAuthorityResolutionProvenance(candidates = [], rows = []) 
       ...candidate,
       module,
       discovery_module: module,
+      region: knownGeo(candidate.region) || knownGeo(row?.region) || '亚洲',
+      country: knownGeo(candidate.country) || knownGeo(row?.country) || '中国',
       discovery_query: text(candidate.discovery_query),
       authority_resolved: true,
       authority_resolution_status: 'resolved',

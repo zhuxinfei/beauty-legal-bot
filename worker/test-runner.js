@@ -2547,6 +2547,26 @@ function testAuthorityResolverClassifiesFinalSourceTrust() {
   assert.equal(classifyAuthorityTrust({ url: 'https://www.customs.gov.cn/customs/302249/2480148/index.html', source_name: '海关总署' }).level, 'primary_authority');
 }
 
+function testAuthorityResolutionPreservesChinaProvenance() {
+  const rows = buildAuthoritySearchRows([], 6);
+  assert.equal(rows.length, 6);
+  assert.ok(rows.every(row => row.country === '中国'));
+  const [candidate] = attachAuthorityResolutionProvenance([{
+    url: 'https://official.example.gov.cn/cosmetics/notice/1',
+    title: '化妆品监管公告',
+    discovery_query: rows[0].query,
+    discovery_module: rows[0].module,
+    source_name: '官方监管部门',
+    source_type: 'official_site',
+    authority_type: 'regulator',
+    country: '未知',
+    region: '未知',
+  }], rows);
+  assert.equal(candidate.country, '中国');
+  assert.equal(candidate.region, '亚洲');
+  assert.equal(candidate.module, rows[0].module);
+}
+
 function testAuthorityResolverKeepsOnlyAuthorityResolvedCandidates() {
   const selected = selectAuthorityResolvedCandidates([
     {
@@ -5629,6 +5649,7 @@ await testOpenWebDiscoveryRecoversOnlyUnderfilledModules();
 await testOpenWebDiscoveryBalancesGoogleResolutionBudgetByModule();
 testDiscoveredArticleCanBeHydratedWithoutBecomingAuthoritative();
 testHydrationKeepsSingleSourceRecordsForLaterQualityGates();
+testAuthorityResolutionPreservesChinaProvenance();
 testEvidenceCorroborationRequiresIndependentHardAnchors();
 testAuthorityResolverBuildsSearchTasksFromLeadOnlySources();
 testAuthorityResolverBuildsIndependentModuleQueries();
