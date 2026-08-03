@@ -24,7 +24,7 @@ const OPINION_PATTERNS = [
 ];
 
 const ACTION_PATTERN = /发布|公布|通报|处罚|罚款|召回|下架|查处|判决|裁定|签订|签署|推出|启动|布局|出口|进口|实施|生效|修订|征求意见|备案|注册|清算|要求|禁止|限制|调整|超标|发现|调查|取缔|赔偿|上市|announc(?:e|ed|es)|deploy(?:s|ed)?|implement(?:s|ed)?|issu(?:e|ed|es)|file(?:s|d)?|rule(?:s|d)?|recall(?:s|ed)?|destroy(?:s|ed)?|abolish(?:es|ed)?|require(?:s|d)?|ban(?:s|ned)?|inspect(?:s|ed)?/i;
-const ACTOR_PATTERN = /(?:国家|省|市|县|区)?[\u4e00-\u9fffA-Za-z0-9]{2,}(?:局|委|院|署|海关|法院|公司|集团|企业|品牌|银行|协会|政府|部门|监管机构|NMPA|BPOM|FDA|MFDS|EUIPO|FTC|Court|Commission|Authority|Ministry|Government|Agency|Company|Group)/i;
+const ACTOR_PATTERN = /(?:国家|省|市|县|区)?[\u4e00-\u9fffA-Za-z0-9]{2,}(?:局|委|院|署|海关|法院|公司|集团|企业|品牌|平台|电商|银行|协会|政府|部门|监管机构|NMPA|BPOM|FDA|MFDS|EUIPO|FTC|Court|Commission|Authority|Ministry|Government|Agency|Company|Group|Platform)/i;
 const EVIDENCE_PATTERN = /(20\d{2}[年./-]\d{1,2}[月./-]\d{1,2}日?|20\d{2}년\s*\d{1,2}월\s*\d{1,2}일|(?:January|February|March|April|May|June|July|August|September|October|November|December)\s+\d{1,2},?\s+20\d{2}|\d+(?:\.\d+)?\s*(?:万|亿|元|美元|欧元|件|批|吨|天|个|家|%|％|batches?|products?)|罚款|处罚|召回|备案|注册|规则|条例|通知|判决|裁定|进出口|征求意见|生效|禁用|限用|抽检|不合格|超标|清算|regulation|standard|judgment|ruling|recall|penalty|prosecution|task force|inspection|banned?)/i;
 const BEAUTY_DOMAIN_PATTERN = /化妆品|美妆|护肤|彩妆|香水|防晒|洗护|牙膏|化妆品原料|香料香精|功效宣称|功效评价|美容仪器|cosmetic|cosmetics|skincare|sunscreen|beauty\s+(?:product|brand|industry)/i;
 
@@ -69,6 +69,27 @@ function isPublisherArticleUrl(value) {
   } catch {
     return false;
   }
+}
+
+function isRepublisherIdentity(candidate = {}) {
+  const sourceName = String(candidate.source_name || candidate.name || '').trim();
+  const host = hostOf(candidate.url || candidate.source_url);
+  return REPUBLISHER_HOST_PATTERN.test(host) || /搜狐|转载|综合自|公众号线索/.test(sourceName);
+}
+
+function isConcreteDiscoveredPublisherArticle(candidate = {}, leadText = '') {
+  const scope = String(candidate.source_scope || '').trim();
+  if (scope !== 'discovered_article') return false;
+  if (isRepublisherIdentity(candidate)) return false;
+  if (!isPublisherArticleUrl(candidate.url || candidate.source_url)) return false;
+  if (String(candidate.detail_status || '') && String(candidate.detail_status || '') !== 'hydrated') return false;
+  const sourceType = String(candidate.source_type || '').trim();
+  const authorityType = String(candidate.authority_type || '').trim();
+  if (!MEDIA_SOURCE_TYPES.has(sourceType) && authorityType !== 'media') return false;
+  return BEAUTY_DOMAIN_PATTERN.test(leadText)
+    && ACTION_PATTERN.test(leadText)
+    && EVIDENCE_PATTERN.test(leadText)
+    && /(处罚|罚款|召回|下架|判决|裁定|赔偿|侵权|商标|专利|海关|进口|出口|清关|HS\s*编码|虚假宣传|功效宣称|抽检|不合格|禁用成分|治理)/i.test(leadText);
 }
 
 function textOf(candidate = {}) {
@@ -125,11 +146,13 @@ export function evaluateEditorialCandidate(candidate = {}) {
   if (NAVIGATION_TITLE.test(title)) {
     return { accepted: false, reason: 'navigation-shell' };
   }
-  if (isNonAuthoritativeRepublisher(candidate) && !hasVerifiedCorroboration(candidate)) {
+  if (isNonAuthoritativeRepublisher(candidate)
+    && !hasVerifiedCorroboration(candidate)
+    && !isConcreteDiscoveredPublisherArticle(candidate, leadText)) {
     return { accepted: false, reason: 'non-authoritative-source' };
   }
   if (!BEAUTY_DOMAIN_PATTERN.test(leadText)) return { accepted: false, reason: 'not-beauty-industry' };
-  const hasActor = ACTOR_PATTERN.test(leadText) || /监管部门|法院|海关|公司|集团|品牌|企业|government|court|commission|authority|ministry|\bFDA\b|task force/i.test(leadText);
+  const hasActor = ACTOR_PATTERN.test(leadText) || /监管部门|法院|海关|公司|集团|品牌|企业|平台|电商|government|court|commission|authority|ministry|\bFDA\b|task force/i.test(leadText);
   const hasAction = ACTION_PATTERN.test(leadText);
   const hasEvidence = EVIDENCE_PATTERN.test(leadText);
   if (!hasActor || !hasAction || !hasEvidence) return { accepted: false, reason: 'no-concrete-event' };

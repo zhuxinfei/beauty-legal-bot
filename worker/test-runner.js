@@ -204,6 +204,51 @@ function testEditorialGateRejectsRepublisherSourcesEvenWithConcretePenaltyFacts(
   assert.equal(sohuRepost.reason, 'non-authoritative-source');
 }
 
+function testEditorialGateKeepsConcreteDiscoveredPublisherArticlesAcrossModules() {
+  const examples = [
+    {
+      module: '广告合规及处罚案例',
+      title: '某化妆品公司因直播虚假功效宣称被罚20万元',
+      article_text: '2026年7月19日，上海市市场监管局通报，某化妆品公司在直播间宣称护肤品具有医疗功效，违反广告法，被责令改正并罚款20万元。',
+    },
+    {
+      module: '知识产权动态',
+      title: '法院判决某美妆品牌商标侵权案赔偿50万元',
+      article_text: '2026年7月19日，广州知识产权法院判决某化妆品企业侵犯注册商标权，涉案口红产品使用近似标识，被告需停止侵权并赔偿50万元。',
+    },
+    {
+      module: '产品质量/召回与安全风险',
+      title: '监管部门通报一款护肤品召回并停止销售',
+      article_text: '2026年7月19日，广东省市场监管局通报，某品牌护肤品检出禁用成分，企业启动召回并停止销售，涉及1200件产品。',
+    },
+    {
+      module: '进出口动态',
+      title: '海关更新进口化妆品清关文件要求',
+      article_text: '2026年7月19日，上海海关发布进口化妆品清关提示，要求企业补充备案凭证、成分表和中文标签文件，涉及HS编码330499。',
+    },
+    {
+      module: '美妆动态',
+      title: '抖音电商启动美妆类目虚假宣传治理',
+      article_text: '2026年7月19日，抖音电商发布美妆类目治理公告，针对护肤和彩妆商品虚假功效宣称、违规达人带货启动专项治理。',
+    },
+  ];
+
+  const result = applyEditorialGate(examples.map((example, index) => ({
+    ...example,
+    url: `https://beautynews.example.com/legal/event-${index + 1}.html`,
+    source_name: '行业媒体直链',
+    source_type: 'industry_media',
+    authority_type: 'media',
+    source_scope: 'discovered_article',
+    published_at: '2026-07-19',
+    detail_status: 'hydrated',
+    discovery_module: example.module,
+  })));
+
+  assert.equal(result.candidates.length, examples.length);
+  assert.deepEqual(result.candidates.map(candidate => candidate.module), examples.map(example => example.module));
+}
+
 function testEditorialModuleUsesArticleFactsAndChinaEvidence() {
   assert.equal(inferCandidateModule({ title: '监管部门发布通知', article_text: '国家药监局发布化妆品备案新规，7月1日起执行。' }), '新规及案例动态');
   assert.equal(inferCandidateModule({ title: '品牌纠纷', article_text: '法院判决某公司侵犯商标权并赔偿50万元。' }), '知识产权动态');
@@ -1375,6 +1420,83 @@ function testPremiumDeliveryBackfillsSourceOnlyCardsWhenAiRejectsAllItems() {
   assert.equal(mixedDelivery.audit.finalItems, 1);
   assert.equal(mixedDelivery.audit.finalChinaItems, 0);
   assert.doesNotThrow(() => assertPremiumChinaDelivery(mixedDelivery.audit));
+}
+
+function testPremiumDeliveryBackfillsConcreteDiscoveredPublisherArticlesAcrossModules() {
+  const candidates = [
+    {
+      module: '广告合规及处罚案例',
+      title: '某化妆品公司因直播虚假功效宣称被罚20万元',
+      article_text: '2026年7月19日，上海市市场监管局通报，某化妆品公司在直播间宣称护肤品具有医疗功效，违反《广告法》，被责令改正并罚款20万元。',
+      hard_facts: {
+        authority: '上海市市场监管局',
+        involved_party: '某化妆品公司',
+        product_or_batch: '涉案护肤品',
+        violation_behavior: '直播虚假功效宣称',
+        penalty_amount: '20万元',
+        legal_basis: '《广告法》',
+      },
+    },
+    {
+      module: '知识产权动态',
+      title: '法院判决某美妆品牌商标侵权案赔偿50万元',
+      article_text: '2026年7月19日，广州知识产权法院判决某化妆品企业侵犯注册商标权，涉案口红产品使用近似标识，被告停止侵权并赔偿50万元。',
+      hard_facts: {
+        authority: '广州知识产权法院',
+        involved_party: '某化妆品企业',
+        product_or_batch: '涉案口红产品',
+        violation_behavior: '侵犯注册商标权',
+        penalty_amount: '赔偿50万元',
+        legal_basis: '商标权判决',
+      },
+    },
+    {
+      module: '产品质量/召回与安全风险',
+      title: '监管部门通报一款护肤品召回并停止销售',
+      article_text: '2026年7月19日，广东省市场监管局通报，某品牌护肤品检出禁用成分，企业启动召回并停止销售，涉及1200件产品。',
+      hard_facts: {
+        authority: '广东省市场监管局',
+        product_or_batch: '某品牌护肤品',
+        violation_behavior: '检出禁用成分',
+        confiscation_result: '召回并停止销售1200件产品',
+      },
+    },
+    {
+      module: '进出口动态',
+      title: '海关更新进口化妆品清关文件要求',
+      article_text: '2026年7月19日，上海海关发布进口化妆品清关提示，要求企业补充备案凭证、成分表和中文标签文件，涉及HS编码330499。',
+      hard_facts: {
+        authority: '上海海关',
+        product_or_batch: '进口化妆品',
+        document_number: '2026年清关提示',
+        hs_code: '330499',
+        legal_basis: '进口化妆品清关文件要求',
+      },
+    },
+  ].map((candidate, index) => ({
+    ...candidate,
+    url: `https://beautynews.example.com/legal/premium-${index + 1}.html`,
+    source_name: '行业媒体直链',
+    source_type: 'industry_media',
+    authority_type: 'media',
+    source_scope: 'discovered_article',
+    editorial_status: 'accepted',
+    detail_status: 'hydrated',
+    published_at: '2026-07-19',
+    country: '中国',
+  }));
+
+  const delivery = buildPremiumDingTalkDelivery(
+    { period: { start: '2026-07-13', end: '2026-07-19' }, summary: [], risk_alerts: [], sections: [] },
+    { candidates, maxItems: 8, targetItems: 8, minimumPerModule: 1, allowSourceOnlyFallback: true },
+  );
+
+  const modules = new Set(delivery.cards.map(item => item.module));
+  assert.ok(delivery.cards.length >= 4);
+  assert.ok(modules.has('广告处罚案例'));
+  assert.ok(modules.has('知识产权保护或者侵权'));
+  assert.ok(modules.has('产品质量/召回与安全风险'));
+  assert.ok(modules.has('进出口'));
 }
 
 function testPremiumDeliverySplitsOversizedDingTalkMarkdownWithinByteLimit() {
@@ -5883,6 +6005,7 @@ await testArtifactOnlyPipelineSkipsDelivery();
 testEditorialGateRejectsPromotionalAndServicePages();
 testEditorialGateRequiresConcreteFactsButKeepsWatch();
 testEditorialGateRejectsRepublisherSourcesEvenWithConcretePenaltyFacts();
+testEditorialGateKeepsConcreteDiscoveredPublisherArticlesAcrossModules();
 testEditorialModuleUsesArticleFactsAndChinaEvidence();
 testEditorialGateRunsAfterHydrationBeforeAnalysis();
 testEditorialGatePreservesExplicitDiscoveryModule();
@@ -5904,6 +6027,7 @@ testPremiumSelectionRanksByImpactBeforeModuleOrder();
 testPremiumPortfolioBalancesOnlyValidatedCards();
 testPremiumPortfolioDeliveryRejectsIncompleteReports();
 testPremiumPortfolioGateAllowsUnachievableLiveInventory();
+testPremiumDeliveryBackfillsConcreteDiscoveredPublisherArticlesAcrossModules();
 testPremiumDingTalkMarkdownDoesNotExposeRiskTierAndSignalType();
 testPremiumDingTalkMarkdownKeepsPolicyPlanningObservationNeutral();
 testPremiumDingTalkMarkdownAcceptsEvidenceObservationWithoutOwnerAssignment();

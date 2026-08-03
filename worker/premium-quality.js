@@ -470,6 +470,26 @@ function isNonAuthoritativeRepublisher(card = {}) {
     || /搜狐|转载|综合自|公众号线索|行业媒体/.test(text(card.source_name));
 }
 
+function isRepublisherIdentity(card = {}) {
+  return REPUBLISHER_HOST_PATTERN.test(hostOf(card.source_url || card.url))
+    || /搜狐|转载|综合自|公众号线索/.test(text(card.source_name));
+}
+
+function isConcreteDiscoveredPublisherCard(card = {}) {
+  if (text(card.source_scope) !== 'discovered_article') return false;
+  if (isRepublisherIdentity(card)) return false;
+  if (text(card.detail_status) && text(card.detail_status) !== 'hydrated') return false;
+  const evidenceGrade = text(card.evidence_grade);
+  const trustedEvidence = ['hard_fact_ready', 'corroborated_fact_ready'].includes(evidenceGrade)
+    || text(card.verification_status) === 'corroborated';
+  if (text(card.editorial_status) !== 'accepted' && !trustedEvidence) return false;
+  const source = factualEvidenceTextForCard(card);
+  const hardCount = objectiveHardFactCount(card.hard_facts || {});
+  return BEAUTY_RELEVANCE_PATTERN.test(source)
+    && HARD_LEGAL_EVENT_PATTERN.test(source)
+    && (hardCount >= 2 || hasHardLegalEvent(card));
+}
+
 function isChinaCard(card) {
   return /中国|China|CN|内地|大陆/i.test(text(card.country));
 }
@@ -636,7 +656,10 @@ export function validatePremiumEvidenceCard(card = {}) {
     source_type: text(card.source_type),
     authority_type: text(card.authority_type),
     source_scope: text(card.source_scope),
+    detail_status: text(card.detail_status),
+    editorial_status: text(card.editorial_status),
     evidence_grade: text(card.evidence_grade),
+    verification_status: text(card.verification_status),
     published_at: candidateDisplayDate(card, hardFacts, evidenceSource),
     country: text(card.country || card.region || '未知'),
     facts: list(card.facts),
@@ -649,7 +672,7 @@ export function validatePremiumEvidenceCard(card = {}) {
 
   if (!normalized.title) return { accepted: false, reason: 'missing-title', card: normalized };
   if (!isHttpUrl(normalized.source_url)) return { accepted: false, reason: 'missing-source-url', card: normalized };
-  if (isNonAuthoritativeRepublisher(normalized)) return { accepted: false, reason: 'non-authoritative-source', card: normalized };
+  if (isNonAuthoritativeRepublisher(normalized) && !isConcreteDiscoveredPublisherCard(normalized)) return { accepted: false, reason: 'non-authoritative-source', card: normalized };
   if (isNavigationOrGenericInformationPage(normalized)) return { accepted: false, reason: 'navigation-or-generic-page', card: normalized };
   if (!isBeautyRelevantCard(normalized)) return { accepted: false, reason: 'not-beauty-relevant', card: normalized };
   if (!/^20\d{2}-\d{2}-\d{2}$/.test(normalized.published_at)) return { accepted: false, reason: 'missing-date', card: normalized };
@@ -791,7 +814,7 @@ function fallbackEvidenceCards(cards = [], maxItems = 6) {
   return cards
     .map(card => validatePremiumEvidenceCard(card).card)
     .filter(card => card.title && isHttpUrl(card.source_url))
-    .filter(card => !isNonAuthoritativeRepublisher(card))
+    .filter(card => !isNonAuthoritativeRepublisher(card) || isConcreteDiscoveredPublisherCard(card))
     .filter(card => !isNavigationOrGenericInformationPage(card))
     .filter(card => isBeautyRelevantCard(card))
     .filter(card => /^20\d{2}-\d{2}-\d{2}$/.test(card.published_at))
@@ -1340,6 +1363,8 @@ function premiumCardFromCandidate(candidate = {}) {
     source_type: text(candidate.source_type),
     authority_type: text(candidate.authority_type),
     source_scope: text(candidate.source_scope),
+    detail_status: text(candidate.detail_status),
+    editorial_status: text(candidate.editorial_status),
     evidence_grade: text(candidate.evidence_grade),
     verification_status: text(candidate.verification_status),
     supporting_sources: Array.isArray(candidate.supporting_sources) ? candidate.supporting_sources : [],
@@ -1381,7 +1406,7 @@ function isSourceOnlyFallbackEligible(candidate = {}) {
   if (candidate.detail_status && candidate.detail_status !== 'hydrated') return false;
   const card = premiumCardFromCandidate(candidate);
   if (!card.title || !isHttpUrl(card.source_url)) return false;
-  if (isNonAuthoritativeRepublisher(card)) return false;
+  if (isNonAuthoritativeRepublisher(card) && !isConcreteDiscoveredPublisherCard(card)) return false;
   const source = sourceTextForCard(card);
   if (source.length < 80) return false;
   if (!BEAUTY_RELEVANCE_PATTERN.test(source) && !MODULE_ORDER.includes(normalizeModule(card.module))) return false;
