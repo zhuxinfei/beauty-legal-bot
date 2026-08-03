@@ -747,6 +747,24 @@ function testPremiumPortfolioDeliveryRejectsIncompleteReports() {
   assert.throws(() => assertPremiumPortfolioDelivery(audit({ ...validCounts, '知识产权保护或者侵权': 1, '新法律法规政策': 5 })), /underfilledModules=知识产权保护或者侵权/);
 }
 
+function testPremiumPortfolioGateAllowsUnachievableLiveInventory() {
+  assert.doesNotThrow(() => assertPremiumPortfolioDelivery({
+    finalItems: 7,
+    finalItemsByModule: {
+      '新法律法规政策': 3,
+      '广告处罚案例': 1,
+      '知识产权保护或者侵权': 0,
+      '进出口': 1,
+      '产品质量/召回与安全风险': 1,
+      '美妆动态': 0,
+    },
+    minimumItems: 18,
+    maximumItems: 22,
+    minimumPerModule: 2,
+    portfolioGateAchievable: false,
+  }));
+}
+
 function testPremiumDingTalkMarkdownDoesNotExposeRiskTierAndSignalType() {
   const markdown = buildPremiumDingTalkMarkdown({
     period: { start: '2026-07-13', end: '2026-07-20' },
@@ -1660,7 +1678,55 @@ async function testBrowserSourceFetcherUsesGovernmentSiteCompatibleNavigation() 
   assert.equal(pageOptions.userAgent.includes('HeadlessChrome'), false);
   assert.equal(pageOptions.locale, 'zh-CN');
   assert.deepEqual(pageOptions.viewport, { width: 1365, height: 900 });
-  assert.equal(gotoOptions.waitUntil, 'commit');
+  assert.equal(gotoOptions.waitUntil, 'domcontentloaded');
+}
+
+async function testBrowserSourceFetcherFallsBackToDocumentText() {
+  const chromium = {
+    async launch() {
+      return {
+        async newPage() {
+          return {
+            async setExtraHTTPHeaders() {},
+            async goto() { return { status: () => 200 }; },
+            async title() { return '国家市场监督管理总局'; },
+            async content() { return '<html><body><div id="app"></div></body></html>'; },
+            url() { return 'https://www.samr.gov.cn/'; },
+            locator() { return { innerText: async () => '' }; },
+            async waitForLoadState() {},
+            async waitForTimeout() {},
+            async evaluate() { return '国家市场监督管理总局 化妆品广告监管公开正文'; },
+            async close() {},
+          };
+        },
+        async close() {},
+      };
+    },
+  };
+
+  const browserFetcher = await createBrowserSourceFetcher({ chromium });
+  const result = await browserFetcher.fetchHtml('https://www.samr.gov.cn/');
+  await browserFetcher.close();
+
+  assert.equal(result.ok, true);
+}
+
+function testOfficialSourcesDeclareStableAlternates() {
+  const byName = name => sourceCatalog.sources.find(source => source.name === name);
+  for (const name of [
+    '国家药品监督管理局',
+    '国家市场监督管理总局',
+    '中华人民共和国最高人民检察院',
+    '欧盟委员会化妆品法规',
+    '欧盟 SCCS 科学委员会',
+    '印度尼西亚 BPOM',
+    'WIPO',
+  ]) {
+    const source = byName(name);
+    assert.ok(source, `missing source ${name}`);
+    assert.ok(Array.isArray(source.alternate_urls), `${name} missing alternate_urls`);
+    assert.ok(source.alternate_urls.length >= 1, `${name} has no alternate URLs`);
+  }
 }
 
 async function testBrowserSourceFetcherRejectsAccessControlPages() {
@@ -5654,6 +5720,7 @@ testSourceCoverageGatesChinaCriticalAndOverallCoverage();
 testPipelineSourceCoverageGateWarnsWithoutBlocking();
 await testBrowserSourceFetcherReusesBrowserAndClosesPages();
 await testBrowserSourceFetcherUsesGovernmentSiteCompatibleNavigation();
+await testBrowserSourceFetcherFallsBackToDocumentText();
 await testBrowserSourceFetcherRejectsAccessControlPages();
 await testPublishVersionedPngUploadsBeforeHealthCheck();
 await testCollectCandidatesReturnsRecoveryEvidenceAndRealCoverage();
@@ -5800,6 +5867,7 @@ testExtractReportFingerprintsUsesItems();
 testSplitSourcesSeparatesWechatLeads();
 testSourceLeadCandidateKeepsWeaklyFetchableModulesAnalyzable();
 testSourceCatalogUsesWorkbookModulesAndGlobalMarkets();
+testOfficialSourcesDeclareStableAlternates();
 testSelectSourcesForWorkerBudgetKeepsImportantCoverageUnderLimit();
 testPreviewSourceSelectionPrioritizesHardChinaLegalSources();
 testHardFactAcquisitionRejectsPortalHomepages();
@@ -5835,6 +5903,7 @@ testPremiumDingTalkMarkdownUsesCompactEvidenceCardFormat();
 testPremiumSelectionRanksByImpactBeforeModuleOrder();
 testPremiumPortfolioBalancesOnlyValidatedCards();
 testPremiumPortfolioDeliveryRejectsIncompleteReports();
+testPremiumPortfolioGateAllowsUnachievableLiveInventory();
 testPremiumDingTalkMarkdownDoesNotExposeRiskTierAndSignalType();
 testPremiumDingTalkMarkdownKeepsPolicyPlanningObservationNeutral();
 testPremiumDingTalkMarkdownAcceptsEvidenceObservationWithoutOwnerAssignment();

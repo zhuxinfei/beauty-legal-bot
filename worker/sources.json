@@ -226,6 +226,11 @@
       "id": "xlsx-002",
       "name": "国家药品监督管理局",
       "url": "https://www.nmpa.gov.cn/index.html",
+      "alternate_urls": [
+        "https://zwfw.nmpa.gov.cn/web/taskview/11100000MB0341032Y100207205000001",
+        "https://zwfw.nmpa.gov.cn/web/taskview/11100000MB0341032Y100017214800001",
+        "https://english.nmpa.gov.cn/2025-02/19/c_1073586.htm"
+      ],
       "monitor_only": true,
       "monitor_reason": "GitHub Actions direct and browser requests returned HTTP 412",
       "monitor_reviewed_at": "2026-07-14",
@@ -245,6 +250,9 @@
       "id": "xlsx-003",
       "name": "国家市场监督管理总局",
       "url": "https://www.samr.gov.cn/",
+      "alternate_urls": [
+        "https://www.samr.gov.cn/ggjgs/index.html"
+      ],
       "module": "广告合规及处罚案例",
       "region": "亚洲",
       "country": "中国",
@@ -810,6 +818,10 @@
       "id": "xlsx-039",
       "name": "中华人民共和国最高人民检察院",
       "url": "https://www.spp.gov.cn/",
+      "alternate_urls": [
+        "https://www.spp.gov.cn/spp/zgrmjcyxwfbh/wqxwfbh/index.shtml",
+        "https://www.spp.gov.cn/spp/xwfbh/dxal/index.shtml"
+      ],
       "module": "新规及案例动态",
       "region": "亚洲",
       "country": "中国",
@@ -1279,6 +1291,10 @@
     {
       "name": "欧盟委员会化妆品法规",
       "url": "https://single-market-economy.ec.europa.eu/sectors/cosmetics/cosmetic-products-specific-topics_en",
+      "alternate_urls": [
+        "https://single-market-economy.ec.europa.eu/sectors/cosmetics/legislation_en",
+        "https://eur-lex.europa.eu/legal-content/en/TXT/?uri=CELEX%3A32009R1223"
+      ],
       "module": "新规及案例动态",
       "region": "欧洲",
       "country": "欧盟",
@@ -1296,6 +1312,10 @@
     {
       "name": "欧盟 SCCS 科学委员会",
       "url": "https://health.ec.europa.eu/scientific-committees/scientific-committee-consumer-safety-sccs_en",
+      "alternate_urls": [
+        "https://health.ec.europa.eu/scientific-committees/scientific-committee-consumer-safety-sccs/sccs-opinions_en",
+        "https://health.ec.europa.eu/scientific-committees_en"
+      ],
       "module": "新规及案例动态",
       "region": "欧洲",
       "country": "欧盟",
@@ -1361,6 +1381,12 @@
     {
       "name": "印度尼西亚 BPOM",
       "url": "https://www.pom.go.id/",
+      "alternate_urls": [
+        "https://www.pom.go.id/siaran-pers?page=1",
+        "https://standar-otskk.pom.go.id/regulasi",
+        "https://standar-otskk.pom.go.id/publikasi/kategori/siaran-pers",
+        "https://www.pom.go.id/siaran-pers/bpom-intensifkan-pengawasan-ruang-digital-peredaran-kosmetik-ilegal-jadi-sorotan"
+      ],
       "module": "新规及案例动态",
       "region": "亚洲",
       "country": "印尼",
@@ -1482,6 +1508,10 @@
     {
       "name": "WIPO",
       "url": "https://www.wipo.int/portal/en/index.html",
+      "alternate_urls": [
+        "https://www.wipo.int/news/en/",
+        "https://www.wipo.int/en/web/newsletters/"
+      ],
       "module": "知识产权动态",
       "region": "全球",
       "country": "全球",

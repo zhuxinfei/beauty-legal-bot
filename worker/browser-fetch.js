@@ -10,6 +10,15 @@ const PUBLIC_PAGE_OPTIONS = {
   viewport: { width: 1365, height: 900 },
 };
 
+async function readablePageText(page, timeoutMs) {
+  const locatorText = await page.locator('body').innerText({ timeout: Math.min(timeoutMs, 10000) }).catch(() => '');
+  if (String(locatorText || '').trim().length >= 8) return locatorText;
+  return page.evaluate(() => [
+    document.body?.innerText || '',
+    document.documentElement?.innerText || '',
+  ].join('\n')).catch(() => locatorText || '');
+}
+
 function accessControlKind(title, body) {
   const text = `${title}\n${body}`.toLowerCase();
   if (/captcha|验证码|人机验证|verify you are human/.test(text)) return 'captcha';
@@ -34,10 +43,12 @@ export async function createBrowserSourceFetcher({ chromium, launchOptions = {} 
       const page = await browser.newPage(PUBLIC_PAGE_OPTIONS);
       try {
         await page.setExtraHTTPHeaders(BROWSER_HEADERS);
-        const response = await page.goto(url, { waitUntil: 'commit', timeout: timeoutMs });
+        const response = await page.goto(url, { waitUntil: 'domcontentloaded', timeout: timeoutMs });
+        await page.waitForLoadState?.('networkidle', { timeout: Math.min(timeoutMs, 8000) }).catch(() => {});
+        await page.waitForTimeout?.(500).catch(() => {});
         const status = Number(response?.status?.() || 0);
         const title = await page.title();
-        const body = await page.locator('body').innerText({ timeout: Math.min(timeoutMs, 10000) }).catch(() => '');
+        const body = await readablePageText(page, timeoutMs);
         const blockedKind = accessControlKind(title, body);
         if (blockedKind) {
           return { ok: false, status, kind: blockedKind, error: `public browser page requires ${blockedKind}` };

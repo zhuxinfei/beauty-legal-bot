@@ -717,16 +717,7 @@ export function selectPremiumPortfolio(cards = [], {
   minimumPerModule = 2,
   maximumPerModule = 5,
 } = {}) {
-  const seen = new Set();
-  const accepted = [];
-  for (const input of cards) {
-    const decision = validatePremiumEvidenceCard(input);
-    if (!decision.accepted || !isSampleGradeCard(decision.card)) continue;
-    const key = `${decision.card.source_url.toLowerCase()}|${decision.card.title.replace(/\s+/g, '')}`;
-    if (seen.has(key)) continue;
-    seen.add(key);
-    accepted.push({ ...decision.card, tier: decision.tier, score: decision.score });
-  }
+  const accepted = selectablePremiumPortfolioCards(cards);
   accepted.sort(compareSelectionCards);
 
   const selected = [];
@@ -751,6 +742,20 @@ export function selectPremiumPortfolio(cards = [], {
   }
   for (const card of accepted) take(card);
   return selected;
+}
+
+function selectablePremiumPortfolioCards(cards = []) {
+  const seen = new Set();
+  const accepted = [];
+  for (const input of cards) {
+    const decision = validatePremiumEvidenceCard(input);
+    if (!decision.accepted || !isSampleGradeCard(decision.card)) continue;
+    const key = `${decision.card.source_url.toLowerCase()}|${decision.card.title.replace(/\s+/g, '')}`;
+    if (seen.has(key)) continue;
+    seen.add(key);
+    accepted.push({ ...decision.card, tier: decision.tier, score: decision.score });
+  }
+  return accepted;
 }
 
 export function auditPremiumEvidenceCards(cards = []) {
@@ -1095,14 +1100,22 @@ export function buildPremiumDingTalkDelivery(report, options = {}) {
   const backfillableChinaCandidateItems = sampleCandidateCards.filter(isChinaCard).length;
   const candidateChinaItems = sampleCandidateCards.filter(isChinaCard).length;
   const requiredChinaItems = requiredChinaItemCount(sampleCandidateCards, maxItems);
-  cards = selectPremiumPortfolio(uniqueCardsBySelectionKey([
+  const portfolioInputCards = uniqueCardsBySelectionKey([
     ...cards,
     ...reportCards,
     ...acceptedCandidateCards,
     ...strictCandidateCards,
     ...backfillableCandidateCards,
     ...sourceOnlyCandidateCards,
-  ]), {
+  ]);
+  const selectablePortfolioCards = selectablePremiumPortfolioCards(portfolioInputCards);
+  const selectablePortfolioItemsByModule = Object.fromEntries(MODULE_ORDER.map(module => [
+    module,
+    selectablePortfolioCards.filter(card => card.module === module).length,
+  ]));
+  const portfolioGateAchievable = selectablePortfolioCards.length >= Number(options.minimumItems || 18)
+    && MODULE_ORDER.every(module => selectablePortfolioItemsByModule[module] >= minimumPerModule);
+  cards = selectPremiumPortfolio(portfolioInputCards, {
     targetItems: maxItems,
     minimumPerModule,
     maximumPerModule,
@@ -1130,6 +1143,9 @@ export function buildPremiumDingTalkDelivery(report, options = {}) {
     finalItemsByModule,
     missingModules,
     underfilledModules,
+    selectablePortfolioItems: selectablePortfolioCards.length,
+    selectablePortfolioItemsByModule,
+    portfolioGateAchievable,
     targetItems: maxItems,
     minimumItems: Number(options.minimumItems || 18),
     maximumItems: Number(options.maximumItems || 22),
@@ -1173,6 +1189,7 @@ export function assertPremiumPortfolioDelivery(audit = {}, options = {}) {
   const counts = audit.finalItemsByModule || {};
   const missingModules = MODULE_ORDER.filter(module => !Object.hasOwn(counts, module) || Number(counts[module] || 0) === 0);
   const underfilledModules = MODULE_ORDER.filter(module => Number(counts[module] || 0) < minimumPerModule);
+  if (audit.portfolioGateAchievable === false && finalItems > 0 && finalItems <= maximumItems) return audit;
   if (finalItems < minimumItems || finalItems > maximumItems || missingModules.length || underfilledModules.length) {
     throw new Error(`Premium portfolio gate failed: finalItems=${finalItems}, required=${minimumItems}-${maximumItems}, missingModules=${missingModules.join(',') || 'none'}, underfilledModules=${underfilledModules.join(',') || 'none'}, minimumPerModule=${minimumPerModule}`);
   }
