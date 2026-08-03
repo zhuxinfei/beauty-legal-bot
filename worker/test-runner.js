@@ -2157,6 +2157,35 @@ function testHydratedRecordDropsNavigationBlocksAroundArticleBody() {
   assert.equal(record.article_text.includes('返回顶部'), false);
 }
 
+function testHydratedRecordNormalizesHeaderDateAndDemotesPortalSeed() {
+  const detail = normalizeHydratedRecord({
+    url: 'https://official.example.gov.cn/ip/20260731.html',
+    title: '化妆品商标侵权行政处罚决定书',
+    source_name: '市场监督管理局',
+    country: '中国',
+    module: '知识产权动态',
+    source_scope: 'portal',
+    parent_url: 'https://official.example.gov.cn/ip/index.html',
+    discovered_from: 'lead_page',
+    fit_markdown: '发布时间：2026年7月31日\n当事人：广州某化妆品有限公司。因冒用商标被罚款12万元。',
+  });
+  assert.equal(detail.published_at, '2026-07-31');
+  assert.equal(detail.evidence_grade, 'hard_fact_ready');
+
+  const seed = normalizeHydratedRecord({
+    url: 'https://official.example.gov.cn/ip/index.html',
+    title: '知识产权公告',
+    source_name: '市场监督管理局',
+    country: '中国',
+    module: '知识产权动态',
+    source_scope: 'portal',
+    fit_markdown: '发布时间：2026年7月31日\n化妆品商标侵权行政处罚公告。',
+  });
+  assert.equal(seed.published_at, '2026-07-31');
+  assert.equal(seed.evidence_grade, 'lead_only');
+  assert.equal(seed.evidence_reason, 'official-portal-crawl-seed');
+}
+
 function testHydratedRecordExtractsHardLegalFactsFromCrawl4AiText() {
   const record = normalizeHydratedRecord({
     url: 'https://amr.example.gov.cn/case/20260723',
@@ -5650,6 +5679,7 @@ await testHydrateCandidateDetailsFetchesArticleBodiesWithoutDroppingFailures();
 testHydratedRecordsOverrideWeakCandidateText();
 testHydratedRecordSeparatesArticleEvidenceFromPageChrome();
 testHydratedRecordDropsNavigationBlocksAroundArticleBody();
+testHydratedRecordNormalizesHeaderDateAndDemotesPortalSeed();
 testHydratedRecordExtractsHardLegalFactsFromCrawl4AiText();
 testHydratedRecordExtractsConcreteCompanyNamesFromCrawl4AiText();
 testHydratedRecordExtractsAttachmentLinksForCrawl4AiSecondHop();

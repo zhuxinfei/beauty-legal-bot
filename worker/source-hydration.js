@@ -39,6 +39,33 @@ function firstMatch(value, patterns) {
   return '';
 }
 
+function normalizePublishedDate(value) {
+  const source = text(value);
+  const match = source.match(/(20\d{2})[年./-](\d{1,2})[月./-](\d{1,2})日?/);
+  if (!match) return '';
+  const [, year, month, day] = match;
+  return `${year}-${String(Number(month)).padStart(2, '0')}-${String(Number(day)).padStart(2, '0')}`;
+}
+
+function extractPublishedDate(record = {}, articleText = '') {
+  const declared = [
+    record.published_at,
+    record.metadata?.published_time,
+    record.metadata?.published_at,
+    record.metadata?.date,
+  ].map(normalizePublishedDate).find(Boolean);
+  if (declared) return declared;
+
+  // A concrete article normally exposes its publication date close to the
+  // title. Restrict extraction to the header so effective dates and deadlines
+  // in the body cannot be mistaken for the publication date.
+  const header = stripMarkdown([record.title, articleText].filter(Boolean).join('\n')).slice(0, 1800);
+  const labelled = firstMatch(header, [
+    /(?:发布时间|发布于|发布日期|发文日期|日期)[：:\s]*((?:20\d{2})[年./-]\d{1,2}[月./-]\d{1,2}日?)/,
+  ]);
+  return normalizePublishedDate(labelled);
+}
+
 function uniqueValues(values = []) {
   const seen = new Set();
   const result = [];
@@ -325,6 +352,7 @@ export function normalizeHydratedRecord(record = {}) {
       || ''
   );
   const articleText = cleanArticleEvidence([primaryArticleText, extractedMarkdown, attachmentText].filter(Boolean).join('\n\n'));
+  const publishedAt = extractPublishedDate(record, articleText);
   const qualityFlags = Array.isArray(record.quality_flags)
     ? record.quality_flags.map(text).filter(Boolean)
     : text(record.quality_flags)
@@ -350,6 +378,9 @@ export function normalizeHydratedRecord(record = {}) {
     source_name: text(record.source_name || record.name),
     country: text(record.country || record.region || '未知'),
   });
+  const portalSeed = /^(?:portal|homepage|lead_only)$/i.test(text(record.source_scope))
+    && !text(record.parent_url)
+    && !text(record.discovered_from);
   const providedQuotes = record.evidence_quotes || record.extraction?.evidence_quotes || {};
   const evidenceQuotes = {
     ...(computedEvidence.evidence_quotes || {}),
@@ -363,7 +394,7 @@ export function normalizeHydratedRecord(record = {}) {
     source_url: sourceUrl || finalUrl,
     title: text(record.title),
     source_name: text(record.source_name || record.name),
-    published_at: text(record.published_at),
+    published_at: publishedAt,
     country: text(record.country || record.region || '未知'),
     region: text(record.region || ''),
     module: text(record.discovery_module || record.module || ''),
@@ -380,8 +411,8 @@ export function normalizeHydratedRecord(record = {}) {
     metadata: record.metadata || {},
     extraction: record.extraction || {},
     hard_facts: hardFacts,
-    evidence_grade: text(record.evidence_grade || record.extraction?.evidence_grade || computedEvidence.evidence_grade),
-    evidence_reason: text(record.evidence_reason || record.extraction?.evidence_reason || computedEvidence.evidence_reason),
+    evidence_grade: portalSeed ? 'lead_only' : text(record.evidence_grade || record.extraction?.evidence_grade || computedEvidence.evidence_grade),
+    evidence_reason: portalSeed ? 'official-portal-crawl-seed' : text(record.evidence_reason || record.extraction?.evidence_reason || computedEvidence.evidence_reason),
     evidence_quotes: evidenceQuotes,
     crawl_status: crawlStatus,
     quality_flags: normalizedQualityFlags,
