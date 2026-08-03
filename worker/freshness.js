@@ -1,5 +1,6 @@
 const DAY_MS = 86400000;
-const FRESH_DAYS = 14;
+const FRESH_WINDOW_DAYS = 15;
+const FRESH_MAX_AGE_DAYS = FRESH_WINDOW_DAYS - 1;
 const EXCEPTION_HORIZON_DAYS = 90;
 const ISO_DATE = /^\d{4}-\d{2}-\d{2}$/;
 const CN_DATE = /^(\d{4})[年\/.-](\d{1,2})[月\/.-](\d{1,2})日?$/;
@@ -48,7 +49,7 @@ export function classifyFreshness(item = {}, period = {}, now = new Date()) {
     return { accepted: true, allowedTier: 'watch', status: 'date-unknown', reason: '发布时间待核验', ageDays: null };
   }
   const ageDays = Math.floor((end - eventTime) / DAY_MS);
-  if (ageDays >= 0 && ageDays <= FRESH_DAYS) {
+  if (ageDays >= 0 && ageDays <= FRESH_MAX_AGE_DAYS) {
     return {
       accepted: true,
       allowedTier: 'action',
@@ -89,13 +90,13 @@ export function classifyFreshness(item = {}, period = {}, now = new Date()) {
   if ((exception === 'ongoing_enforcement' || /持续执行|仍在执行|继续执行|ongoing|enforcement/.test(activeNodeHints)) && hasText(item.change_evidence)) {
     return { accepted: true, allowedTier: 'action', status: 'historical-ongoing', reason: '历史规则·持续执行', ageDays };
   }
-  if ((exception === 'current_week_change' || /本周更新|近日更新|最新更新/.test(activeNodeHints)) && hasText(item.change_evidence) && asDate(item.updated_at) && Math.floor((end - asDate(item.updated_at)) / DAY_MS) <= FRESH_DAYS) {
+  if ((exception === 'current_week_change' || /本周更新|近日更新|最新更新/.test(activeNodeHints)) && hasText(item.change_evidence) && asDate(item.updated_at) && Math.floor((end - asDate(item.updated_at)) / DAY_MS) <= FRESH_MAX_AGE_DAYS) {
     return { accepted: true, allowedTier: 'action', status: 'current-week-update', reason: '本周更新', ageDays };
   }
   if ((exception === 'open_action' || /待反馈|公开征集|行动窗口|申报入口/.test(activeNodeHints)) && hasText(item.open_action_evidence || item.recommended_actions)) {
     return { accepted: true, allowedTier: 'action', status: 'historical-action', reason: '历史规则·未关闭行动', ageDays };
   }
-  return { accepted: false, allowedTier: 'reject', status: 'stale', reason: '超过 7 天且无有效例外', ageDays };
+  return { accepted: false, allowedTier: 'reject', status: 'stale', reason: `超过 ${FRESH_WINDOW_DAYS} 天且无有效例外`, ageDays };
 }
 
 export function filterCandidatesByFreshness(candidates = [], period = {}, now = new Date()) {

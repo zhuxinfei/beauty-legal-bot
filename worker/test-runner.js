@@ -115,6 +115,7 @@ import {
   filterReportToObservedSources,
   attachReportImages,
   collectCandidates,
+  getPeriod,
   buildModuleAnalysisBatches,
   fetchWithTimeout,
   selectSourcesForWorkerBudget,
@@ -133,7 +134,11 @@ import {
   isArtifactOnlyRun,
 } from './index.js';
 
-function testFreshnessGateAcceptsCurrentWeekAndFourteenDayBoundary() {
+function testDefaultPeriodCoversHalfMonth() {
+  assert.deepEqual(getPeriod(new Date('2026-08-03T00:00:00Z')), { start: '2026-07-20', end: '2026-08-03' });
+}
+
+function testFreshnessGateAcceptsHalfMonthBoundary() {
   const period = { start: '2026-07-13', end: '2026-07-19' };
   assert.equal(classifyFreshness({ published_at: '2026-07-19' }, period).status, 'current-week');
   assert.equal(classifyFreshness({ published_at: '2026-07-05' }, period).accepted, true);
@@ -3160,6 +3165,15 @@ function testReportQualitySeparatesActionWatchAndRejectedItems() {
   assert.equal(rejected.tier, 'reject');
 }
 
+function testReportQualityScoresHalfMonthItemsAsFresh() {
+  const classification = classifyReportItem(
+    highQualityActionItem({ published_at: '2026-07-05' }),
+    { start: '2026-07-05', end: '2026-07-19' },
+  );
+
+  assert.equal(classification.dimensions.novelty, 2);
+}
+
 function testReportQualityUsesOriginalEvidenceTitleForBeautyRelevance() {
   const item = {
     title: '《第42号公告》',
@@ -4762,7 +4776,7 @@ function testBuildAnalysisPromptIncludesLeads() {
   assert.ok(prompt.includes('leads'));
   assert.ok(prompt.includes('只能用于发现选题'));
   assert.ok(prompt.includes('客观资讯编辑'));
-  assert.ok(prompt.includes('过去 7 天'));
+  assert.ok(prompt.includes('过去 15 天'));
   assert.ok(prompt.includes('正文内容与美妆行业有实质关系'));
 }
 
@@ -5256,6 +5270,13 @@ function testCandidateFreshnessAndInfluenceRanking() {
 
   assert.equal(ranked[0].title, '近期监管信息');
   assert.equal(ranked[1].title, '旧高影响规则');
+
+  const halfMonthRanked = sortCandidatesForAnalysis([
+    { title: '2天内普通高优先信息', published_at: '2026-05-22', priority: 'high', authority_type: 'media', source_type: 'media' },
+    { title: '14天内监管高优先信息', published_at: '2026-05-10', priority: 'high', authority_type: 'regulator', source_type: 'official_site' },
+  ], new Date('2026-05-24T00:00:00Z'));
+
+  assert.equal(halfMonthRanked[0].title, '14天内监管高优先信息');
 }
 
 function testPrioritizeCandidatesForAnalysisPutsChinaEvidenceFirst() {
@@ -6011,6 +6032,7 @@ testValidateReportRejectsAiAssignedInternalDeadlines();
 testFilterReportQualityDropsItemsWithoutSourceUrl();
 testFilterReportQualityKeepsLeadBasedBeautyAndImportSignals();
 testReportQualitySeparatesActionWatchAndRejectedItems();
+testReportQualityScoresHalfMonthItemsAsFresh();
 testReportQualityUsesOriginalEvidenceTitleForBeautyRelevance();
 testCurateReportQualityKeepsSixModulesButDropsEmptyDisplaySections();
 testCurateReportQualityAuditExplainsRejectedItems();
@@ -6089,7 +6111,8 @@ testModuleAnalysisBatchesChinaCandidatesBeforeForeignCandidates();
 testHydrationSelectionReservesEvidenceBudgetForEveryModule();
 testHydrationSelectionHandlesModulesBelowConfiguredFloor();
 testAnalysisPromptKeepsChinaEvidenceFirst();
-testFreshnessGateAcceptsCurrentWeekAndFourteenDayBoundary();
+testDefaultPeriodCoversHalfMonth();
+testFreshnessGateAcceptsHalfMonthBoundary();
 testFreshnessGateAllowsOnlyStructuredHistoricalExceptions();
 testFreshnessGateAcceptsActiveLegalNodeWithoutManualException();
 testFreshnessGateDowngradesUnknownDateToWatch();

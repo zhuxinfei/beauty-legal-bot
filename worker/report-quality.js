@@ -70,7 +70,7 @@ function noveltyScore(item, period) {
   const published = Date.parse(`${publishedAt}T00:00:00Z`);
   const end = Date.parse(`${period?.end || publishedAt}T23:59:59Z`);
   const ageDays = Math.floor((end - published) / 86400000);
-  if (ageDays >= 0 && ageDays <= 7) return 2;
+  if (ageDays >= 0 && ageDays <= 14) return 2;
   if (ageDays >= 0 && ageDays <= 30) return 1;
   return ['法规', '征求意见', '生效提醒', '案例', '召回'].includes(item.type) ? 1 : 0;
 }

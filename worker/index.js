@@ -1971,8 +1971,7 @@ function scoreCandidate(candidate, now = new Date()) {
 
   if (candidate.published_at) {
     const ageDays = Math.floor((now - new Date(`${candidate.published_at}T00:00:00Z`)) / (24 * 60 * 60 * 1000));
-    if (ageDays >= 0 && ageDays <= 7) score += 80;
-    else if (ageDays > 7 && ageDays <= 14) score += 35;
+    if (ageDays >= 0 && ageDays <= 14) score += 80;
     else if (ageDays > 14 && ageDays <= 30) score += 10;
   }
 
@@ -2185,9 +2184,9 @@ export function limitReportSections(report, itemLimit = DEFAULT_REPORT_ITEMS_PER
   };
 }
 
-function getPeriod(now = new Date()) {
+export function getPeriod(now = new Date()) {
   const end = new Date(now.getTime() + 8 * 60 * 60 * 1000);
-  const start = new Date(end.getTime() - 6 * 24 * 60 * 60 * 1000);
+  const start = new Date(end.getTime() - 14 * 24 * 60 * 60 * 1000);
   return { start: start.toISOString().slice(0, 10), end: end.toISOString().slice(0, 10) };
 }
 
@@ -2216,8 +2215,8 @@ export function buildAnalysisPrompt({ candidates, leads = [], sources, period, t
 - 泛电商、泛广告、泛知识产权或泛进出口信息，如果正文没有美妆对象或具体适用关系，必须丢弃。
 
 时间和影响力规则：
-- 周报优先过去 7 天发布或更新的信息。
-- 超过 7 天的信息默认禁止进入报告；不能仅凭“影响力高”豁免。
+- 周报优先过去 15 天发布或更新的信息。
+- 超过 15 天的信息默认禁止进入报告；不能仅凭“影响力高”豁免。
 - 历史信息只有在 freshness_exception 为 upcoming_deadline、ongoing_enforcement、current_week_change 或 open_action，且提供对应日期/持续执行证据/未关闭行动证据时保留。
 - 未来 90 天生效、反馈截止、过渡期、认证节点可以入选，但必须填写 freshness_exception=upcoming_deadline。
 - 无法确认日期的内容只能 report_tier=watch，并标注 freshness_status=日期待核验；不得进入 action。
@@ -2319,7 +2318,7 @@ JSON 结构：
 }
 
 信息源统计：${JSON.stringify(getSourceStats(sources))}
-候选信息 candidates（已按中国优先、7天新鲜度、来源权威性和行业影响力预排序）：${JSON.stringify(prioritizeCandidatesForAnalysis(candidates.map((candidate, candidateIndex) => ({ ...candidate, candidate_index: candidateIndex }))).map(candidate => ({
+候选信息 candidates（已按中国优先、15天新鲜度、来源权威性和行业影响力预排序）：${JSON.stringify(prioritizeCandidatesForAnalysis(candidates.map((candidate, candidateIndex) => ({ ...candidate, candidate_index: candidateIndex }))).map(candidate => ({
   ...candidate,
   snippet: String(candidate.snippet || ''),
 })))}

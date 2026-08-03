@@ -4,10 +4,12 @@ import { buildDiscoveryQueries, discoverOpenWeb, discoverOpenWebWithRecovery } f
 import { parseGoogleNewsRss, resolveGoogleNewsCandidates } from '../worker/google-rss-discovery.js';
 import { attachAuthorityResolutionProvenance, buildAuthoritySearchRows } from '../worker/authority-resolver.js';
 
+const DISCOVERY_WINDOW_DAYS = Number(process.env.DISCOVERY_WINDOW_DAYS || 15);
+
 function period() {
   const end = process.env.REPORT_PERIOD_END || new Date().toISOString().slice(0, 10);
   const endDate = new Date(`${end}T00:00:00Z`);
-  const startDate = new Date(endDate.getTime() - 14 * 86400000);
+  const startDate = new Date(endDate.getTime() - (DISCOVERY_WINDOW_DAYS - 1) * 86400000);
   return { start: process.env.REPORT_PERIOD_START || startDate.toISOString().slice(0, 10), end };
 }
 
@@ -93,7 +95,7 @@ async function resolveAuthorityOriginals(leads, days) {
 }
 
 async function runDiscoveryPass({ period: passPeriod, queryRows, recovery }) {
-  const days = recovery ? Number(process.env.DISCOVERY_RECOVERY_DAYS || 30) : 14;
+  const days = recovery ? Number(process.env.DISCOVERY_RECOVERY_DAYS || 30) : DISCOVERY_WINDOW_DAYS;
   const discovered = await discoverOpenWeb({
     period: passPeriod,
     queryRows,
