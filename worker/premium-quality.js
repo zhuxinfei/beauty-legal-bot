@@ -393,7 +393,10 @@ function hasSampleGradeHardFactBundle(card = {}) {
     return hasProduct && (hasOutcome || hasAct || hasPolicyNode) && /召回|停止销售|抽检|不合格|污染|警示|warning|recall|adverse|contamination/i.test(source);
   }
   if (module === '新法律法规政策') {
-    return hasPolicyNode && hasProduct && /征求意见|公开征求|反馈截止|生效|实施|过渡期|新旧衔接|发布|公告|通告|修订|标准|规则|办法|条例|法案|requirement|regulation|rule/i.test(source);
+    const hasPolicyEvent = /征求意见|公开征求|发布|公告|通告|修订|标准|规则|办法|条例|法案|认证要求|合规要求|requirement|regulation|rule/i.test(source);
+    const hasConcreteChange = /明确|要求|规定|调整|更新|新增|删除|修订|执行|衔接|过渡期|反馈截止|生效|实施|禁用|限用|纳入|替代/i.test(source);
+    const hasStructuredPolicyDetail = hasProduct && Boolean(hardText(hard.effective_date) || hardText(hard.deadline) || hardText(hard.feedback_channel));
+    return hasPolicyNode && hasPolicyEvent && (hasConcreteChange || hasStructuredPolicyDetail);
   }
   if (module === '进出口') {
     return (hasPolicyNode || hardText(hard.hs_code) || hasOutcome) && (hasProduct || hardText(hard.hs_code)) && /海关|进口|出口|口岸|报关|清关|HS\s*编码|扣留|detention/i.test(source);
@@ -572,9 +575,6 @@ function validateTypeHardFacts(card) {
     const hasPolicyNode = Boolean(hard.effective_date || hard.deadline || hard.action_deadline || hard.document_number || hard.feedback_channel);
     if (!hasPolicyNode) {
       return 'policy-missing-effective-or-deadline';
-    }
-    if (!hardText(hard.product_or_batch)) {
-      return 'policy-missing-product-or-rule';
     }
     if (!/(办法|规定|公告|标准|新规|名单|管理|征求意见|生效|实施|过渡期|条款|执行|备案|注册|禁用|限用)/.test(source)) {
       return 'policy-missing-concrete-change';
@@ -1409,6 +1409,9 @@ function fallbackChinaCandidateCards(candidates = [], maxItems = 3) {
 function isPremiumCandidateSource(candidate = {}) {
   const grade = text(candidate.evidence_grade);
   if (grade === 'reject') return false;
+  if (BROKEN_FIELD_PATTERN.test(JSON.stringify(candidate.hard_facts || {}))) return false;
+  const providedProduct = text(candidate.hard_facts?.product_or_batch);
+  if (providedProduct && !hardText(providedProduct) && !policyProductFromTitle(candidate.title)) return false;
   const scope = text(candidate.source_scope);
   if (grade && !['hard_fact_ready', 'corroborated_fact_ready'].includes(grade)) return false;
   if (!grade && scope && !['hard_fact_endpoint', 'hard_fact_list'].includes(scope)) return false;

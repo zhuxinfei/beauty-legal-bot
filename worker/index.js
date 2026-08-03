@@ -1744,11 +1744,13 @@ export function applyEditorialGate(candidates = []) {
       continue;
     }
     const china = inferArticleChinaRelevance(candidate);
+    const assignedModule = [candidate.discovery_module, candidate.module]
+      .find(module => REPORT_MODULES.includes(module));
     accepted.push({
       ...candidate,
       editorial_status: 'accepted',
       editorial_tier: decision.tier,
-      module: inferCandidateModule(candidate),
+      module: assignedModule || inferCandidateModule(candidate),
       china_relevant: china.relevant,
       china_evidence_text: china.evidence_text,
       china_evidence_markers: china.matched_markers,

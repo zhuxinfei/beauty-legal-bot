@@ -249,6 +249,28 @@ function testEditorialGateRunsAfterHydrationBeforeAnalysis() {
   assert.equal(result.audit.rejections[0].reason, 'promotional-content');
 }
 
+function testEditorialGatePreservesExplicitDiscoveryModule() {
+  const assigned = [
+    ['广告合规及处罚案例', '市场监管局于2026年7月19日处罚某化妆品公司虚假功效宣传，罚款20万元。'],
+    ['知识产权动态', '法院于2026年7月19日判决某化妆品公司侵犯注册商标权并赔偿50万元。'],
+    ['进出口动态', '海关于2026年7月19日发布进口化妆品清关文件调整公告，明确企业申报要求。'],
+  ];
+  const result = applyEditorialGate(assigned.map(([module, articleText], index) => ({
+    title: `化妆品监管公告 ${index + 1}`,
+    url: `https://official.example.gov.cn/notices/20260719-${index + 1}.html`,
+    source_name: '官方监管机构',
+    source_type: 'official_site',
+    authority_type: 'regulator',
+    published_at: '2026-07-19',
+    discovery_module: module,
+    module,
+    article_text: articleText,
+  })));
+
+  assert.equal(result.candidates.length, 3);
+  assert.deepEqual(result.candidates.map(candidate => candidate.module), assigned.map(([module]) => module));
+}
+
 function testSourceOnlyProofRequiresIndependentTwentyTenFour() {
   const base = index => ({
     title: `监管部门通报第${index}款护肤品抽检结果`,
@@ -1077,6 +1099,34 @@ function testPremiumGateRejectsNavigationAndGenericInformationPages() {
     },
   });
   assert.equal(hydratedDetail.accepted, true, hydratedDetail.reason);
+
+  const policyWithoutProduct = validatePremiumEvidenceCard({
+    title: '国家药监局公开征求化妆品标准管理办法意见',
+    module: '新法律法规政策',
+    source_url: 'https://www.nmpa.gov.cn/xxgk/zhqyj/20260724120000123.html',
+    source_name: '国家药品监督管理局',
+    source_type: 'official_site',
+    authority_type: 'regulator',
+    source_scope: 'hard_fact_endpoint',
+    evidence_grade: 'hard_fact_ready',
+    verification_status: 'primary_verified',
+    detail_status: 'hydrated',
+    hydration_source: 'crawl4ai',
+    published_at: '2026-07-24',
+    country: '中国',
+    evidence_text: '首页 机构概况 信息公开 办事大厅 快捷检索 高级检索 友情链接。国家药监局于2026年7月24日公开征求化妆品标准管理办法意见，明确标准执行、新旧标准衔接和企业参与标准制修订渠道，反馈截止日为2026年8月24日。',
+    facts: ['国家药监局于2026年7月24日公开征求化妆品标准管理办法意见，明确标准执行、新旧标准衔接和企业参与标准制修订渠道，反馈截止日为2026年8月24日。'],
+    legal_signal: '征求意见稿把标准执行、新旧衔接和企业参与渠道纳入制度化安排。',
+    business_impact: '影响配方开发、标签备案、执行标准选择和存量 SKU 过渡期管理。',
+    recommended_action: '观察正式稿发布日期、反馈截止日和过渡期安排。',
+    hard_facts: {
+      authority: '国家药品监督管理局',
+      document_number: '征求意见稿',
+      deadline: '2026年8月24日',
+      affected_processes: ['配方开发', '标签备案', '执行标准选择', '存量 SKU 过渡期管理'],
+    },
+  });
+  assert.equal(policyWithoutProduct.accepted, true, policyWithoutProduct.reason);
 }
 
 function testPremiumGateAcceptsManualHardInformationSamples() {
@@ -2441,6 +2491,13 @@ function testAuthorityResolverBuildsSearchTasksFromLeadOnlySources() {
   assert.equal(tasks[0].module, '知识产权动态');
   assert.equal(tasks[0].trust.level, 'lead_only');
   assert.ok(tasks[0].queries[0].includes('site:gov.cn'));
+}
+
+function testAuthorityResolverBuildsIndependentModuleQueries() {
+  const rows = buildAuthoritySearchRows([], 24);
+  assert.deepEqual(new Set(rows.map(row => row.module)), new Set(REPORT_MODULES));
+  assert.equal(rows.every(row => row.authorityResolution && row.authorityTaskId.startsWith('module:')), true);
+  assert.equal(rows.every(row => !row.authorityLeadTitle && !row.authorityLeadUrl), true);
 }
 
 function testAuthorityResolutionKeepsLeadProvenanceAndRejectsMedia() {
@@ -5574,6 +5631,7 @@ testDiscoveredArticleCanBeHydratedWithoutBecomingAuthoritative();
 testHydrationKeepsSingleSourceRecordsForLaterQualityGates();
 testEvidenceCorroborationRequiresIndependentHardAnchors();
 testAuthorityResolverBuildsSearchTasksFromLeadOnlySources();
+testAuthorityResolverBuildsIndependentModuleQueries();
 testAuthorityResolutionKeepsLeadProvenanceAndRejectsMedia();
 testAuthorityResolverClassifiesFinalSourceTrust();
 testAuthorityResolverKeepsOnlyAuthorityResolvedCandidates();
@@ -5693,6 +5751,7 @@ testEditorialGateRequiresConcreteFactsButKeepsWatch();
 testEditorialGateRejectsRepublisherSourcesEvenWithConcretePenaltyFacts();
 testEditorialModuleUsesArticleFactsAndChinaEvidence();
 testEditorialGateRunsAfterHydrationBeforeAnalysis();
+testEditorialGatePreservesExplicitDiscoveryModule();
 testSourceOnlyProofRequiresIndependentTwentyTenFour();
 testEditorialGateRejectsIntermediaryAndNavigationUrls();
 testSourceOnlyAuditRecordsEveryCandidateReason();

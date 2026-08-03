@@ -82,7 +82,14 @@ async function resolveAuthorityOriginals(leads, days) {
   const raw = rawGroups.flat();
   const resolved = await resolveGoogleNewsCandidates(raw, 6);
   const candidates = attachAuthorityResolutionProvenance(resolved, rows);
-  return { candidates, rows: rows.length, raw: raw.length, resolved: candidates.length };
+  return {
+    candidates,
+    rows: rows.length,
+    raw: raw.length,
+    resolved: candidates.length,
+    rawByModule: countByModule(raw),
+    resolvedByModule: countByModule(candidates),
+  };
 }
 
 async function runDiscoveryPass({ period: passPeriod, queryRows, recovery }) {
@@ -108,6 +115,8 @@ async function runDiscoveryPass({ period: passPeriod, queryRows, recovery }) {
       authorityQueries: authority.rows,
       authorityRaw: authority.raw,
       authorityResolved: authority.resolved,
+      authorityRawByModule: authority.rawByModule,
+      authorityResolvedByModule: authority.resolvedByModule,
     },
   };
 }
@@ -140,4 +149,5 @@ await writeFile(manifestOutput, `${JSON.stringify({ sources: [...(catalog.source
 console.log(`Discovery queries=${result.audit.queries}, raw=${result.audit.raw}, resolved=${result.audit.resolved}, unique=${result.audit.unique}`);
 console.log(`Discovery modules=${JSON.stringify(result.audit.acceptedByModule || {})}, recovery=${JSON.stringify(result.audit.recoveryModules || [])}`);
 console.log(`Authority resolution queries=${result.audit.authorityQueries || 0}, raw=${result.audit.authorityRaw || 0}, resolved=${result.audit.authorityResolved || 0}`);
+console.log(`Authority resolution modules=${JSON.stringify(result.audit.authorityResolvedByModule || {})}, raw=${JSON.stringify(result.audit.authorityRawByModule || {})}`);
 console.log(`Generated ${manifestOutput}`);

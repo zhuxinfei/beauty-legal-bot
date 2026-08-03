@@ -103,8 +103,32 @@ export function buildAuthoritySearchTasks(leads = []) {
 }
 
 export function buildAuthoritySearchRows(leads = [], limit = 24) {
-  const tasks = buildAuthoritySearchTasks(leads).slice(0, Math.max(0, Number(limit) || 0));
-  return tasks.flatMap((task, index) => task.queries.slice(0, 1).map(query => ({
+  const maximum = Math.max(0, Number(limit) || 0);
+  const moduleRows = Object.entries(MODULE_AUTHORITY_ANCHORS).map(([module, query]) => ({
+    module,
+    query,
+    beautyScoped: true,
+    authorityResolution: true,
+    authorityTaskId: `module:${module}`,
+    authorityLeadUrl: '',
+    authorityLeadTitle: '',
+  }));
+  const leadTasks = buildAuthoritySearchTasks(leads);
+  if (maximum < moduleRows.length && leadTasks.length) {
+    return leadTasks.slice(0, maximum).flatMap((task, index) => task.queries.slice(0, 1).map(query => ({
+      module: task.module,
+      query,
+      beautyScoped: true,
+      authorityResolution: true,
+      authorityTaskId: `${index}:${task.title}`,
+      authorityLeadUrl: task.url,
+      authorityLeadTitle: task.title,
+    })));
+  }
+  const moduleBudget = Math.min(moduleRows.length, maximum);
+  const leadBudget = Math.max(0, maximum - moduleBudget);
+  const tasks = leadTasks.slice(0, leadBudget);
+  const leadRows = tasks.flatMap((task, index) => task.queries.slice(0, 1).map(query => ({
     module: task.module,
     query,
     beautyScoped: true,
@@ -113,6 +137,7 @@ export function buildAuthoritySearchRows(leads = [], limit = 24) {
     authorityLeadUrl: task.url,
     authorityLeadTitle: task.title,
   })));
+  return [...leadRows, ...moduleRows.slice(0, moduleBudget)];
 }
 
 export function attachAuthorityResolutionProvenance(candidates = [], rows = []) {
