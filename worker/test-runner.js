@@ -1499,6 +1499,114 @@ function testPremiumDeliveryBackfillsConcreteDiscoveredPublisherArticlesAcrossMo
   assert.ok(modules.has('进出口'));
 }
 
+function testPremiumDeliveryUsesValidatedHardFactCandidatesWhenSampleInventoryIsThin() {
+  const candidates = [
+    ['广告合规及处罚案例', '市场监管局通报化妆品广告处罚案', '2026年7月19日，上海市市场监管局通报某化妆品广告处罚案，企业因虚假功效宣称被罚款5万元。', { authority: '上海市市场监管局', involved_party: '某化妆品企业', violation_behavior: '虚假功效宣称', penalty_amount: '5万元', legal_basis: '《广告法》' }],
+    ['知识产权动态', '法院发布美妆商标侵权判决', '2026年7月19日，广州知识产权法院发布美妆商标侵权判决，某企业被判停止侵权并赔偿8万元。', { authority: '广州知识产权法院', involved_party: '某美妆企业', violation_behavior: '侵犯注册商标权', penalty_amount: '赔偿8万元', legal_basis: '商标侵权判决' }],
+    ['进出口动态', '海关提示进口化妆品申报资料核验', '2026年7月19日，上海海关提示进口化妆品申报资料核验，涉及中文标签、备案凭证和HS编码330499。', { authority: '上海海关', document_number: '2026年申报提示', hs_code: '330499', legal_basis: '进口化妆品申报资料核验' }],
+    ['产品质量/召回与安全风险', '监管部门通报护肤品抽检不合格', '2026年7月19日，广东省市场监管局通报护肤品抽检不合格，检出禁用成分并责令停止销售。', { authority: '广东省市场监管局', violation_behavior: '检出禁用成分', confiscation_result: '责令停止销售', legal_basis: '抽检通报' }],
+    ['美妆动态', '平台启动美妆商品虚假宣传治理', '2026年7月19日，抖音电商启动美妆商品虚假宣传治理，要求商家整改功效宣称和达人带货素材。', { authority: '抖音电商', document_number: '2026年美妆治理公告', effective_date: '2026-07-19', legal_basis: '平台美妆商品治理公告' }],
+    ['新规及案例动态', '监管部门发布化妆品经营合规提示', '2026年7月19日，监管部门发布化妆品经营合规提示，要求企业更新标签备案、进货查验和销售台账。', { authority: '监管部门', document_number: '2026年合规提示', effective_date: '2026-07-19', legal_basis: '化妆品经营合规提示' }],
+  ].map(([module, title, article_text, hard_facts], index) => ({
+    module,
+    title,
+    article_text,
+    hard_facts,
+    url: `https://official.example.gov.cn/hard-fact-${index + 1}.html`,
+    source_name: '监管公开信息',
+    source_type: 'official_site',
+    authority_type: 'regulator',
+    source_scope: 'hard_fact_endpoint',
+    evidence_grade: 'hard_fact_ready',
+    detail_status: 'hydrated',
+    published_at: '2026-07-19',
+    country: '中国',
+  }));
+
+  const delivery = buildPremiumDingTalkDelivery(
+    { period: { start: '2026-07-13', end: '2026-07-19' }, summary: [], risk_alerts: [], sections: [] },
+    { candidates, maxItems: 8, targetItems: 8, minimumPerModule: 1, allowSourceOnlyFallback: true },
+  );
+
+  const modules = new Set(delivery.cards.map(item => item.module));
+  assert.ok(delivery.cards.length >= 6);
+  assert.ok(modules.has('广告处罚案例'));
+  assert.ok(modules.has('知识产权保护或者侵权'));
+  assert.ok(modules.has('进出口'));
+  assert.ok(modules.has('产品质量/召回与安全风险'));
+  assert.ok(modules.has('美妆动态'));
+  assert.ok(modules.has('新法律法规政策'));
+}
+
+function testPremiumGateAcceptsConcretePlatformBeautyGovernanceArticle() {
+  const result = validatePremiumEvidenceCard({
+    module: '美妆动态',
+    title: '抖音电商启动美妆商品虚假宣传治理',
+    source_url: 'https://beautynews.example.com/platform-governance.html',
+    source_name: '行业媒体直链',
+    source_type: 'industry_media',
+    authority_type: 'media',
+    source_scope: 'discovered_article',
+    editorial_status: 'accepted',
+    detail_status: 'hydrated',
+    published_at: '2026-07-19',
+    country: '中国',
+    facts: ['2026年7月19日，抖音电商启动美妆商品虚假宣传治理，要求商家整改功效宣称和达人带货素材。'],
+    legal_signal: '平台针对美妆功效宣称治理形成渠道合规观察节点。',
+    business_impact: '影响美妆品牌在平台店铺、商品详情页、达人素材和直播话术中的功效宣称管理。',
+    recommended_action: '法务团队和电商团队复核平台店铺、达人素材和直播话术，保留整改证据。',
+    hard_facts: {
+      authority: '抖音电商',
+      document_number: '2026年美妆治理公告',
+      effective_date: '2026-07-19',
+      violation_behavior: '美妆商品虚假宣传治理',
+      affected_processes: ['平台店铺', '达人素材', '直播话术'],
+    },
+  });
+
+  assert.equal(result.accepted, true);
+}
+
+function testPremiumPortfolioBackfillsConcreteDiscoveredArticlesToTargetRange() {
+  const templates = [
+    ['新规及案例动态', '化妆品标准征求意见稿明确备案资料过渡期', '2026年7月19日，行业媒体直链披露监管部门发布化妆品标准征求意见稿，明确备案资料、质量放行和过渡期执行要求。', { authority: '监管部门', document_number: '征求意见稿', product_or_batch: '化妆品标准征求意见稿', deadline: '2026-08-19', legal_basis: '化妆品标准征求意见稿' }],
+    ['广告合规及处罚案例', '市场监管部门通报化妆品虚假功效宣称处罚', '2026年7月19日，行业媒体直链披露市场监管部门通报化妆品虚假功效宣称处罚，涉案企业被罚款5万元并责令改正广告素材。', { authority: '市场监管部门', involved_party: '某化妆品企业', violation_behavior: '虚假功效宣称', penalty_amount: '5万元', product_or_batch: '化妆品广告素材', legal_basis: '《广告法》' }],
+    ['知识产权动态', '法院公开美妆商标侵权判决', '2026年7月19日，行业媒体直链披露法院公开美妆商标侵权判决，被告化妆品企业被判停止侵权并赔偿8万元。', { authority: '知识产权法院', involved_party: '某化妆品企业', violation_behavior: '侵犯注册商标权', penalty_amount: '赔偿8万元', product_or_batch: '美妆商标包装', legal_basis: '商标侵权判决' }],
+    ['进出口动态', '海关提示进口化妆品申报资料核验', '2026年7月19日，行业媒体直链披露海关提示进口化妆品申报资料核验，涉及中文标签、备案凭证和HS编码330499。', { authority: '海关', document_number: '申报提示', product_or_batch: '进口化妆品', hs_code: '330499', legal_basis: '进口化妆品申报资料核验' }],
+    ['产品质量/召回与安全风险', '监管部门通报护肤品抽检不合格并停止销售', '2026年7月19日，行业媒体直链披露监管部门通报护肤品抽检不合格，检出禁用成分并责令停止销售。', { authority: '市场监管部门', violation_behavior: '检出禁用成分', confiscation_result: '责令停止销售', product_or_batch: '护肤品批次', legal_basis: '抽检通报' }],
+    ['美妆动态', '平台启动美妆商品虚假宣传专项治理', '2026年7月19日，行业媒体直链披露平台启动美妆商品虚假宣传专项治理，要求商家整改功效宣称、达人素材和商品详情页。', { authority: '电商平台', document_number: '美妆治理公告', effective_date: '2026-07-19', violation_behavior: '美妆商品虚假宣传治理', legal_basis: '平台治理公告', affected_processes: ['平台店铺', '达人素材', '商品详情页'] }],
+  ];
+  const candidates = templates.flatMap(([module, title, article_text, hard_facts], moduleIndex) =>
+    [0, 1, 2].map(index => ({
+      module,
+      title: `${title}${index + 1}`,
+      article_text,
+      hard_facts,
+      url: `https://beautypublisher.example.com/articles/${moduleIndex}-${index}.html`,
+      source_name: '行业媒体直链',
+      source_type: 'industry_media',
+      authority_type: 'media',
+      source_scope: 'discovered_article',
+      editorial_status: 'accepted',
+      detail_status: 'hydrated',
+      published_at: '2026-07-19',
+      country: '中国',
+    }))
+  );
+
+  const delivery = buildPremiumDingTalkDelivery(
+    { period: { start: '2026-07-13', end: '2026-07-19' }, summary: [], risk_alerts: [], sections: [] },
+    { candidates, maxItems: 20, targetItems: 20, minimumItems: 18, maximumItems: 22, minimumPerModule: 2, allowSourceOnlyFallback: true },
+  );
+
+  assert.equal(delivery.audit.finalItems, 18);
+  assert.deepEqual(delivery.audit.missingModules, []);
+  assert.deepEqual(delivery.audit.underfilledModules, []);
+  for (const count of Object.values(delivery.audit.finalItemsByModule)) {
+    assert.ok(count >= 2);
+  }
+}
+
 function testPremiumDeliverySplitsOversizedDingTalkMarkdownWithinByteLimit() {
   const longFact = '监管部门披露化妆品经营主体在标签、备案、广告素材、平台店铺和进口清关资料中存在可核验合规风险，要求企业同步排查在售SKU、留存原始证据并跟踪后续处置。';
   const sections = [{
@@ -6028,6 +6136,9 @@ testPremiumPortfolioBalancesOnlyValidatedCards();
 testPremiumPortfolioDeliveryRejectsIncompleteReports();
 testPremiumPortfolioGateAllowsUnachievableLiveInventory();
 testPremiumDeliveryBackfillsConcreteDiscoveredPublisherArticlesAcrossModules();
+testPremiumDeliveryUsesValidatedHardFactCandidatesWhenSampleInventoryIsThin();
+testPremiumGateAcceptsConcretePlatformBeautyGovernanceArticle();
+testPremiumPortfolioBackfillsConcreteDiscoveredArticlesToTargetRange();
 testPremiumDingTalkMarkdownDoesNotExposeRiskTierAndSignalType();
 testPremiumDingTalkMarkdownKeepsPolicyPlanningObservationNeutral();
 testPremiumDingTalkMarkdownAcceptsEvidenceObservationWithoutOwnerAssignment();
