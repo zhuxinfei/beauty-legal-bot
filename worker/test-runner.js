@@ -798,7 +798,12 @@ function testPremiumPortfolioBalancesOnlyValidatedCards() {
       hard_facts: hardFacts,
     };
   };
-  const cards = modules.flatMap(module => Array.from({ length: module === '新法律法规政策' ? 8 : 4 }, (_, index) => makeCard(module, index)));
+  const cards = modules.flatMap(module => Array.from({ length: 4 }, (_, index) => makeCard(module, index)));
+  cards.push({
+    ...cards[0],
+    source_url: 'https://republisher.example.com/copied-event',
+    source_name: '转载媒体',
+  });
   cards.push({ title: '弱卡', module: '美妆动态', source_url: 'https://weak.example/item' });
 
   const selected = selectPremiumPortfolio(cards, {
@@ -811,6 +816,7 @@ function testPremiumPortfolioBalancesOnlyValidatedCards() {
   assert.equal(selected.length, 20);
   assert.equal(selected.some(card => card.title === '弱卡'), false);
   assert.equal(Object.values(counts).every(count => count >= 2 && count <= 5), true);
+  assert.equal(selected.filter(card => card.title === cards[0].title).length, 1);
 }
 
 function testPremiumPortfolioDeliveryRejectsIncompleteReports() {
@@ -821,22 +827,25 @@ function testPremiumPortfolioDeliveryRejectsIncompleteReports() {
   const audit = counts => ({
     finalItems: Object.values(counts).reduce((sum, count) => sum + count, 0),
     finalItemsByModule: counts,
-    minimumItems: 18,
-    maximumItems: 22,
+    minimumItems: 20,
+    maximumItems: 24,
     minimumPerModule: 2,
   });
-  const validCounts = Object.fromEntries(modules.map(module => [module, 3]));
+  const validCounts = Object.fromEntries(modules.map(module => [module, 4]));
 
   assert.doesNotThrow(() => assertPremiumPortfolioDelivery(audit(validCounts)));
-  assert.throws(() => assertPremiumPortfolioDelivery(audit({ ...validCounts, '美妆动态': 2 })), /Premium portfolio gate failed.*finalItems=17/);
+  assert.throws(
+    () => assertPremiumPortfolioDelivery(audit(Object.fromEntries(modules.map(module => [module, 3])))),
+    /Premium portfolio gate failed.*finalItems=18/
+  );
   const missing = { ...validCounts };
   delete missing['进出口'];
   assert.throws(() => assertPremiumPortfolioDelivery(audit(missing)), /missingModules=进出口/);
   assert.throws(() => assertPremiumPortfolioDelivery(audit({ ...validCounts, '知识产权保护或者侵权': 1, '新法律法规政策': 5 })), /underfilledModules=知识产权保护或者侵权/);
 }
 
-function testPremiumPortfolioGateAllowsUnachievableLiveInventory() {
-  assert.doesNotThrow(() => assertPremiumPortfolioDelivery({
+function testPremiumPortfolioGateRejectsUnachievableLiveInventoryEvenInDebugMode() {
+  const insufficient = {
     finalItems: 7,
     finalItemsByModule: {
       '新法律法规政策': 3,
@@ -846,11 +855,13 @@ function testPremiumPortfolioGateAllowsUnachievableLiveInventory() {
       '产品质量/召回与安全风险': 1,
       '美妆动态': 0,
     },
-    minimumItems: 18,
-    maximumItems: 22,
+    minimumItems: 20,
+    maximumItems: 24,
     minimumPerModule: 2,
     portfolioGateAchievable: false,
-  }));
+  };
+  assert.throws(() => assertPremiumPortfolioDelivery(insufficient), /Premium portfolio gate failed.*finalItems=7/);
+  assert.throws(() => assertPremiumPortfolioDelivery(insufficient, { forceDelivery: true }), /Premium portfolio gate failed.*finalItems=7/);
 }
 
 function testPremiumDingTalkMarkdownDoesNotExposeRiskTierAndSignalType() {
@@ -1794,7 +1805,7 @@ function testPremiumDeliverySplitsOversizedDingTalkMarkdownWithinByteLimit() {
   const delivery = buildPremiumDingTalkDelivery({
     period: { start: '2026-07-20', end: '2026-07-26' },
     sections,
-  }, { maxItems: 18, maxBytes });
+  }, { maxItems: 18, maximumPerModule: 18, maxBytes });
 
   assert.ok(delivery.messages.length > 1);
   assert.equal(delivery.messages.reduce((sum, message) => sum + message.itemCount, 0), 18);
@@ -2216,6 +2227,7 @@ async function testPipelineSendsNativeMarkdownWithoutImageHooks() {
       DINGTALK_MESSAGE_DELAY_MS: 0,
       REPORT_PERIOD_START: sampleReport.period.start,
       REPORT_PERIOD_END: sampleReport.period.end,
+      FORCE_DELIVERY: '1',
       SEEN_NEWS: kv,
       CREATE_EDITORIAL_REPORT_PNG: async () => {
         throw new Error('native Markdown pipeline must not render an image');
@@ -6074,8 +6086,8 @@ function testWeeklyWorkflowRunsLocalReportPipelineWithoutWorkerDeploy() {
   assert.ok(workflow.includes('DETAIL_FETCH_ENABLED: 1'));
   assert.ok(workflow.includes('DETAIL_CANDIDATE_LIMIT: 48'));
   assert.ok(workflow.includes('REPORT_TARGET_ITEMS: 20'));
-  assert.ok(workflow.includes('PREMIUM_MIN_ITEMS: 18'));
-  assert.ok(workflow.includes('PREMIUM_MAX_ITEMS: 22'));
+  assert.ok(workflow.includes('PREMIUM_MIN_ITEMS: 20'));
+  assert.ok(workflow.includes('PREMIUM_MAX_ITEMS: 24'));
   assert.ok(workflow.includes('PREMIUM_MIN_PER_MODULE: 2'));
   assert.ok(workflow.includes('PREMIUM_MAX_PER_MODULE: 5'));
   assert.ok(workflow.includes('DISCOVERY_RECOVERY_DAYS: 15'));
@@ -6310,7 +6322,7 @@ testPremiumDingTalkMarkdownUsesCompactEvidenceCardFormat();
 testPremiumSelectionRanksByImpactBeforeModuleOrder();
 testPremiumPortfolioBalancesOnlyValidatedCards();
 testPremiumPortfolioDeliveryRejectsIncompleteReports();
-testPremiumPortfolioGateAllowsUnachievableLiveInventory();
+testPremiumPortfolioGateRejectsUnachievableLiveInventoryEvenInDebugMode();
 testPremiumDeliveryBackfillsConcreteDiscoveredPublisherArticlesAcrossModules();
 testPremiumDeliveryUsesValidatedHardFactCandidatesWhenSampleInventoryIsThin();
 testPremiumGateAcceptsConcretePlatformBeautyGovernanceArticle();

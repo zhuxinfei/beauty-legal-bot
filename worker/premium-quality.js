@@ -1128,8 +1128,8 @@ export function buildPremiumDingTalkDelivery(report, options = {}) {
     (section.items || []).map(item => premiumCardFromItem(item, section.module))
   );
   const maxItems = Number(options.maxItems || options.targetItems || 20);
-  const minimumPerModule = Number(options.minimumPerModule ?? 1);
-  const maximumPerModule = Number(options.maximumPerModule ?? maxItems);
+  const minimumPerModule = Number(options.minimumPerModule ?? 2);
+  const maximumPerModule = Number(options.maximumPerModule ?? 5);
   const premiumCards = cardsForPremiumDelivery(reportCards, maxItems);
   let cards = premiumCards.length ? premiumCards : fallbackEvidenceCards(reportCards, maxItems);
   cards = backfillChinaFromCandidates(cards, options.candidates || [], maxItems);
@@ -1183,7 +1183,7 @@ export function buildPremiumDingTalkDelivery(report, options = {}) {
     module,
     selectablePortfolioCards.filter(card => card.module === module).length,
   ]));
-  const portfolioGateAchievable = selectablePortfolioCards.length >= Number(options.minimumItems || 18)
+  const portfolioGateAchievable = selectablePortfolioCards.length >= Number(options.minimumItems || 20)
     && MODULE_ORDER.every(module => selectablePortfolioItemsByModule[module] >= minimumPerModule);
   cards = selectPremiumPortfolio(portfolioInputCards, {
     targetItems: maxItems,
@@ -1217,8 +1217,8 @@ export function buildPremiumDingTalkDelivery(report, options = {}) {
     selectablePortfolioItemsByModule,
     portfolioGateAchievable,
     targetItems: maxItems,
-    minimumItems: Number(options.minimumItems || 18),
-    maximumItems: Number(options.maximumItems || 22),
+    minimumItems: Number(options.minimumItems || 20),
+    maximumItems: Number(options.maximumItems || 24),
     minimumPerModule,
     maximumPerModule,
   };
@@ -1252,14 +1252,13 @@ export function assertPremiumChinaDelivery(audit = {}, { allowForeignOnly = fals
 }
 
 export function assertPremiumPortfolioDelivery(audit = {}, options = {}) {
-  const minimumItems = Number(options.minimumItems ?? audit.minimumItems ?? 18);
-  const maximumItems = Number(options.maximumItems ?? audit.maximumItems ?? 22);
+  const minimumItems = Number(options.minimumItems ?? audit.minimumItems ?? 20);
+  const maximumItems = Number(options.maximumItems ?? audit.maximumItems ?? 24);
   const minimumPerModule = Number(options.minimumPerModule ?? audit.minimumPerModule ?? 2);
   const finalItems = Number(audit.finalItems || 0);
   const counts = audit.finalItemsByModule || {};
   const missingModules = MODULE_ORDER.filter(module => !Object.hasOwn(counts, module) || Number(counts[module] || 0) === 0);
   const underfilledModules = MODULE_ORDER.filter(module => Number(counts[module] || 0) < minimumPerModule);
-  if (audit.portfolioGateAchievable === false && finalItems > 0 && finalItems <= maximumItems) return audit;
   if (finalItems < minimumItems || finalItems > maximumItems || missingModules.length || underfilledModules.length) {
     throw new Error(`Premium portfolio gate failed: finalItems=${finalItems}, required=${minimumItems}-${maximumItems}, missingModules=${missingModules.join(',') || 'none'}, underfilledModules=${underfilledModules.join(',') || 'none'}, minimumPerModule=${minimumPerModule}`);
   }
@@ -1545,7 +1544,10 @@ function requiredChinaItemCount(candidateCards = [], maxItems = 6) {
 }
 
 function cardSelectionKey(card = {}) {
-  return `${text(card.source_url || card.url).toLowerCase()}|${text(card.title).replace(/\s+/g, '')}`;
+  const identity = text(card.event_identity || card.event_id || card.title)
+    .toLowerCase()
+    .replace(/[\s\p{P}\p{S}]+/gu, '');
+  return identity || `${text(card.source_url || card.url).toLowerCase()}|${text(card.title).replace(/\s+/g, '')}`;
 }
 
 function backfillChinaFromCandidates(cards = [], candidates = [], maxItems = 6) {

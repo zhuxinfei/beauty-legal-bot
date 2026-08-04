@@ -143,29 +143,29 @@ Run: `git add worker/article-evidence.js worker/hard-fact-extractor.js worker/pr
 - Modify: `.github/workflows/weekly.yml`
 - Test: `worker/test-runner.js`
 
-- [ ] **Step 1: Write failing portfolio tests**
+- [x] **Step 1: Write failing portfolio tests**
 
 Create 24 valid fixture cards, four per module, and assert that selection returns at least 20, all six modules have at least two, no module exceeds five, and duplicate event identities are removed within the report.
 
 Create an underfilled fixture and assert that `assertPremiumPortfolioDelivery` reports `finalItems`, `missingModules`, and `underfilledModules` without allowing delivery. Assert that debug mode bypasses only historical duplicate blocking and never bypasses item quality or module/quantity gates.
 
-- [ ] **Step 2: Run tests and verify expected failures**
+- [x] **Step 2: Run tests and verify expected failures**
 
 Run: `node worker/test-runner.js`
 
 Expected: the current selector or gate fails the new 20-item and debug-vs-normal assertions.
 
-- [ ] **Step 3: Implement balanced selection and gate behavior**
+- [x] **Step 3: Implement balanced selection and gate behavior**
 
 Keep the current two-round per-module selection strategy, but make it operate on the final selectable premium cards after source validation and event deduplication. Fill remaining slots by score while preserving the per-module cap. Set production minimum to 20 and operational maximum to 24 in the workflow.
 
 Make `FORCE_DELIVERY=1` bypass only historical KV duplicate skipping. It must not bypass `assertPremiumChinaDelivery`, `assertPremiumPortfolioDelivery`, Markdown quality checks, or source-grounded hard-fact validation. Mark historical fingerprints only after successful delivery.
 
-- [ ] **Step 4: Verify exact payload identity**
+- [x] **Step 4: Verify exact payload identity**
 
 Extend the existing notification tests to assert that the Markdown passed to the DingTalk sender equals the Markdown written by `ON_REPORT_READY`, including the debug path.
 
-- [ ] **Step 5: Run tests and commit**
+- [x] **Step 5: Run tests and commit**
 
 Run: `node worker/test-runner.js && node worker/premium-hardfacts.test.js`
 
