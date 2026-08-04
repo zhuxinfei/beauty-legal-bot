@@ -5,6 +5,10 @@ import { parseGoogleNewsRss, resolveGoogleNewsCandidates } from '../worker/googl
 import { attachAuthorityResolutionProvenance, buildAuthoritySearchRows } from '../worker/authority-resolver.js';
 
 const DISCOVERY_WINDOW_DAYS = Number(process.env.DISCOVERY_WINDOW_DAYS || 15);
+const DISCOVERY_MODULES = String(process.env.DISCOVERY_MODULES || '')
+  .split(',')
+  .map(value => value.trim())
+  .filter(Boolean);
 
 function period() {
   const end = process.env.REPORT_PERIOD_END || new Date().toISOString().slice(0, 10);
@@ -127,7 +131,7 @@ let result;
 try {
   const discovery = discoverOpenWebWithRecovery({
     period: period(),
-    queryRows: buildDiscoveryQueries(),
+    queryRows: buildDiscoveryQueries({ modules: DISCOVERY_MODULES }),
     minimumPerModule: Number(process.env.DISCOVERY_MIN_PER_MODULE || 8),
     recoveryDays: Number(process.env.DISCOVERY_RECOVERY_DAYS || DISCOVERY_WINDOW_DAYS),
     runPass: runDiscoveryPass,

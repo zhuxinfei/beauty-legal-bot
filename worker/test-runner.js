@@ -2820,6 +2820,10 @@ async function testOpenWebDiscoveryIsBoundedAndKeepsDirectLegalArticles() {
     maxItems: 10,
   });
   assert.ok(buildDiscoveryQueries().length >= 12);
+  const beautyQueries = buildDiscoveryQueries({ modules: ['美妆动态'] });
+  assert.equal(beautyQueries.length, 6);
+  assert.ok(beautyQueries.every(row => row.module === '美妆动态'));
+  assert.ok(beautyQueries.some(row => /IPO/.test(row.query)));
   assert.equal(result.candidates.length, 1);
   assert.equal(result.candidates[0].source_scope, 'discovered_article');
   assert.equal(result.candidates[0].publisher_host, 'media.example');
@@ -2853,6 +2857,50 @@ async function testOpenWebDiscoveryKeepsQueryBackedLegalTitlesByModule() {
   assert.equal(result.audit.rawByModule['广告合规及处罚案例'], 1);
   assert.equal(result.audit.acceptedByModule['广告合规及处罚案例'], 1);
   assert.equal(result.audit.acceptedByModule['美妆动态'] || 0, 0);
+  assert.equal(result.audit.rejectionReasons['promotional-content'], 1);
+  assert.equal(result.audit.rejectionReasonsByModule['美妆动态']['promotional-content'], 1);
+  assert.deepEqual(result.audit.rejections, [{
+    title: '美妆品牌加盟招商促销排行榜',
+    url: 'https://promo.example/ranking',
+    module: '美妆动态',
+    reason: 'promotional-content',
+  }]);
+}
+
+async function testOpenWebDiscoveryAuditsQueryFailures() {
+  const result = await discoverOpenWeb({
+    period: { start: '2026-07-21', end: '2026-08-04' },
+    queryRows: [{ module: '美妆动态', query: '美妆 企业 公告', beautyScoped: true }],
+    fetchRss: async () => { throw new Error('RSS HTTP 503'); },
+    resolveCandidates: async rows => rows,
+  });
+
+  assert.deepEqual(result.audit.queryErrors, [{
+    provider: 'google_news_rss',
+    module: '美妆动态',
+    query: '美妆 企业 公告',
+    error: 'RSS HTTP 503',
+  }]);
+}
+
+async function testOpenWebDiscoveryKeepsMaterialBeautyCompanyEvents() {
+  const rss = `<?xml version="1.0"?><rss><channel>
+    <item><title>HBN母公司IPO失效：遭证监会三连问 - 财经媒体</title><link>https://news.google.com/rss/articles/hbn-ipo</link><pubDate>Mon, 27 Jul 2026 11:52:10 GMT</pubDate><source url="https://finance.example">财经媒体</source></item>
+    <item><title>美妆企业盈利破局与价值重塑 - 财经媒体</title><link>https://news.google.com/rss/articles/beauty-opinion</link><pubDate>Sat, 25 Jul 2026 07:35:15 GMT</pubDate><source url="https://finance.example">财经媒体</source></item>
+  </channel></rss>`;
+  const result = await discoverOpenWeb({
+    period: { start: '2026-07-21', end: '2026-08-04' },
+    queryRows: [{ module: '美妆动态', query: '美妆 企业 IPO 公告', beautyScoped: true }],
+    fetchRss: async () => rss,
+    resolveCandidates: async rows => rows.map((row, index) => ({
+      ...row,
+      url: `https://finance.example/article-${index + 1}`,
+      resolution_status: 'resolved',
+    })),
+  });
+
+  assert.deepEqual(result.candidates.map(item => item.title), ['HBN母公司IPO失效：遭证监会三连问']);
+  assert.equal(result.audit.rejectionReasons['missing-module-event'], 1);
 }
 
 async function testOpenWebDiscoveryRecoversOnlyUnderfilledModules() {
@@ -6212,6 +6260,8 @@ await testLoadHydratedRecordsFromEnvReadsFilePayload();
 testAuthorityResolverTurnsMediaLeadIntoOfficialSearchQueries();
 await testOpenWebDiscoveryIsBoundedAndKeepsDirectLegalArticles();
 await testOpenWebDiscoveryKeepsQueryBackedLegalTitlesByModule();
+await testOpenWebDiscoveryAuditsQueryFailures();
+await testOpenWebDiscoveryKeepsMaterialBeautyCompanyEvents();
 await testOpenWebDiscoveryRecoversOnlyUnderfilledModules();
 await testOpenWebDiscoveryBalancesGoogleResolutionBudgetByModule();
 testDiscoveredArticleCanBeHydratedWithoutBecomingAuthoritative();

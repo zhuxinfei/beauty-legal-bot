@@ -31,9 +31,9 @@ const QUERY_GROUPS = Object.freeze({
     '进口化妆品 海关 公告 清关 退运',
   ],
   '美妆动态': [
-    '美妆 平台规则 品牌 公告', '化妆品 电商 平台 治理 通知',
-    '护肤 彩妆 企业 合规 公告', 'beauty ecommerce policy enforcement',
-    '美妆 化妆品 平台 规则 公告 治理 商家',
+    '美妆 企业 IPO 问询 并购 公告', '化妆品 企业 破产 清算 诉讼 公告',
+    '美妆 品牌 数据 合规 调查 平台治理', 'beauty company IPO merger regulatory filing',
+    '化妆品 企业 重大事项 公告 监管',
     '美妆 平台 商家治理 功效宣称 违规商品',
   ],
 });
@@ -46,7 +46,7 @@ const MODULE_EVENT = Object.freeze({
   '新规及案例动态': /法规|办法|条例|标准|征求意见|备案|注册|指导原则|公告|实施|policy|regulation|standard|guidance/i,
   '产品质量/召回与安全风险': /召回|不合格|抽检|检出|禁用|批次|质量安全|风险通报|污染|recall|contamination|safety alert/i,
   '进出口动态': /海关|进口|出口|清关|扣留|退运|通关|跨境|进口预警|customs|import|export|seizure|import alert/i,
-  '美妆动态': /平台规则|平台治理|公告|通知|合规|下架|禁售|调整|新规|执法|policy|rule|enforcement/i,
+  '美妆动态': /平台规则|平台治理|公告|通知|合规|下架|禁售|调整|新规|执法|IPO|上市|招股|问询|并购|收购|重组|破产|清算|注销|股权|融资|投资|调查|诉讼|仲裁|和解|数据泄露|停产|停业|整改|许可证|policy|rule|enforcement|filing|merger|acquisition|bankruptcy|lawsuit|investigation/i,
 });
 
 function increment(map, key, amount = 1) {
@@ -78,8 +78,11 @@ function takeBalancedByModule(items = [], limit = items.length) {
   return result;
 }
 
-export function buildDiscoveryQueries() {
-  return Object.entries(QUERY_GROUPS).flatMap(([module, queries]) => queries.map(query => ({
+export function buildDiscoveryQueries({ modules } = {}) {
+  const selectedModules = Array.isArray(modules) && modules.length ? new Set(modules) : null;
+  return Object.entries(QUERY_GROUPS)
+    .filter(([module]) => !selectedModules || selectedModules.has(module))
+    .flatMap(([module, queries]) => queries.map(query => ({
     module,
     query,
     beautyScoped: true,
@@ -90,6 +93,7 @@ export async function discoverOpenWeb({ period = {}, queryRows = buildDiscoveryQ
   const raw = [];
   const queryCounts = {};
   const rawByModule = {};
+  const queryErrors = [];
   const queryResults = await Promise.all(queryRows.map(async row => {
     increment(queryCounts, row.module);
     try {
@@ -101,7 +105,15 @@ export async function discoverOpenWeb({ period = {}, queryRows = buildDiscoveryQ
       }));
       increment(rawByModule, row.module, items.length);
       return items;
-    } catch { return []; }
+    } catch (error) {
+      queryErrors.push({
+        provider: 'google_news_rss',
+        module: row.module,
+        query: row.query,
+        error: String(error?.message || error).slice(0, 240),
+      });
+      return [];
+    }
   }));
   raw.push(...queryResults.flat());
   const resolutionInput = takeBalancedByModule(raw, Math.min(Math.max(1, maxItems), 120));
@@ -118,7 +130,15 @@ export async function discoverOpenWeb({ period = {}, queryRows = buildDiscoveryQ
           discovery_module: row.module,
           discovery_beauty_scoped: row.beautyScoped !== false,
         }));
-      } catch { return []; }
+      } catch (error) {
+        queryErrors.push({
+          provider: 'secondary',
+          module: row.module,
+          query: row.query,
+          error: String(error?.message || error).slice(0, 240),
+        });
+        return [];
+      }
     }))).flat()
     : [];
   const resolved = [...googleResolved, ...secondaryResults];
@@ -130,17 +150,67 @@ export async function discoverOpenWeb({ period = {}, queryRows = buildDiscoveryQ
   const hostCounts = new Map();
   const moduleCounts = new Map();
   const candidates = [];
+  const rejectionReasons = {};
+  const rejectionReasonsByModule = {};
+  const rejections = [];
+  const reject = (item, reason) => {
+    const module = item.discovery_module || item.module || '未知模块';
+    increment(rejectionReasons, reason);
+    rejectionReasonsByModule[module] ||= {};
+    increment(rejectionReasonsByModule[module], reason);
+    rejections.push({
+      title: item.title || '',
+      url: item.url || item.discovery_url || '',
+      module,
+      reason,
+    });
+  };
   for (const item of resolved) {
-    if (item.resolution_status !== 'resolved' || !/^https?:\/\//i.test(item.url) || /news\.google\.com/i.test(item.url)) continue;
-    if (!/^20\d{2}-\d{2}-\d{2}$/.test(item.published_at) || item.published_at < period.start || item.published_at > period.end) continue;
-    if (PROMOTION.test(item.title) || !hasModuleEvent(item)) continue;
-    if (!item.discovery_beauty_scoped && !BEAUTY.test(item.title)) continue;
+    if (item.resolution_status !== 'resolved') {
+      reject(item, 'resolution-failed');
+      continue;
+    }
+    if (!/^https?:\/\//i.test(item.url) || /news\.google\.com/i.test(item.url)) {
+      reject(item, 'invalid-direct-url');
+      continue;
+    }
+    if (!/^20\d{2}-\d{2}-\d{2}$/.test(item.published_at) || item.published_at < period.start || item.published_at > period.end) {
+      reject(item, 'outside-period');
+      continue;
+    }
+    if (PROMOTION.test(item.title)) {
+      reject(item, 'promotional-content');
+      continue;
+    }
+    if (!hasModuleEvent(item)) {
+      reject(item, 'missing-module-event');
+      continue;
+    }
+    if (!item.discovery_beauty_scoped && !BEAUTY.test(item.title)) {
+      reject(item, 'not-beauty-industry');
+      continue;
+    }
     let host = '';
-    try { host = new URL(item.url).hostname.replace(/^www\./, '').toLowerCase(); } catch { continue; }
-    if (seen.has(item.url) || (hostCounts.get(host) || 0) >= maxPerHost || (moduleCounts.get(item.module) || 0) >= maxPerModule) continue;
+    try { host = new URL(item.url).hostname.replace(/^www\./, '').toLowerCase(); } catch {
+      reject(item, 'invalid-url');
+      continue;
+    }
+    if (seen.has(item.url)) {
+      reject(item, 'duplicate-url');
+      continue;
+    }
+    if ((hostCounts.get(host) || 0) >= maxPerHost) {
+      reject(item, 'host-capacity');
+      continue;
+    }
+    const module = item.discovery_module || item.module || '';
+    if ((moduleCounts.get(module) || 0) >= maxPerModule) {
+      reject(item, 'module-capacity');
+      continue;
+    }
     seen.add(item.url);
     hostCounts.set(host, (hostCounts.get(host) || 0) + 1);
-    moduleCounts.set(item.module, (moduleCounts.get(item.module) || 0) + 1);
+    moduleCounts.set(module, (moduleCounts.get(module) || 0) + 1);
     candidates.push({
       ...item,
       module: item.discovery_module || item.module,
@@ -172,6 +242,10 @@ export async function discoverOpenWeb({ period = {}, queryRows = buildDiscoveryQ
       resolvedByModule,
       unique: candidates.length,
       acceptedByModule,
+      queryErrors,
+      rejectionReasons,
+      rejectionReasonsByModule,
+      rejections,
     },
   };
 }
