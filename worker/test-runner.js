@@ -1197,6 +1197,118 @@ function testPremiumGateRejectsNavigationAndGenericInformationPages() {
   assert.equal(policyWithoutProduct.accepted, true, policyWithoutProduct.reason);
 }
 
+function testPremiumGateRejectsInvalidDatesAndNonBeautyPenaltyTables() {
+  const common = {
+    source_type: 'official_site',
+    authority_type: 'regulator',
+    country: '中国',
+    source_name: '市场监督管理局',
+    facts: ['市场监管部门公布行政处罚信息，处罚金额3000元。'],
+    legal_signal: '风险案例：处罚决定披露经营行为和处罚依据。',
+    business_impact: '影响广告素材、商品详情页、达人脚本和功效证据留存。',
+    recommended_action: '广告合规团队复核近30天商品详情页和直播脚本，电商团队保留整改记录。',
+    hard_facts: {
+      authority: '市场监督管理局',
+      penalty_amount: '3000元',
+      legal_basis: '《化妆品监督管理条例》第六十条第一款',
+      affected_processes: ['广告素材', '商品详情页', '达人脚本'],
+    },
+  };
+
+  assert.equal(validatePremiumEvidenceCard({
+    ...common,
+    title: 'Product Safety Alerts, Reports and Recalls',
+    module: '产品质量/召回与安全风险',
+    source_url: 'https://www.gov.uk/product-safety-alerts-reports-recalls?product_category=cosmetics',
+    source_name: '英国政府产品安全通报',
+    country: '英国',
+    published_at: '2014-21-11',
+    facts: ['Product Safety Alerts, Reports and Recalls'],
+    hard_facts: {
+      authority: '英国产品安全与标准局（OPSS）',
+      document_number: '2607-0193',
+      product_or_batch: 'Hashmi Kajal Eyeliner（2607-0193）',
+      confiscation_result: '撤出市场',
+      affected_processes: ['市场销售'],
+    },
+  }).reason, 'missing-date');
+
+  assert.equal(validatePremiumEvidenceCard({
+    ...common,
+    title: '区市场监管局2026年6月份食品类行政处罚信息公示表（一）',
+    module: '广告处罚案例',
+    source_url: 'https://www.xuanzhou.gov.cn/OpennessContent/show/3800531.html',
+    published_at: '2026-07-28',
+    facts: ['陈某经营用非食品原料生产的食品案，依据《中华人民共和国食品安全法》处罚。'],
+    hard_facts: {
+      ...common.hard_facts,
+      involved_party: '陈某',
+      violation_behavior: '经营用非食品原料生产的食品',
+      legal_basis: '《中华人民共和国食品安全法》《化妆品监督管理条例》第六十条第一款',
+    },
+  }).reason, 'case-not-beauty-specific');
+}
+
+function testPremiumGateRejectsFragmentedViolationBehavior() {
+  const decision = validatePremiumEvidenceCard({
+    title: '中华人民共和国海关进出口化妆品检验检疫监督管理办法（海关总署令第284号）',
+    module: '进出口',
+    source_url: 'http://gjs.customs.gov.cn/customs/2026-05/08/article_2026050808301380823.html',
+    source_name: '海关总署',
+    source_type: 'official_site',
+    authority_type: 'regulator',
+    published_at: '2026-08-02',
+    country: '中国',
+    facts: ['海关总署发布进口化妆品检验检疫监督管理办法。'],
+    legal_signal: '新增义务：进口化妆品需按检验检疫监督管理办法准备通关和准入资料。',
+    business_impact: '影响进口申报、清关资料、中文标签和供应链履约。',
+    recommended_action: '进出口团队复核进口化妆品报关资料，法规团队同步更新清关检查清单。',
+    hard_facts: {
+      authority: '海关总署',
+      document_number: '海关总署令第284号',
+      product_or_batch: '进口化妆品',
+      violation_behavior: '的，按照相关法律、行政法规的规定处理',
+      legal_basis: '《中华人民共和国海关法》《化妆品监督管理条例》',
+      affected_processes: ['进口申报', '清关资料', '中文标签'],
+    },
+  });
+
+  assert.equal(decision.accepted, true, decision.reason);
+  assert.equal(decision.card.hard_facts.violation_behavior, '');
+}
+
+function testPremiumMarkdownLocalizesEnglishOfficialRecallCards() {
+  const markdown = buildPremiumDingTalkMarkdown({
+    period: { start: '2026-07-20', end: '2026-08-03' },
+    preselected: true,
+    cards: [{
+      title: 'Product Safety Alerts, Reports and Recalls',
+      module: '产品质量/召回与安全风险',
+      source_url: 'https://www.gov.uk/product-safety-alerts-reports-recalls?product_category=cosmetics',
+      source_name: '英国政府产品安全通报',
+      published_at: '2026-07-28',
+      country: '英国',
+      score: 100,
+      tier: 'watch',
+      facts: ['The product has been withdrawn from the market.'],
+      legal_signal: 'Risk case: the product was reported by the UK product safety service.',
+      business_impact: 'Impacts market sales and distributor monitoring.',
+      recommended_action: 'Quality team should monitor follow-up defect and batch information.',
+      hard_facts: {
+        authority: '英国产品安全与标准局（OPSS）',
+        document_number: '2607-0193',
+        product_or_batch: 'Hashmi Kajal Eyeliner（2607-0193）',
+        confiscation_result: '撤出市场',
+        affected_processes: ['市场销售'],
+      },
+    }],
+  });
+
+  assert.doesNotMatch(markdown, /Product Safety Alerts, Reports and Recalls|withdrawn from the market|Risk case|Impacts market sales|Quality team should/);
+  assert.match(markdown, /英国化妆品产品安全通报/);
+  assert.match(markdown, /该产品已被采取撤出市场措施/);
+}
+
 function testPremiumGateAcceptsManualHardInformationSamples() {
   const base = {
     source_type: 'official_site',
@@ -6171,6 +6283,9 @@ testPremiumDingTalkMarkdownIncludesThreeCoreModulesWhenAvailable();
 testPremiumDingTalkMarkdownSurfacesHardFieldsInsideExistingSections();
 testPremiumGateRequiresTypeSpecificHardFacts();
 testPremiumGateRejectsNavigationAndGenericInformationPages();
+testPremiumGateRejectsInvalidDatesAndNonBeautyPenaltyTables();
+testPremiumGateRejectsFragmentedViolationBehavior();
+testPremiumMarkdownLocalizesEnglishOfficialRecallCards();
 testPremiumGateAcceptsManualHardInformationSamples();
 testPremiumMarkdownReplacesVaguePartyWithConcreteCompanyNames();
 testPremiumDeliveryAuditRejectsForeignOnlyWhenChinaCandidatesExist();

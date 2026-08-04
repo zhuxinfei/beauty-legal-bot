@@ -116,7 +116,7 @@ function meaningfulInvolvedParty(value = '') {
 function hardText(value) {
   const source = text(value);
   if (!source || /见原文|未知|待核验|未披露|未明确|待明确|空$/.test(source)) return '';
-  if (BROKEN_FIELD_PATTERN.test(source) || FRAGMENT_FIELD_PATTERN.test(source)) return '';
+  if (BROKEN_FIELD_PATTERN.test(source) || FRAGMENT_FIELD_PATTERN.test(source) || /^的[，,、；;：:]/.test(source)) return '';
   if (DOCUMENT_TITLE_AS_PRODUCT_PATTERN.test(source) || MIXED_NOTICE_CHROME_PATTERN.test(source)) return '';
   return source;
 }
@@ -200,14 +200,25 @@ function isoDate(value = '') {
   const iso = source.match(/20\d{2}-\d{1,2}-\d{1,2}/)?.[0];
   if (iso) {
     const [year, month, day] = iso.split('-').map(Number);
-    return `${year}-${String(month).padStart(2, '0')}-${String(day).padStart(2, '0')}`;
+    const normalized = `${year}-${String(month).padStart(2, '0')}-${String(day).padStart(2, '0')}`;
+    const parsed = new Date(`${normalized}T00:00:00Z`);
+    return parsed.getUTCFullYear() === year && parsed.getUTCMonth() + 1 === month && parsed.getUTCDate() === day
+      ? normalized
+      : '';
   }
   const cn = source.match(/(20\d{2})年(\d{1,2})月(\d{1,2})日?/);
   if (cn) {
-    return `${cn[1]}-${String(Number(cn[2])).padStart(2, '0')}-${String(Number(cn[3])).padStart(2, '0')}`;
+    const year = Number(cn[1]);
+    const month = Number(cn[2]);
+    const day = Number(cn[3]);
+    const normalized = `${year}-${String(month).padStart(2, '0')}-${String(day).padStart(2, '0')}`;
+    const parsed = new Date(`${normalized}T00:00:00Z`);
+    return parsed.getUTCFullYear() === year && parsed.getUTCMonth() + 1 === month && parsed.getUTCDate() === day
+      ? normalized
+      : '';
   }
   const compact = source.match(/(?:^|[^\d])(20\d{2})(\d{2})(\d{2})(?:\d{4,}|[^\d]|$)/);
-  if (compact) return `${compact[1]}-${compact[2]}-${compact[3]}`;
+  if (compact) return isoDate(`${compact[1]}-${compact[2]}-${compact[3]}`);
   return '';
 }
 
@@ -579,8 +590,25 @@ function sourceEvidenceTextForRelevance(card = {}) {
   ].flat().join(' ');
 }
 
+function primaryBeautySignalText(card = {}) {
+  const hard = card.hard_facts || {};
+  return [
+    card.title,
+    card.facts,
+    card.evidence_text,
+    hard.product_or_batch,
+    hard.violation_behavior,
+  ].flat().join(' ');
+}
+
+function isCrossDomainPenaltyNoise(card = {}) {
+  const primarySignal = primaryBeautySignalText(card);
+  return /(?:食品|餐饮|农产品|食用)/.test(primarySignal) && !BEAUTY_RELEVANCE_PATTERN.test(primarySignal);
+}
+
 function isBeautyRelevantCard(card = {}) {
   const sourceEvidence = sourceEvidenceTextForRelevance(card);
+  if (isCrossDomainPenaltyNoise(card)) return false;
   if (GENERIC_NON_BEAUTY_PATTERN.test(sourceEvidence) && !BEAUTY_RELEVANCE_PATTERN.test(sourceEvidence)) return false;
   if (BEAUTY_RELEVANCE_PATTERN.test(sourceEvidence)) return true;
   return false;
@@ -674,8 +702,9 @@ export function validatePremiumEvidenceCard(card = {}) {
   if (!isHttpUrl(normalized.source_url)) return { accepted: false, reason: 'missing-source-url', card: normalized };
   if (isNonAuthoritativeRepublisher(normalized) && !isConcreteDiscoveredPublisherCard(normalized)) return { accepted: false, reason: 'non-authoritative-source', card: normalized };
   if (isNavigationOrGenericInformationPage(normalized)) return { accepted: false, reason: 'navigation-or-generic-page', card: normalized };
-  if (!isBeautyRelevantCard(normalized)) return { accepted: false, reason: 'not-beauty-relevant', card: normalized };
   if (!/^20\d{2}-\d{2}-\d{2}$/.test(normalized.published_at)) return { accepted: false, reason: 'missing-date', card: normalized };
+  if (isCrossDomainPenaltyNoise(normalized)) return { accepted: false, reason: 'case-not-beauty-specific', card: normalized };
+  if (!isBeautyRelevantCard(normalized)) return { accepted: false, reason: 'not-beauty-relevant', card: normalized };
   if (!normalized.facts.length || !CONCRETE_PATTERNS.test(normalized.facts.join(' '))) {
     return { accepted: false, reason: 'weak-facts', card: normalized };
   }
@@ -836,8 +865,23 @@ function esc(value) {
   return sanitizeBriefingText(value).replace(/\|/g, '\\|');
 }
 
+function translateBriefText(value) {
+  return text(value)
+    .replace(/Product Safety Alerts, Reports and Recalls/gi, '英国化妆品产品安全通报')
+    .replace(/The product has been withdrawn from the market\./gi, '该产品已被采取撤出市场措施。')
+    .replace(/withdrawn from the market/gi, '已撤出市场')
+    .replace(/Risk case/gi, '风险案例')
+    .replace(/Impacts market sales/gi, '影响市场销售')
+    .replace(/Quality team should/gi, '质量团队应')
+    .replace(/market sales/gi, '市场销售')
+    .replace(/monitor follow-up defect and batch information/gi, '跟踪后续缺陷和批次信息')
+    .replace(/UK product safety service/gi, '英国产品安全服务')
+    .replace(/official recall/gi, '正式召回')
+    .replace(/withdrawal/gi, '撤出市场');
+}
+
 function cleanBriefPart(value) {
-  return compactEvidenceText(value, 220).replace(/[。；;,\s]+$/g, '');
+  return compactEvidenceText(translateBriefText(value), 220).replace(/[。；;,\s]+$/g, '');
 }
 
 function briefParts(parts = []) {
@@ -933,7 +977,7 @@ function concretePartyForTitle(card) {
 }
 
 function displayTitle(card) {
-  const title = text(card.title);
+  const title = translateBriefText(card.title);
   const party = concretePartyForTitle(card);
   if (!party) return title;
   return title
