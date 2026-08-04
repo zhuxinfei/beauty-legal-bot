@@ -18,31 +18,31 @@
 - Modify: `worker/index.js`
 - Test: `worker/test-runner.js`
 
-- [ ] **Step 1: Write the failing test**
+- [x] **Step 1: Write the failing test**
 
 Add a fixture with six modules and assert that the funnel returns one row for every module, including zero values, with keys `discovered`, `resolved_original`, `hydrated_with_substantive_text`, `hard_fact_ready`, `editorial_accepted`, `ai_accepted`, `premium_selectable`, and `final`.
 
 Also assert that a candidate carrying `discovery_module: '知识产权动态'` keeps that module after hydration and editorial acceptance even when its title does not contain a regulation keyword.
 
-- [ ] **Step 2: Run the focused test and verify it fails**
+- [x] **Step 2: Run the focused test and verify it fails**
 
 Run: `node worker/test-runner.js`
 
 Expected: failure on the new funnel assertion because no shared module funnel is currently emitted and the current global routing can lose module provenance.
 
-- [ ] **Step 3: Implement the smallest shared audit helper**
+- [x] **Step 3: Implement the smallest shared audit helper**
 
 Add an exported helper in `worker/content-quality.js` that returns all six module rows initialized to zero and accepts stage-specific increments. Use it from discovery and pipeline logging; do not change candidate acceptance rules in this task.
 
 Preserve `discovery_module` as the primary routing value in `applyEditorialGate`, `mergeHydratedCandidates`, and module analysis. Only infer a module when provenance is absent.
 
-- [ ] **Step 4: Run focused and existing tests**
+- [x] **Step 4: Run focused and existing tests**
 
 Run: `node worker/test-runner.js`
 
 Expected: the new funnel/provenance assertions and the existing pure function suite pass.
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 Run: `git add worker/content-quality.js worker/open-web-discovery.js worker/index.js worker/test-runner.js && git commit -m "feat: audit weekly supply by module"`
 

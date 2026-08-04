@@ -10,6 +10,43 @@ const MODULES = Object.freeze([
   '产品质量/召回与安全风险',
 ]);
 
+const FUNNEL_STAGES = Object.freeze([
+  'discovered',
+  'resolved_original',
+  'hydrated_with_substantive_text',
+  'hard_fact_ready',
+  'editorial_accepted',
+  'ai_accepted',
+  'premium_selectable',
+  'final',
+]);
+
+const FUNNEL_MODULE_ALIASES = Object.freeze({
+  '广告处罚案例': '广告合规及处罚案例',
+  '知识产权保护或者侵权': '知识产权动态',
+  '新法律法规政策': '新规及案例动态',
+  '进出口': '进出口动态',
+  '产品质量/召回与安全风险': '产品质量/召回与安全风险',
+});
+
+function funnelModule(value) {
+  return FUNNEL_MODULE_ALIASES[String(value || '').trim()] || String(value || '').trim();
+}
+
+export function buildModuleFunnelAudit(stageRecords = {}) {
+  return Object.fromEntries(MODULES.map(module => [
+    module,
+    Object.fromEntries(FUNNEL_STAGES.map(stage => [
+      stage,
+      Array.isArray(stageRecords[stage])
+        ? stageRecords[stage].filter(record => funnelModule(record.discovery_module || record.module) === module).length
+        : Object.entries(stageRecords[stage] || {}).reduce((count, [stageModule, value]) => (
+          funnelModule(stageModule) === module ? count + Number(value || 0) : count
+        ), 0),
+    ])),
+  ]));
+}
+
 const PROMOTIONAL_PATTERNS = [
   /企业供稿/i,
   /全球招展|报名参展|招商|招代理|欢迎合作|欢迎报名/i,

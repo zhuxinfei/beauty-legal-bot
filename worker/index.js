@@ -25,6 +25,7 @@ import {
 import {
   evaluateEditorialCandidate,
   evaluateSourceOnlyProof,
+  buildModuleFunnelAudit,
   inferArticleChinaRelevance,
   inferCandidateModule,
 } from './content-quality.js';
@@ -1456,9 +1457,20 @@ export async function runPipeline(env, requestUrl = 'https://beauty-legal-bot.wo
       minimumPerModule: Number(env.PREMIUM_MIN_PER_MODULE || 2),
       maximumPerModule: Number(env.PREMIUM_MAX_PER_MODULE || 5),
     });
+    const moduleFunnel = buildModuleFunnelAudit({
+      discovered: fetchedCandidates,
+      resolved_original: freshCandidates,
+      hydrated_with_substantive_text: hydratedCandidates,
+      hard_fact_ready: premiumCandidates.filter(candidate => ['hard_fact_ready', 'corroborated_fact_ready'].includes(candidate.evidence_grade)),
+      editorial_accepted: editorial.candidates,
+      ai_accepted: (report.sections || []).flatMap(section => (section.items || []).map(item => ({ module: section.module, ...item }))),
+      premium_selectable: premiumDelivery.audit.selectablePortfolioItemsByModule,
+      final: premiumDelivery.cards,
+    });
     const previewMessages = premiumDelivery.messages;
     const markdown = previewMessages.map(message => message.markdown).join('\n\n---\n\n');
     console.log(`[stage 3/5] 精品卡验收：中国候选 ${premiumDelivery.audit.candidateChinaItems}/${premiumDelivery.audit.candidateItems}，中国准入 ${premiumDelivery.audit.reportChinaItems}/${premiumDelivery.audit.reportItems}，中国入卡 ${premiumDelivery.audit.finalChinaItems}/${premiumDelivery.audit.finalItems}`);
+    console.log(`[stage 3/5] 模块漏斗：${JSON.stringify(moduleFunnel)}`);
 	    assertPremiumChinaDelivery(premiumDelivery.audit, {
 	      allowForeignOnly: env.ALLOW_FOREIGN_ONLY_DELIVERY === '1',
 	    });
@@ -1881,6 +1893,7 @@ export function makeLead(source) {
 }
 
 export { isHardFactAcquisitionSource, isLikelyPortalUrl };
+export { buildModuleFunnelAudit };
 
 export function makeSourceLeadCandidate(source) {
   return makeCandidate(source, {

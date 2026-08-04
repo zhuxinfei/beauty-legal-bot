@@ -117,6 +117,7 @@ import {
   collectCandidates,
   getPeriod,
   buildModuleAnalysisBatches,
+  buildModuleFunnelAudit,
   fetchWithTimeout,
   selectSourcesForWorkerBudget,
   mapWithConcurrency,
@@ -133,6 +134,34 @@ import {
   warnSourceCoverageGate,
   isArtifactOnlyRun,
 } from './index.js';
+
+function testModuleFunnelAuditIncludesAllModulesAndStageKeys() {
+  const audit = buildModuleFunnelAudit({
+    discovered: [{ module: '新规及案例动态' }, { module: '知识产权动态' }],
+    resolved_original: [{ module: '知识产权动态' }],
+    hydrated_with_substantive_text: [],
+    hard_fact_ready: [],
+    editorial_accepted: [],
+    ai_accepted: [],
+    premium_selectable: [],
+    final: [],
+  });
+  assert.deepEqual(Object.keys(audit), REPORT_MODULES);
+  for (const module of REPORT_MODULES) {
+    assert.deepEqual(Object.keys(audit[module]), [
+      'discovered',
+      'resolved_original',
+      'hydrated_with_substantive_text',
+      'hard_fact_ready',
+      'editorial_accepted',
+      'ai_accepted',
+      'premium_selectable',
+      'final',
+    ]);
+  }
+  assert.equal(audit['新规及案例动态'].discovered, 1);
+  assert.equal(audit['知识产权动态'].resolved_original, 1);
+}
 
 function testDefaultPeriodCoversHalfMonth() {
   assert.deepEqual(getPeriod(new Date('2026-08-03T00:00:00Z')), { start: '2026-07-20', end: '2026-08-03' });
@@ -6220,6 +6249,7 @@ testEnterprisePromptRequiresGlobalLegalIntelligence();
 testCandidateFreshnessAndInfluenceRanking();
 testPrioritizeCandidatesForAnalysisPutsChinaEvidenceFirst();
 testModuleAnalysisBatchesChinaCandidatesBeforeForeignCandidates();
+testModuleFunnelAuditIncludesAllModulesAndStageKeys();
 testHydrationSelectionReservesEvidenceBudgetForEveryModule();
 testHydrationSelectionHandlesModulesBelowConfiguredFloor();
 testAnalysisPromptKeepsChinaEvidenceFirst();
