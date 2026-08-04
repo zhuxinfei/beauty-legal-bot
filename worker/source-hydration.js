@@ -44,7 +44,13 @@ function normalizePublishedDate(value) {
   const match = source.match(/(20\d{2})[年./-](\d{1,2})[月./-](\d{1,2})日?/);
   if (!match) return '';
   const [, year, month, day] = match;
-  return `${year}-${String(Number(month)).padStart(2, '0')}-${String(Number(day)).padStart(2, '0')}`;
+  const normalized = `${year}-${String(Number(month)).padStart(2, '0')}-${String(Number(day)).padStart(2, '0')}`;
+  const parsed = new Date(`${normalized}T00:00:00Z`);
+  return parsed.getUTCFullYear() === Number(year)
+    && parsed.getUTCMonth() + 1 === Number(month)
+    && parsed.getUTCDate() === Number(day)
+    ? normalized
+    : '';
 }
 
 function extractPublishedDate(record = {}, articleText = '') {

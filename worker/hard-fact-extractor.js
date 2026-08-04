@@ -6,6 +6,24 @@ function clean(value) {
   return text(value).replace(/[。；;，,]$/, '');
 }
 
+function isUsableFact(value) {
+  const source = text(value);
+  return Boolean(source)
+    && !/^(?:的|和|及|并|按照|依据|根据)[，,、；;：:\s]*(?:按照)?(?:相关法律、行政法规的规定)?(?:处理|执行|处罚)?$/.test(source)
+    && !/^的[，,、；;：:]/.test(source);
+}
+
+function isValidDate(value = '') {
+  const match = text(value).match(/(20\d{2})[-年](\d{1,2})[-月](\d{1,2})日?/);
+  if (!match) return false;
+  const [, yearText, monthText, dayText] = match;
+  const year = Number(yearText);
+  const month = Number(monthText);
+  const day = Number(dayText);
+  const parsed = new Date(Date.UTC(year, month - 1, day));
+  return parsed.getUTCFullYear() === year && parsed.getUTCMonth() + 1 === month && parsed.getUTCDate() === day;
+}
+
 function firstMatch(value, patterns = []) {
   const source = String(value || '');
   for (const pattern of patterns) {
@@ -85,10 +103,11 @@ function extractViolationBehavior(source) {
   const labelled = firstMatch(source, [
     /(?:违法事实|违法行为|主要违法事实|侵权行为|违法情形)[：:\s]*([^。；;\n]{6,140})/,
   ]);
-  if (labelled) return labelled;
-  return firstMatch(source, [
+  if (isUsableFact(labelled)) return labelled;
+  const inferred = firstMatch(source, [
     /([^。；;\n]{4,160}(?:侵权使用|侵权|冒用|假冒|刷单|虚假交易|虚假宣传|未经授权|擅自使用)[^。；;\n]{0,100})/,
   ]);
+  return isUsableFact(inferred) ? inferred : '';
 }
 
 function extractConfiscationResult(source) {
@@ -125,16 +144,18 @@ function extractHsCode(source) {
 }
 
 function extractEffectiveDate(source) {
-  return firstMatch(source, [
+  const extracted = firstMatch(source, [
     /(?:自|于)(20\d{2}[-年]\d{1,2}[-月]\d{1,2}日?)(?:起)?(?:实施|生效|执行)/,
     /(?:生效日期|实施日期|执行日期)[：:\s]*(20\d{2}[-年]\d{1,2}[-月]\d{1,2}日?)/,
   ]);
+  return isValidDate(extracted) ? extracted : '';
 }
 
 function extractDeadline(source) {
-  return firstMatch(source, [
+  const extracted = firstMatch(source, [
     /(?:意见反馈截止日期|反馈截止日期|反馈截止日|截止日期|截止|截至|过渡期至|应于|须于)[：:\s]*(20\d{2}[-年]\d{1,2}[-月]\d{1,2}日?)/,
   ]);
+  return isValidDate(extracted) ? extracted : '';
 }
 
 function extractFeedbackChannel(source) {
@@ -304,11 +325,19 @@ function evidenceQuotes(source, facts = {}) {
 export function gradeEvidence({ text: textValue = '', hard_facts: hardFacts = {}, source_url = '', title = '', source_name = '', country = '' } = {}) {
   const source = stripMarkdown(textValue);
   const facts = hardFacts && typeof hardFacts === 'object' ? hardFacts : {};
+  const combined = `${title} ${source}`;
+  if (/product safety alerts,? reports and recalls/i.test(combined)
+    && /search recalls|product category/i.test(combined)) {
+    return { evidence_grade: 'reject', evidence_reason: 'generic-recall-index', evidence_quotes: {} };
+  }
   if (!source && !text(title)) {
     return { evidence_grade: 'reject', evidence_reason: 'empty-evidence', evidence_quotes: {} };
   }
   if (isPortalDump({ title, text: source, source_url, source_name })) {
     return { evidence_grade: 'reject', evidence_reason: 'portal-or-mixed-industry-dump', evidence_quotes: evidenceQuotes(source, facts) };
+  }
+  if (/(?:食品|餐饮|农产品|食用)/.test(combined) && !/(?:化妆品|美妆|护肤|彩妆|香水|cosmetic)/i.test(combined)) {
+    return { evidence_grade: 'reject', evidence_reason: 'food-only-event', evidence_quotes: {} };
   }
   if (isLeadPage({ title, text: source, source_url })) {
     return { evidence_grade: 'lead_only', evidence_reason: 'lead-or-navigation-page', evidence_quotes: evidenceQuotes(source, facts) };

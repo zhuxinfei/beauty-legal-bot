@@ -1,8 +1,9 @@
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import { buildAnalysisPrompt, extractPremiumDeliveryFingerprints } from './index.js';
-import { buildPremiumDingTalkDelivery, buildPremiumDingTalkMarkdown, buildPremiumDingTalkMessages, assertPremiumChinaDelivery } from './premium-quality.js';
+import { buildPremiumDingTalkDelivery, buildPremiumDingTalkMarkdown, buildPremiumDingTalkMessages, assertPremiumChinaDelivery, validatePremiumEvidenceCard } from './premium-quality.js';
 import { normalizeHydratedRecord } from './source-hydration.js';
+import { extractHardFacts, gradeEvidence } from './hard-fact-extractor.js';
 
 function testHydrationExtractsActionableHardFacts() {
   const record = normalizeHydratedRecord({
@@ -1760,6 +1761,69 @@ function testCandidateDateFallsBackToOfficialUrlDateInsteadOfBlankSourceDate() {
   assert.doesNotMatch(markdown, /纳入规则或标准管理|影响中国市场美妆业务的备案\/注册/);
 }
 
+function testTruncatedViolationFragmentCannotBecomeHardFact() {
+  const facts = extractHardFacts('违法行为：的，按照相关法律、行政法规的规定处理。', {
+    module: '广告合规及处罚案例',
+  });
+  assert.equal(facts.violation_behavior || '', '');
+}
+
+function testInvalidCalendarDateCannotSurviveHydration() {
+  const record = normalizeHydratedRecord({
+    url: 'https://amr.example.gov.cn/case/invalid-date',
+    title: '化妆品虚假宣传行政处罚',
+    published_at: '2014-21-11',
+    fit_markdown: '发布时间：2014-21-11。当事人销售化妆品时作虚假宣传，罚款3万元。',
+  });
+  assert.equal(record.published_at, '');
+}
+
+function testFoodOnlyPunishmentAndRecallIndexAreRejectedAsEvidence() {
+  const food = gradeEvidence({
+    title: '食品虚假宣传行政处罚决定',
+    text: '市场监督管理局对食品经营者虚假宣传作出行政处罚，罚款3万元。',
+    source_url: 'https://amr.example.gov.cn/case/food',
+    hard_facts: { authority: '市场监督管理局', penalty_amount: '3万元' },
+  });
+  assert.equal(food.evidence_grade, 'reject');
+
+  const recallIndex = gradeEvidence({
+    title: 'Product Safety Alerts, Reports and Recalls',
+    text: 'Product Safety Alerts, Reports and Recalls. Search recalls and safety alerts by product category.',
+    source_url: 'https://authority.example.gov/recalls',
+    hard_facts: { authority: 'Product Safety Authority' },
+  });
+  assert.equal(recallIndex.evidence_grade, 'reject');
+}
+
+function testEnglishOnlySourceFallbackCannotRenderEnglishPremiumCard() {
+  const delivery = buildPremiumDingTalkDelivery({ period: { start: '2026-07-17', end: '2026-07-31' }, sections: [] }, {
+    candidates: [{
+      title: 'FDA announces recall of contaminated cosmetic eye cream',
+      url: 'https://www.fda.gov/recalls/contaminated-eye-cream',
+      source_name: 'U.S. Food and Drug Administration',
+      source_type: 'official_site',
+      authority_type: 'regulator',
+      source_scope: 'hard_fact_endpoint',
+      detail_status: 'hydrated',
+      evidence_grade: 'hard_fact_ready',
+      country: 'United States',
+      published_at: '2026-07-24',
+      module: '产品质量/召回与安全风险',
+      article_text: 'FDA announces recall of contaminated cosmetic eye cream after microbial contamination was identified. Consumers should stop using the affected product.',
+      hard_facts: {
+        authority: 'U.S. Food and Drug Administration',
+        product_or_batch: 'contaminated cosmetic eye cream',
+        confiscation_result: 'recall of affected product',
+        affected_processes: ['SKU/批次管理'],
+      },
+    }],
+    allowSourceOnlyFallback: true,
+    maxItems: 1,
+  });
+  assert.equal(delivery.audit.finalItems, 0);
+}
+
 testHydrationExtractsActionableHardFacts();
 testFormalPromptsRequireAllPremiumHardFactFields();
 testPremiumMarkdownRendersNewHardFactsInFormalCard();
@@ -1804,5 +1868,9 @@ testNoticeTitleCannotBeUsedAsProductBatch();
 testNmpaTitleRepairsRepublishedListChrome();
 testCandidateSourceAndDateAreCanonicalizedFromOfficialUrl();
 testCandidateDateFallsBackToOfficialUrlDateInsteadOfBlankSourceDate();
+testTruncatedViolationFragmentCannotBecomeHardFact();
+testInvalidCalendarDateCannotSurviveHydration();
+testFoodOnlyPunishmentAndRecallIndexAreRejectedAsEvidence();
+testEnglishOnlySourceFallbackCannotRenderEnglishPremiumCard();
 
 console.log('premium hard facts tests passed');

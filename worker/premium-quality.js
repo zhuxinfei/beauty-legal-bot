@@ -116,7 +116,7 @@ function meaningfulInvolvedParty(value = '') {
 function hardText(value) {
   const source = text(value);
   if (!source || /见原文|未知|待核验|未披露|未明确|待明确|空$/.test(source)) return '';
-  if (BROKEN_FIELD_PATTERN.test(source) || FRAGMENT_FIELD_PATTERN.test(source) || /^的[，,、；;：:]/.test(source)) return '';
+  if (BROKEN_FIELD_PATTERN.test(source) || FRAGMENT_FIELD_PATTERN.test(source) || /^的[，,、；;：:]/.test(source) || /^的[，,、；;：:].*按照相关法律、行政法规的规定处理/.test(source)) return '';
   if (DOCUMENT_TITLE_AS_PRODUCT_PATTERN.test(source) || MIXED_NOTICE_CHROME_PATTERN.test(source)) return '';
   return source;
 }
@@ -699,6 +699,9 @@ export function validatePremiumEvidenceCard(card = {}) {
   };
 
   if (!normalized.title) return { accepted: false, reason: 'missing-title', card: normalized };
+  if (normalized.source_candidate && !/[\u4e00-\u9fff]/.test(normalized.title)) {
+    return { accepted: false, reason: 'missing-chinese-display-title', card: normalized };
+  }
   if (!isHttpUrl(normalized.source_url)) return { accepted: false, reason: 'missing-source-url', card: normalized };
   if (isNonAuthoritativeRepublisher(normalized) && !isConcreteDiscoveredPublisherCard(normalized)) return { accepted: false, reason: 'non-authoritative-source', card: normalized };
   if (isNavigationOrGenericInformationPage(normalized)) return { accepted: false, reason: 'navigation-or-generic-page', card: normalized };
@@ -1400,7 +1403,8 @@ function premiumCardFromCandidate(candidate = {}) {
     business_impact: candidate.business_impact || '',
   });
   const baseCard = {
-    title: text(candidate.title),
+    title: text(candidate.display_title_zh || candidate.title_zh || candidate.title),
+    source_candidate: true,
     module,
     source_url: text(candidate.source_url || candidate.url),
     source_name: sourceNameFromCanonicalSource(candidate),
@@ -1452,6 +1456,11 @@ function isSourceOnlyFallbackEligible(candidate = {}) {
   if (!card.title || !isHttpUrl(card.source_url)) return false;
   if (isNonAuthoritativeRepublisher(card) && !isConcreteDiscoveredPublisherCard(card)) return false;
   const source = sourceTextForCard(card);
+  const displayChinese = [candidate.display_title_zh, candidate.title_zh, candidate.fact_summary_zh, candidate.legal_signal_zh]
+    .map(text)
+    .join(' ');
+  const sourceHasChinese = /[\u4e00-\u9fff]/.test(`${candidate.title || ''} ${candidate.article_text || candidate.full_text || candidate.snippet || ''}`);
+  if (!sourceHasChinese && !/[\u4e00-\u9fff]/.test(displayChinese)) return false;
   if (source.length < 80) return false;
   if (!BEAUTY_RELEVANCE_PATTERN.test(source) && !MODULE_ORDER.includes(normalizeModule(card.module))) return false;
   return isSampleGradeCard(card);

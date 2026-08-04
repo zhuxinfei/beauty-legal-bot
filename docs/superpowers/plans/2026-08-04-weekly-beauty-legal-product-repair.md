@@ -98,7 +98,7 @@ Commit: `git add worker/open-web-discovery.js scripts/discover-open-web.js scrip
 - Test: `worker/premium-hardfacts.test.js`
 - Test: `worker/test-runner.js`
 
-- [ ] **Step 1: Write failing evidence tests**
+- [x] **Step 1: Write failing evidence tests**
 
 Add cases for:
 
@@ -110,13 +110,13 @@ an invalid date such as `2014-21-11`, an English OPSS title/body, a food-only pu
 
 Add one valid fixture for each of the six module fact bundles and assert that the existing output fields remain exactly `标题`, `来源`, `事实依据`, `法务观察`, `业务影响`, and `下一步观察建议`.
 
-- [ ] **Step 2: Run tests and verify failures**
+- [x] **Step 2: Run tests and verify failures**
 
 Run: `node worker/premium-hardfacts.test.js && node worker/test-runner.js`
 
 Expected: the new missing-field, localization, and module-bundle assertions fail before implementation.
 
-- [ ] **Step 3: Implement deterministic evidence normalization**
+- [x] **Step 3: Implement deterministic evidence normalization**
 
 Use the existing article cleaning helpers before hard-fact extraction. Treat shell fragments, navigation text, malformed dates, and document/list-page titles as empty evidence. Require a source quote or source-text match for every hard fact used in a premium card.
 
@@ -124,13 +124,13 @@ Use the existing AI analysis fields for source-grounded Chinese display text. Pr
 
 Keep the current Markdown field names and order unchanged.
 
-- [ ] **Step 4: Run focused tests, then the full pure-function suite**
+- [x] **Step 4: Run focused tests, then the full pure-function suite**
 
 Run: `node worker/premium-hardfacts.test.js && node worker/test-runner.js`
 
 Expected: all six fact-bundle fixtures pass and all invalid fixtures are rejected.
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 Run: `git add worker/article-evidence.js worker/hard-fact-extractor.js worker/premium-quality.js worker/index.js worker/premium-hardfacts.test.js worker/test-runner.js && git commit -m "feat: require source-grounded bilingual hard facts"`
 
