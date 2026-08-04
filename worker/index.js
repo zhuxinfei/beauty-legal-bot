@@ -88,6 +88,17 @@ const REPORT_MODULES = [
   '进出口动态',
   '产品质量/召回与安全风险',
 ];
+const REPORT_MODULE_ALIASES = Object.freeze({
+  '广告处罚案例': '广告合规及处罚案例',
+  '知识产权保护或者侵权': '知识产权动态',
+  '新法律法规政策': '新规及案例动态',
+  '进出口': '进出口动态',
+});
+
+function normalizeReportModule(value) {
+  const module = String(value || '').trim();
+  return REPORT_MODULE_ALIASES[module] || module;
+}
 const ACTION_NOISE = ['建议关注', '持续关注', '企业应留意', '可能产生影响', '需持续观察'];
 const SOURCE_FETCH_TIMEOUT_MS = 30000;
 const SOURCE_FETCH_CONCURRENCY = 4;
@@ -3149,7 +3160,8 @@ export async function analyzeReportByModule({
 }) {
   const reports = await mapWithConcurrency(modules, 2, async module => {
     const moduleCandidates = candidates.filter(candidate => {
-      const assignedModule = REPORT_MODULES.includes(candidate.module) ? candidate.module : '';
+      const normalizedModule = normalizeReportModule(candidate.module);
+      const assignedModule = REPORT_MODULES.includes(normalizedModule) ? normalizedModule : '';
       return assignedModule ? assignedModule === module : signalMatchesModule(candidate, module);
     });
     const moduleLeads = leads.filter(lead => lead.module === module || signalMatchesModule(lead, module));
@@ -3158,7 +3170,7 @@ export async function analyzeReportByModule({
         module,
         candidates: moduleCandidates,
         leads: moduleLeads,
-        sources: sources.filter(source => source.module === module),
+        sources: sources.filter(source => normalizeReportModule(source.module) === module),
         period,
       });
       return normalizeModuleReport(report, module);

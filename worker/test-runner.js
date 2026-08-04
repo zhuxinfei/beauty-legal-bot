@@ -4735,6 +4735,28 @@ async function testModuleAnalysisRoutesExplicitCandidateToOneModuleOnly() {
   assert.deepEqual(seen, [{ module: '新规及案例动态', count: 1 }]);
 }
 
+async function testModuleAnalysisNormalizesLegacyExplicitModuleNames() {
+  const seen = [];
+  await analyzeReportByModule({
+    modules: ['广告合规及处罚案例', '知识产权动态'],
+    candidates: [
+      { module: '广告处罚案例', title: '候选一', url: 'https://official.example.gov.cn/case/1' },
+      { module: '知识产权保护或者侵权', title: '候选二', url: 'https://official.example.gov.cn/case/2' },
+    ],
+    leads: [],
+    sources: [],
+    period: { start: '2026-07-25', end: '2026-07-31' },
+    analyze: async ({ module, candidates }) => {
+      if (candidates.length) seen.push({ module, titles: candidates.map(candidate => candidate.title) });
+      return { period: { start: '2026-07-25', end: '2026-07-31' }, summary: [], risk_alerts: [], sections: [{ module, items: [] }] };
+    },
+  });
+  assert.deepEqual(seen, [
+    { module: '广告合规及处罚案例', titles: ['候选一'] },
+    { module: '知识产权动态', titles: ['候选二'] },
+  ]);
+}
+
 function reportWithCoreJudgements(prefix) {
   const report = structuredClone(sampleReport);
   report.sections = report.sections.map(section => ({
@@ -6244,6 +6266,7 @@ testBuildAnalysisPromptRequiresLegalIntelligenceCardFields();
 testAnalysisPromptSupportsWatchItemsWithoutForcedModuleFilling();
 await testModuleAnalysisFailureReturnsEmptySectionWithoutPlaceholder();
 await testModuleAnalysisRoutesExplicitCandidateToOneModuleOnly();
+await testModuleAnalysisNormalizesLegacyExplicitModuleNames();
 await testDeepseekAnalyzeUsesValidatedEvidenceReview();
 await testDeepseekAnalyzeFallsBackWhenEvidenceReviewFails();
 await testDeepseekAnalyzeFallsBackWhenEvidenceReviewIsMalformed();
