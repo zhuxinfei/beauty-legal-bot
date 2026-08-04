@@ -6118,6 +6118,9 @@ function testWeeklyWorkflowRunsLocalReportPipelineWithoutWorkerDeploy() {
   assert.ok(workflow.includes('DISCOVERY_MAX_ITEMS: 120'));
   assert.ok(workflow.includes('node scripts/discover-open-web.js'));
   assert.ok(workflow.includes('--input out/acquisition-manifest.json'));
+  assert.ok(workflow.includes('actions/upload-artifact@v4'));
+  assert.ok(workflow.includes('if: always()'));
+  assert.ok(workflow.includes('path: out/'));
   assert.equal(workflow.includes('fonts-noto-cjk'), false);
   assert.equal(workflow.includes('fc-match'), false);
   assert.ok(workflow.includes('node worker/probe-ai.js'));
