@@ -4,6 +4,7 @@ import {
   annotateHydratedRecords,
   buildPythonScript,
   hydrationEvidenceStats,
+  prioritizeHydrationDetailTasks,
   sanitizeDetailHref,
   selectHydrationSources,
 } from './crawl4ai-hydrate.js';
@@ -108,6 +109,53 @@ function testHydrationUsesBoundedConcurrentRequestBudget() {
   assert.match(workflow, /CRAWL4AI_REQUEST_LIMIT:\s*96/);
 }
 
+function testDetailTasksReserveCapacityForEveryModuleBeforeFillingBudget() {
+  const task = (module, url, priority = 'medium') => ({ module, url, priority });
+  const tasks = [
+    task('新规及案例动态', 'https://example.gov.cn/regulation-1'),
+    task('新规及案例动态', 'https://example.gov.cn/regulation-2'),
+    task('新规及案例动态', 'https://example.gov.cn/regulation-3'),
+    task('进出口动态', 'https://example.gov.cn/trade-1'),
+    task('进出口动态', 'https://example.gov.cn/trade-2'),
+    task('知识产权动态', 'https://example.gov.cn/ip-1', 'high'),
+    task('知识产权动态', 'https://example.gov.cn/ip-2', 'high'),
+    task('美妆动态', 'https://example.gov.cn/beauty-1'),
+  ];
+
+  const selected = prioritizeHydrationDetailTasks(tasks, {
+    limit: 6,
+    minimumPerModule: 2,
+    modules: ['新规及案例动态', '进出口动态', '知识产权动态', '美妆动态'],
+  });
+
+  assert.deepEqual(selected.map(item => item.url), [
+    'https://example.gov.cn/regulation-1',
+    'https://example.gov.cn/trade-1',
+    'https://example.gov.cn/ip-1',
+    'https://example.gov.cn/beauty-1',
+    'https://example.gov.cn/regulation-2',
+    'https://example.gov.cn/trade-2',
+  ]);
+}
+
+function testDetailTasksPreferRecentLegalEventOverNavigationLinks() {
+  const selected = prioritizeHydrationDetailTasks([{
+    module: '知识产权动态',
+    title: '专利预审',
+    url: 'https://www.gippc.com.cn/ippc/kszn/fwzl_list.shtml',
+  }, {
+    module: '知识产权动态',
+    title: '广东省知识产权局专利侵权纠纷行政裁决公告',
+    url: 'https://www.gippc.com.cn/ippc/tzgg/202607/e03d.shtml',
+  }], {
+    limit: 1,
+    minimumPerModule: 1,
+    modules: ['知识产权动态'],
+  });
+
+  assert.equal(selected[0].title, '广东省知识产权局专利侵权纠纷行政裁决公告');
+}
+
 testAnnotatesHydratedRecordsWithEvidenceGrades();
 testEvidenceStatsExposeChinaHardFactReady();
 testCrawl4AiScriptDiscoversHardDetailLinksFromLeadPages();
@@ -115,5 +163,7 @@ testDetailHrefDropsMarkdownTitleAfterShtmlUrl();
 testManualWorkflowHydratesEnoughChinaAuthoritySources();
 testHydrationPrefersEventEndpointOverAuthorityListPage();
 testHydrationUsesBoundedConcurrentRequestBudget();
+testDetailTasksReserveCapacityForEveryModuleBeforeFillingBudget();
+testDetailTasksPreferRecentLegalEventOverNavigationLinks();
 
 console.log('crawl4ai hydrate tests passed');

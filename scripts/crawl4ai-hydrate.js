@@ -198,6 +198,8 @@ async def run():
     try:
         async with AsyncWebCrawler(config=browser_config, base_directory=base_directory) as crawler:
             seed_tasks = []
+            detail_tasks = []
+            attachment_tasks = []
             for item in spec:
                 url = item.get("url") or item.get("source_url") or ""
                 module = item.get("discovery_module") or item.get("module") or ""
@@ -222,96 +224,37 @@ async def run():
                         record.get("references_markdown", ""),
                     ]), record.get("final_url") or url, module)
                     record["detail_urls"] = [detail.get("url") for detail in detail_links if detail.get("url")]
-                    attachment_records = []
+                    record["attachment_urls"] = []
+                    record["attachment_records"] = []
+                    results.append(record)
                     for attachment_url in extract_attachment_urls("\\n".join([
                         record.get("fit_markdown", ""),
                         record.get("raw_markdown", ""),
                         record.get("references_markdown", ""),
                     ]), record.get("final_url") or url):
-                        try:
-                            attachment_record = await crawl_one(crawler, attachment_url, item, module, config, attachment=True)
-                            attachment_record["parent_url"] = record.get("final_url") or url
-                            attachment_records.append(attachment_record)
-                        except Exception as attachment_exc:
-                            attachment_records.append({
-                                "url": attachment_url,
-                                "final_url": attachment_url,
-                                "title": "",
-                                "article_text": "",
-                                "raw_markdown": "",
-                                "fit_markdown": "",
-                                "references_markdown": "",
-                                "crawl_status": "attachment_failed",
-                                "quality_flags": [str(attachment_exc)],
-                                "source_url": attachment_url,
-                                "parent_url": record.get("final_url") or url,
-                            })
-                    record["attachment_urls"] = [attachment.get("url") for attachment in attachment_records if attachment.get("url")]
-                    record["attachment_records"] = attachment_records
-                    results.append(record)
+                        attachment_tasks.append({
+                            "owner": record,
+                            "item": item,
+                            "url": attachment_url,
+                            "module": module,
+                            "config": config,
+                            "parent_url": record.get("final_url") or url,
+                        })
                     for detail in detail_links:
                         detail_url = detail.get("url") or ""
                         if not detail_url or detail_url == (record.get("final_url") or url):
                             continue
-                        try:
-                            detail_item = dict(item)
-                            if detail.get("title"):
-                                detail_item["title"] = detail.get("title")
-                            detail_record = await crawl_one(crawler, detail_url, detail_item, module, config)
-                            detail_record["parent_url"] = record.get("final_url") or url
-                            detail_record["discovered_from"] = "lead_page"
-                            detail_attachment_records = []
-                            for attachment_url in extract_attachment_urls("\\n".join([
-                                detail_record.get("fit_markdown", ""),
-                                detail_record.get("raw_markdown", ""),
-                                detail_record.get("references_markdown", ""),
-                            ]), detail_record.get("final_url") or detail_url, module):
-                                try:
-                                    attachment_record = await crawl_one(crawler, attachment_url, item, module, config, attachment=True)
-                                    attachment_record["parent_url"] = detail_record.get("final_url") or detail_url
-                                    detail_attachment_records.append(attachment_record)
-                                except Exception as attachment_exc:
-                                    detail_attachment_records.append({
-                                        "url": attachment_url,
-                                        "final_url": attachment_url,
-                                        "title": "",
-                                        "article_text": "",
-                                        "raw_markdown": "",
-                                        "fit_markdown": "",
-                                        "references_markdown": "",
-                                        "crawl_status": "attachment_failed",
-                                        "quality_flags": [str(attachment_exc)],
-                                        "source_url": attachment_url,
-                                        "parent_url": detail_record.get("final_url") or detail_url,
-                                    })
-                            detail_record["attachment_urls"] = [attachment.get("url") for attachment in detail_attachment_records if attachment.get("url")]
-                            detail_record["attachment_records"] = detail_attachment_records
-                            results.append(detail_record)
-                        except Exception as detail_exc:
-                            results.append({
-                                "url": detail_url,
-                                "final_url": detail_url,
-                                "title": detail.get("title", "") or "",
-                                "published_at": item.get("published_at", "") or "",
-                                "country": item.get("country", "") or "",
-                                "region": item.get("region", "") or "",
-                                "module": module,
-                                "discovery_module": item.get("discovery_module", "") or module,
-                                "discovery_query": item.get("discovery_query", "") or "",
-                                "source_name": item.get("name", "") or item.get("source_name", "") or "",
-                                "raw_markdown": "",
-                                "fit_markdown": "",
-                                "references_markdown": "",
-                                "article_text": "",
-                                "snippet": "",
-                                "metadata": {},
-                                "extraction": {},
-                                "crawl_status": "failed",
-                                "quality_flags": [str(detail_exc)],
-                                "source_url": detail_url,
-                                "parent_url": record.get("final_url") or url,
-                                "discovered_from": "lead_page",
-                            })
+                        detail_item = dict(item)
+                        if detail.get("title"):
+                            detail_item["title"] = detail.get("title")
+                        detail_tasks.append({
+                            "item": detail_item,
+                            "url": detail_url,
+                            "module": module,
+                            "config": config,
+                            "parent_url": record.get("final_url") or url,
+                            "title": detail.get("title", "") or "",
+                        })
                 except Exception as exc:
                     results.append({
                         "url": url,
@@ -334,6 +277,125 @@ async def run():
                         "crawl_status": "failed",
                         "quality_flags": [str(exc)],
                         "source_url": url,
+                    })
+
+            def detail_task_score(task):
+                title = text_value(task.get("title", ""))
+                url = text_value(task.get("url", ""))
+                combined = title + " " + url
+                score = 0
+                if re.search(r"行政处罚|处罚决定|行政裁决|口头审理|典型案例|召回|抽检|不合格|征求意见|公告|通告|实施|生效|发布", combined, flags=re.I):
+                    score += 100
+                if re.search(r"(?:20\\d{2})[-/.年]?(?:0?[1-9]|1[0-2])|/20\\d{2}(?:0[1-9]|1[0-2])", combined):
+                    score += 30
+                if re.search(r"\\.(?:s?html?)(?:$|[?#])", url, flags=re.I):
+                    score += 10
+                if re.search(r"首页|版权声明|会员系统|登录|网站地图|联系我们|专利预审$|商标审查$", title):
+                    score -= 200
+                if re.search(r"(?:index|common_list|fwzl_list)\\.(?:s?html?)", url, flags=re.I):
+                    score -= 100
+                return score
+
+            detail_tasks = sorted(detail_tasks, key=detail_task_score, reverse=True)
+            detail_limit = max(0, min(len(detail_tasks), request_limit - request_count))
+            detail_minimum_per_module = max(0, int(os.getenv("CRAWL4AI_DETAIL_MIN_PER_MODULE", "2")))
+            detail_modules = list(dict.fromkeys(task.get("module", "") for task in detail_tasks if task.get("module")))
+            selected_detail_tasks = []
+            selected_detail_urls = set()
+            def take_detail(task):
+                task_url = task.get("url", "")
+                if not task_url or task_url in selected_detail_urls or len(selected_detail_tasks) >= detail_limit:
+                    return
+                selected_detail_tasks.append(task)
+                selected_detail_urls.add(task_url)
+            for round_index in range(detail_minimum_per_module):
+                for module_name in detail_modules:
+                    module_tasks = [task for task in detail_tasks if task.get("module") == module_name]
+                    if round_index < len(module_tasks):
+                        take_detail(module_tasks[round_index])
+            for task in detail_tasks:
+                take_detail(task)
+
+            for detail_task in selected_detail_tasks:
+                detail_url = detail_task["url"]
+                item = detail_task["item"]
+                module = detail_task["module"]
+                config = detail_task["config"]
+                try:
+                    detail_record = await crawl_one(crawler, detail_url, item, module, config)
+                    detail_record["parent_url"] = detail_task["parent_url"]
+                    detail_record["discovered_from"] = "lead_page"
+                    detail_record["attachment_urls"] = []
+                    detail_record["attachment_records"] = []
+                    results.append(detail_record)
+                    for attachment_url in extract_attachment_urls("\\n".join([
+                        detail_record.get("fit_markdown", ""),
+                        detail_record.get("raw_markdown", ""),
+                        detail_record.get("references_markdown", ""),
+                    ]), detail_record.get("final_url") or detail_url, module):
+                        attachment_tasks.append({
+                            "owner": detail_record,
+                            "item": item,
+                            "url": attachment_url,
+                            "module": module,
+                            "config": config,
+                            "parent_url": detail_record.get("final_url") or detail_url,
+                        })
+                except Exception as detail_exc:
+                    results.append({
+                        "url": detail_url,
+                        "final_url": detail_url,
+                        "title": detail_task["title"],
+                        "published_at": item.get("published_at", "") or "",
+                        "country": item.get("country", "") or "",
+                        "region": item.get("region", "") or "",
+                        "module": module,
+                        "discovery_module": item.get("discovery_module", "") or module,
+                        "discovery_query": item.get("discovery_query", "") or "",
+                        "source_name": item.get("name", "") or item.get("source_name", "") or "",
+                        "raw_markdown": "",
+                        "fit_markdown": "",
+                        "references_markdown": "",
+                        "article_text": "",
+                        "snippet": "",
+                        "metadata": {},
+                        "extraction": {},
+                        "crawl_status": "failed",
+                        "quality_flags": [str(detail_exc)],
+                        "source_url": detail_url,
+                        "parent_url": detail_task["parent_url"],
+                        "discovered_from": "lead_page",
+                    })
+
+            for attachment_task in attachment_tasks:
+                if request_count >= request_limit:
+                    break
+                try:
+                    attachment_record = await crawl_one(
+                        crawler,
+                        attachment_task["url"],
+                        attachment_task["item"],
+                        attachment_task["module"],
+                        attachment_task["config"],
+                        attachment=True,
+                    )
+                    attachment_record["parent_url"] = attachment_task["parent_url"]
+                    attachment_task["owner"]["attachment_urls"].append(attachment_task["url"])
+                    attachment_task["owner"]["attachment_records"].append(attachment_record)
+                except Exception as attachment_exc:
+                    attachment_task["owner"]["attachment_urls"].append(attachment_task["url"])
+                    attachment_task["owner"]["attachment_records"].append({
+                        "url": attachment_task["url"],
+                        "final_url": attachment_task["url"],
+                        "title": "",
+                        "article_text": "",
+                        "raw_markdown": "",
+                        "fit_markdown": "",
+                        "references_markdown": "",
+                        "crawl_status": "attachment_failed",
+                        "quality_flags": [str(attachment_exc)],
+                        "source_url": attachment_task["url"],
+                        "parent_url": attachment_task["parent_url"],
                     })
     except Exception as exc:
         results.append({
@@ -430,6 +492,42 @@ export function selectHydrationSources(records = [], { limit = 0, minimumPerModu
     }
   }
   for (const item of eligible) take(item);
+  return selected;
+}
+
+export function prioritizeHydrationDetailTasks(tasks = [], { limit = 0, minimumPerModule = 0, modules = [] } = {}) {
+  const detailTaskScore = task => {
+    const title = String(task?.title || '');
+    const url = String(task?.url || '');
+    const combined = `${title} ${url}`;
+    let score = 0;
+    if (/行政处罚|处罚决定|行政裁决|口头审理|典型案例|召回|抽检|不合格|征求意见|公告|通告|实施|生效|发布/i.test(combined)) score += 100;
+    if (/(?:20\d{2})[-/.年]?(?:0?[1-9]|1[0-2])|\/20\d{2}(?:0[1-9]|1[0-2])/.test(combined)) score += 30;
+    if (/\.(?:s?html?)(?:$|[?#])/i.test(url)) score += 10;
+    if (/首页|版权声明|会员系统|登录|网站地图|联系我们|专利预审$|商标审查$/.test(title)) score -= 200;
+    if (/(?:index|common_list|fwzl_list)\.(?:s?html?)/i.test(url)) score -= 100;
+    return score;
+  };
+  const eligible = (Array.isArray(tasks) ? tasks.filter(task => task?.url) : [])
+    .map((task, index) => ({ task, index, score: detailTaskScore(task) }))
+    .sort((a, b) => b.score - a.score || a.index - b.index)
+    .map(entry => entry.task);
+  const capacity = limit > 0 ? Math.min(limit, eligible.length) : eligible.length;
+  const selected = [];
+  const selectedUrls = new Set();
+  const take = task => {
+    if (!task?.url || selectedUrls.has(task.url) || selected.length >= capacity) return false;
+    selected.push(task);
+    selectedUrls.add(task.url);
+    return true;
+  };
+
+  for (let round = 0; round < Math.max(0, minimumPerModule); round += 1) {
+    for (const module of modules) {
+      take(eligible.filter(task => task.module === module)[round]);
+    }
+  }
+  for (const task of eligible) take(task);
   return selected;
 }
 
