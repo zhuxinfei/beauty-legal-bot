@@ -1454,10 +1454,11 @@ export async function runPipeline(env, requestUrl = 'https://beauty-legal-bot.wo
       ? "[stage 3/5] 生成单条原生 Markdown 报告..."
       : "[stage 3/5] 无准入事项，生成文字简报...");
     const generatedAt = new Date().toISOString();
-    const premiumCandidates = uniqueCandidatesByUrl([
-      ...candidates,
-      ...hydratedCandidates.filter(candidate => ['hard_fact_ready', 'corroborated_fact_ready'].includes(candidate.evidence_grade)),
-    ]);
+    const premiumCandidates = buildPremiumCandidatePool({
+      editorialCandidates: candidates,
+      hydratedCandidates,
+      hydrationHardFactRecords: freshHydrationHardFactRecords,
+    });
     const premiumDelivery = buildPremiumDingTalkDelivery(report, {
       candidates: premiumCandidates,
       allowSourceOnlyFallback: qualityMode,
@@ -2986,6 +2987,18 @@ function uniqueCandidatesByUrl(candidates = []) {
     result.push(candidate);
   }
   return result;
+}
+
+export function buildPremiumCandidatePool({
+  editorialCandidates = [],
+  hydratedCandidates = [],
+  hydrationHardFactRecords = [],
+} = {}) {
+  return uniqueCandidatesByUrl([
+    ...editorialCandidates,
+    ...hydratedCandidates.filter(candidate => ['hard_fact_ready', 'corroborated_fact_ready'].includes(candidate?.evidence_grade)),
+    ...hydrationHardFactRecords,
+  ]);
 }
 
 function hardFactReadyCandidates(candidates = []) {

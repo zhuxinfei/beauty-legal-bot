@@ -118,6 +118,7 @@ import {
   getPeriod,
   buildModuleAnalysisBatches,
   buildModuleFunnelAudit,
+  buildPremiumCandidatePool,
   fetchWithTimeout,
   selectSourcesForWorkerBudget,
   mapWithConcurrency,
@@ -134,6 +135,22 @@ import {
   warnSourceCoverageGate,
   isArtifactOnlyRun,
 } from './index.js';
+
+function testPremiumCandidatePoolKeepsUnmatchedFreshHydrationHardFacts() {
+  const unmatchedIpEvent = {
+    title: '化妆品商标批量维权案件获法院再审改判',
+    url: 'https://media.example.cn/ip/cosmetics-case',
+    module: '知识产权动态',
+    evidence_grade: 'hard_fact_ready',
+  };
+  const pool = buildPremiumCandidatePool({
+    editorialCandidates: [],
+    hydratedCandidates: [],
+    hydrationHardFactRecords: [unmatchedIpEvent],
+  });
+
+  assert.deepEqual(pool, [unmatchedIpEvent]);
+}
 
 function testModuleFunnelAuditIncludesAllModulesAndStageKeys() {
   const audit = buildModuleFunnelAudit({
@@ -6296,6 +6313,7 @@ testEnterprisePromptRequiresGlobalLegalIntelligence();
 testCandidateFreshnessAndInfluenceRanking();
 testPrioritizeCandidatesForAnalysisPutsChinaEvidenceFirst();
 testModuleAnalysisBatchesChinaCandidatesBeforeForeignCandidates();
+testPremiumCandidatePoolKeepsUnmatchedFreshHydrationHardFacts();
 testModuleFunnelAuditIncludesAllModulesAndStageKeys();
 testDiscoveryQueriesCoverUnderfilledBeautyLegalLanes();
 testHydrationSelectionReservesEvidenceBudgetForEveryModule();
