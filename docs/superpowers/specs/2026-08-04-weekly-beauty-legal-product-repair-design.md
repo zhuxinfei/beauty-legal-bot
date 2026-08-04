@@ -32,6 +32,11 @@ The normal delivery gate is:
 - duplicate URLs, syndicated copies, navigation pages, topic pages, generic homepages, promotional content, food-only cases, malformed dates, shell text, and fabricated facts are rejected;
 - the exact Markdown used for quality validation, the saved artifact, and the DingTalk payload is the same string.
 
+Deduplication has two explicit modes:
+
+- Debug mode may allow repeated items so acquisition, quality, translation, and module coverage can be verified without historical state hiding regressions.
+- Normal delivery must deduplicate against prior delivered events and within the current report. After the product contract is proven in debug runs, the historical deduplication state will be reset and normal deduplication will be re-enabled according to the user's release instruction.
+
 If the bounded acquisition and recovery process cannot meet the gate, the run must not send an incomplete normal report. It must emit a compact shortage audit by module and rejection reason.
 
 ## Root Causes To Address
@@ -88,6 +93,7 @@ Unit and contract tests will prove:
 - all six fact bundles accept representative valid fixtures and reject missing or shell-only fixtures;
 - invalid dates, food-only enforcement, fragment fields, navigation pages, and unlocalized English fields cannot enter the premium portfolio;
 - event-level deduplication removes syndicated copies while allowing distinct events from the same source;
+- debug mode can retain a repeated fixture or previously delivered event, while normal mode rejects it and does not mark it as newly delivered;
 - portfolio selection returns at least 20 items with two per module when valid fixtures exist, and reports the exact deficient modules when they do not;
 - the saved Markdown and DingTalk payload are identical;
 - an underfilled run does not send or mark deduplication state.
