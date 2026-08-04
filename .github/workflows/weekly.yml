@@ -70,6 +70,8 @@ jobs:
       CRAWL4AI_DETAIL_LINK_LIMIT: 12
       CRAWL4AI_PREVIEW_LIMIT: 72
       CRAWL4AI_MIN_PER_MODULE: 6
+      CRAWL4AI_CONCURRENCY: 6
+      CRAWL4AI_REQUEST_LIMIT: 96
       FORCE_DELIVERY: ${{ github.event_name == 'workflow_dispatch' && inputs.allow_duplicate_debug == 'true' && '1' || '0' }}
       NO_DELIVERY: ${{ github.event_name == 'workflow_dispatch' && inputs.no_delivery == 'true' && '1' || '0' }}
       DINGTALK_WEBHOOK_URL: ${{ secrets.DINGTALK_WEBHOOK_URL }}

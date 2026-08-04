@@ -44,7 +44,7 @@ function parseArgs(argv) {
   return args;
 }
 
-function buildPythonScript(spec, { pageTimeoutMs = 20000, outputPath = '', attachmentLimit = 3 } = {}) {
+export function buildPythonScript(spec, { pageTimeoutMs = 20000, outputPath = '', attachmentLimit = 3 } = {}) {
   return `
 import asyncio
 import json
@@ -66,6 +66,19 @@ base_directory = os.getenv("CRAWL4_AI_BASE_DIRECTORY", ${JSON.stringify('/privat
 attachment_limit = max(0, int(os.getenv("CRAWL4AI_ATTACHMENT_LIMIT", ${JSON.stringify(Number.isFinite(attachmentLimit) ? Math.max(0, attachmentLimit) : 3)})))
 detail_link_limit = max(0, int(os.getenv("CRAWL4AI_DETAIL_LINK_LIMIT", "12")))
 crawl_timeout_seconds = max(8, int(os.getenv("CRAWL4AI_CRAWL_TIMEOUT_SECONDS", "${Math.ceil(Math.max(5000, Number(pageTimeoutMs) || 20000) / 1000) + 8}")))
+crawl_concurrency = max(1, int(os.getenv("CRAWL4AI_CONCURRENCY", "6")))
+request_limit = max(len(spec), int(os.getenv("CRAWL4AI_REQUEST_LIMIT", "96")))
+request_count = 0
+request_lock = asyncio.Lock()
+crawl_semaphore = asyncio.Semaphore(crawl_concurrency)
+
+async def reserve_request():
+    global request_count
+    async with request_lock:
+        if request_count >= request_limit:
+            return False
+        request_count += 1
+        return True
 
 def text_value(value):
     return value if isinstance(value, str) else ""
@@ -130,7 +143,10 @@ def extract_detail_urls(markdown, base_url, module=""):
     return normalized[:detail_link_limit]
 
 async def crawl_one(crawler, url, item, module, config, attachment=False):
-    result = await asyncio.wait_for(crawler.arun(url=url, config=config), timeout=crawl_timeout_seconds)
+    if not await reserve_request():
+        raise RuntimeError("Crawl4AI request budget exhausted")
+    async with crawl_semaphore:
+        result = await asyncio.wait_for(crawler.arun(url=url, config=config), timeout=crawl_timeout_seconds)
     metadata = getattr(result, "metadata", {}) or {}
     extraction = getattr(result, "extraction", None) or getattr(result, "extracted_content", None) or {}
     markdown = getattr(result, "markdown", "") or ""
@@ -174,21 +190,25 @@ async def run():
     results = []
     try:
         async with AsyncWebCrawler(config=browser_config, base_directory=base_directory) as crawler:
+            seed_tasks = []
             for item in spec:
                 url = item.get("url") or item.get("source_url") or ""
                 module = item.get("discovery_module") or item.get("module") or ""
+                config = CrawlerRunConfig(
+                    word_count_threshold=80,
+                    scan_full_page=True,
+                    wait_for_images=False,
+                    remove_consent_popups=True,
+                    adjust_viewport_to_content=True,
+                    markdown_generator=DefaultMarkdownGenerator(content_filter=PruningContentFilter()),
+                    page_timeout=${JSON.stringify(Math.max(5000, Number(pageTimeoutMs) || 20000))},
+                    cache_mode=CacheMode.BYPASS if hasattr(CacheMode, "BYPASS") else None,
+                )
+                seed_tasks.append((item, url, module, config, asyncio.create_task(crawl_one(crawler, url, item, module, config))))
+
+            for item, url, module, config, seed_task in seed_tasks:
                 try:
-                    config = CrawlerRunConfig(
-                        word_count_threshold=80,
-                        scan_full_page=True,
-                        wait_for_images=False,
-                        remove_consent_popups=True,
-                        adjust_viewport_to_content=True,
-                        markdown_generator=DefaultMarkdownGenerator(content_filter=PruningContentFilter()),
-                        page_timeout=${JSON.stringify(Math.max(5000, Number(pageTimeoutMs) || 20000))},
-                        cache_mode=CacheMode.BYPASS if hasattr(CacheMode, "BYPASS") else None,
-                    )
-                    record = await crawl_one(crawler, url, item, module, config)
+                    record = await seed_task
                     detail_links = extract_detail_urls("\\n".join([
                         record.get("fit_markdown", ""),
                         record.get("raw_markdown", ""),

@@ -1,6 +1,11 @@
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
-import { annotateHydratedRecords, hydrationEvidenceStats, selectHydrationSources } from './crawl4ai-hydrate.js';
+import {
+  annotateHydratedRecords,
+  buildPythonScript,
+  hydrationEvidenceStats,
+  selectHydrationSources,
+} from './crawl4ai-hydrate.js';
 
 function testAnnotatesHydratedRecordsWithEvidenceGrades() {
   const records = annotateHydratedRecords([{
@@ -86,10 +91,22 @@ function testHydrationPrefersEventEndpointOverAuthorityListPage() {
   assert.deepEqual(selected, [eventPage]);
 }
 
+function testHydrationUsesBoundedConcurrentRequestBudget() {
+  const runner = buildPythonScript([{ url: 'https://official.example.gov.cn/case/1' }]);
+  const workflow = readFileSync(new URL('../.github/workflows/weekly.yml', import.meta.url), 'utf8');
+
+  assert.match(runner, /asyncio\.Semaphore\(crawl_concurrency\)/);
+  assert.match(runner, /asyncio\.create_task\(crawl_one/);
+  assert.match(runner, /CRAWL4AI_REQUEST_LIMIT/);
+  assert.match(workflow, /CRAWL4AI_CONCURRENCY:\s*6/);
+  assert.match(workflow, /CRAWL4AI_REQUEST_LIMIT:\s*96/);
+}
+
 testAnnotatesHydratedRecordsWithEvidenceGrades();
 testEvidenceStatsExposeChinaHardFactReady();
 testCrawl4AiScriptDiscoversHardDetailLinksFromLeadPages();
 testManualWorkflowHydratesEnoughChinaAuthoritySources();
 testHydrationPrefersEventEndpointOverAuthorityListPage();
+testHydrationUsesBoundedConcurrentRequestBudget();
 
 console.log('crawl4ai hydrate tests passed');
