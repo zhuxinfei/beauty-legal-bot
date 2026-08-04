@@ -2823,7 +2823,7 @@ async function testOpenWebDiscoveryIsBoundedAndKeepsDirectLegalArticles() {
   const beautyQueries = buildDiscoveryQueries({ modules: ['美妆动态'] });
   assert.equal(beautyQueries.length, 6);
   assert.ok(beautyQueries.every(row => row.module === '美妆动态'));
-  assert.ok(beautyQueries.some(row => /IPO/.test(row.query)));
+  assert.ok(beautyQueries.some(row => row.query === '化妆品 企业 IPO 问询'));
   assert.equal(result.candidates.length, 1);
   assert.equal(result.candidates[0].source_scope, 'discovered_article');
   assert.equal(result.candidates[0].publisher_host, 'media.example');
@@ -5921,6 +5921,8 @@ async function testArtifactOnlyPipelineSkipsDelivery() {
       AI_API_KEY: 'test-key',
       AI_MODEL: 'test-model',
       ARTIFACT_ONLY: '1',
+      REPORT_PERIOD_START: sampleReport.period.start,
+      REPORT_PERIOD_END: sampleReport.period.end,
       SOURCE_ONLY_PROOF_REQUIRED: '0',
       DETAIL_FETCH_ENABLED: '0',
       DINGTALK_WEBHOOK_URL: 'https://oapi.dingtalk.com/robot/send?access_token=should-not-call',

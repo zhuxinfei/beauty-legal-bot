@@ -31,7 +31,7 @@ const QUERY_GROUPS = Object.freeze({
     '进口化妆品 海关 公告 清关 退运',
   ],
   '美妆动态': [
-    '美妆 企业 IPO 问询 并购 公告', '化妆品 企业 破产 清算 诉讼 公告',
+    '化妆品 企业 IPO 问询', '化妆品 企业 破产 清算 诉讼 公告',
     '美妆 品牌 数据 合规 调查 平台治理', 'beauty company IPO merger regulatory filing',
     '化妆品 企业 重大事项 公告 监管',
     '美妆 平台 商家治理 功效宣称 违规商品',
