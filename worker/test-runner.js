@@ -2992,6 +2992,16 @@ function testAuthorityResolverBuildsIndependentModuleQueries() {
   assert.equal(rows.every(row => !row.authorityLeadTitle && !row.authorityLeadUrl), true);
 }
 
+function testAuthorityResolverCoversConcreteIpDecisionTypes() {
+  const queries = buildAuthoritySearchRows([], 24)
+    .filter(row => row.module === '知识产权动态')
+    .map(row => row.query);
+  assert.equal(queries.length, 3);
+  assert.ok(queries.some(query => /行政处罚决定书/.test(query)));
+  assert.ok(queries.some(query => /法院.*判决/.test(query)));
+  assert.ok(queries.some(query => /知识产权局.*裁决/.test(query)));
+}
+
 function testAuthorityResolutionKeepsLeadProvenanceAndRejectsMedia() {
   const lead = {
     url: 'https://media.example/item-17',
@@ -6200,6 +6210,7 @@ testAuthorityResolutionPreservesChinaProvenance();
 testEvidenceCorroborationRequiresIndependentHardAnchors();
 testAuthorityResolverBuildsSearchTasksFromLeadOnlySources();
 testAuthorityResolverBuildsIndependentModuleQueries();
+testAuthorityResolverCoversConcreteIpDecisionTypes();
 testAuthorityResolutionKeepsLeadProvenanceAndRejectsMedia();
 testAuthorityResolverClassifiesFinalSourceTrust();
 testAuthorityResolverKeepsOnlyAuthorityResolvedCandidates();

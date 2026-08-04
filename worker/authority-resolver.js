@@ -6,12 +6,21 @@ const FIRST_PARTY_RULE_HOST_PATTERN = /(?:^|\.)(?:rulechannel\.taobao\.com|rules
 const FIRST_PARTY_NAME_PATTERN = /淘宝规则|天猫规则|京东规则|抖音电商|快手电商|小红书开放平台|平台规则中心/i;
 const MODULE_AUTHORITY_ANCHORS = Object.freeze({
   '广告合规及处罚案例': '行政处罚决定书 化妆品 市场监督管理局 site:gov.cn',
-  '知识产权动态': '化妆品 商标 侵权 判决 国家知识产权局 法院 site:gov.cn',
+  '知识产权动态': [
+    '化妆品 商标侵权 行政处罚决定书 市场监督管理局 site:gov.cn',
+    '化妆品 商标侵权 法院 判决 site:court.gov.cn',
+    '化妆品 商标 国家知识产权局 裁决 site:cnipa.gov.cn',
+  ],
   '新规及案例动态': '化妆品 公告 征求意见 国家药监局 site:gov.cn',
   '产品质量/召回与安全风险': '化妆品 不符合规定 召回 通告 药品监督管理局 site:gov.cn',
   '进出口动态': '进口 化妆品 海关 公告 site:customs.gov.cn',
   '美妆动态': '美妆 化妆品 商家 平台规则 公告 淘宝 天猫 京东 抖音电商',
 });
+
+function moduleAuthorityAnchors(module) {
+  const configured = MODULE_AUTHORITY_ANCHORS[text(module)];
+  return (Array.isArray(configured) ? configured : [configured]).filter(Boolean);
+}
 
 function text(value) {
   return String(value || '').replace(/\s+/g, ' ').trim();
@@ -78,8 +87,7 @@ export function buildAuthoritySearchQueries(lead = {}) {
   const tokens = tokensFromLead(lead);
   const core = [title, ...tokens].filter(Boolean).join(' ');
   const anchors = [];
-  const moduleAnchor = MODULE_AUTHORITY_ANCHORS[text(lead.module || lead.discovery_module)];
-  if (moduleAnchor) anchors.push(moduleAnchor);
+  anchors.push(...moduleAuthorityAnchors(lead.module || lead.discovery_module));
   if (/处罚|罚款|刷单|违法|侵权|商标/i.test(core)) {
     anchors.push('行政处罚决定书 市场监督管理局 site:gov.cn');
   }
@@ -109,17 +117,19 @@ export function buildAuthoritySearchTasks(leads = []) {
 
 export function buildAuthoritySearchRows(leads = [], limit = 24) {
   const maximum = Math.max(0, Number(limit) || 0);
-  const moduleRows = Object.entries(MODULE_AUTHORITY_ANCHORS).map(([module, query]) => ({
-    module,
-    region: '亚洲',
-    country: '中国',
-    query,
-    beautyScoped: true,
-    authorityResolution: true,
-    authorityTaskId: `module:${module}`,
-    authorityLeadUrl: '',
-    authorityLeadTitle: '',
-  }));
+  const moduleRows = Object.keys(MODULE_AUTHORITY_ANCHORS).flatMap(module => (
+    moduleAuthorityAnchors(module).map((query, index) => ({
+      module,
+      region: '亚洲',
+      country: '中国',
+      query,
+      beautyScoped: true,
+      authorityResolution: true,
+      authorityTaskId: `module:${module}:${index}`,
+      authorityLeadUrl: '',
+      authorityLeadTitle: '',
+    }))
+  ));
   const leadTasks = buildAuthoritySearchTasks(leads);
   if (maximum < moduleRows.length && leadTasks.length) {
     return leadTasks.slice(0, maximum).flatMap((task, index) => task.queries.slice(0, 1).map(query => ({
