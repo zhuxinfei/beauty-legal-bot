@@ -4,6 +4,7 @@ import {
   annotateHydratedRecords,
   buildPythonScript,
   hydrationEvidenceStats,
+  sanitizeDetailHref,
   selectHydrationSources,
 } from './crawl4ai-hydrate.js';
 
@@ -52,6 +53,11 @@ function testCrawl4AiScriptDiscoversHardDetailLinksFromLeadPages() {
     assert.ok(source.includes(keyword), `missing hard detail keyword: ${keyword}`);
   }
   assert.match(source, /CRAWL4AI_DETAIL_LINK_LIMIT/);
+}
+
+function testDetailHrefDropsMarkdownTitleAfterShtmlUrl() {
+  const polluted = 'https://www.gippc.com.cn/ippc/tzgg/202607/e03d.shtml "广东省知识产权局专利侵权纠纷行政裁决公告"';
+  assert.equal(sanitizeDetailHref(polluted), 'https://www.gippc.com.cn/ippc/tzgg/202607/e03d.shtml');
 }
 
 function testManualWorkflowHydratesEnoughChinaAuthoritySources() {
@@ -105,6 +111,7 @@ function testHydrationUsesBoundedConcurrentRequestBudget() {
 testAnnotatesHydratedRecordsWithEvidenceGrades();
 testEvidenceStatsExposeChinaHardFactReady();
 testCrawl4AiScriptDiscoversHardDetailLinksFromLeadPages();
+testDetailHrefDropsMarkdownTitleAfterShtmlUrl();
 testManualWorkflowHydratesEnoughChinaAuthoritySources();
 testHydrationPrefersEventEndpointOverAuthorityListPage();
 testHydrationUsesBoundedConcurrentRequestBudget();

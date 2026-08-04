@@ -44,6 +44,13 @@ function parseArgs(argv) {
   return args;
 }
 
+export function sanitizeDetailHref(value) {
+  const href = String(value || '').trim().replace(/^['"]|['"]$/g, '');
+  return href.match(/https?:\/\/[^\s)"']+?\.(?:s?html?)(?=$|[?#\s"'])/i)?.[0]
+    || href.match(/[^\s)"']+?\.(?:s?html?)(?=$|[?#\s"'])/i)?.[0]
+    || href.split(/[\s"']/)[0];
+}
+
 export function buildPythonScript(spec, { pageTimeoutMs = 20000, outputPath = '', attachmentLimit = 3 } = {}) {
   return `
 import asyncio
@@ -127,13 +134,13 @@ def extract_detail_urls(markdown, base_url, module=""):
     normalized = []
     def sanitize_detail_href(raw):
         href = text_value(raw).strip().strip('"').strip("'")
-        match = re.search(r'''(https?://[^\\s)"']+?\\.html?)''', href, flags=re.I)
+        match = re.search(r'''(https?://[^\\s)"']+?\\.(?:s?html?))(?=$|[?#\\s"'])''', href, flags=re.I)
         if match:
             return match.group(1)
-        match = re.search(r'''([^\\s)"']+?\\.html?)''', href, flags=re.I)
+        match = re.search(r'''([^\\s)"']+?\\.(?:s?html?))(?=$|[?#\\s"'])''', href, flags=re.I)
         if match:
             return match.group(1)
-        return href
+        return re.split(r'''[\\s"']''', href, maxsplit=1)[0]
     for label, raw in urls:
         absolute = urljoin(base_url or "", sanitize_detail_href(raw))
         if not absolute or absolute in seen:
