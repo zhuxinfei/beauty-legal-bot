@@ -332,7 +332,7 @@ async def run():
                         detail_record.get("fit_markdown", ""),
                         detail_record.get("raw_markdown", ""),
                         detail_record.get("references_markdown", ""),
-                    ]), detail_record.get("final_url") or detail_url, module):
+                    ]), detail_record.get("final_url") or detail_url):
                         attachment_tasks.append({
                             "owner": detail_record,
                             "item": item,

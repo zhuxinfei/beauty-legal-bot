@@ -156,6 +156,11 @@ function testDetailTasksPreferRecentLegalEventOverNavigationLinks() {
   assert.equal(selected[0].title, '广东省知识产权局专利侵权纠纷行政裁决公告');
 }
 
+function testGeneratedAttachmentExtractionUsesItsTwoArgumentContract() {
+  const source = buildPythonScript([{ url: 'https://example.gov.cn' }]);
+  assert.doesNotMatch(source, /extract_attachment_urls\([\s\S]*?\],\s*detail_record\.get\("final_url"\) or detail_url, module\)/);
+}
+
 testAnnotatesHydratedRecordsWithEvidenceGrades();
 testEvidenceStatsExposeChinaHardFactReady();
 testCrawl4AiScriptDiscoversHardDetailLinksFromLeadPages();
@@ -165,5 +170,6 @@ testHydrationPrefersEventEndpointOverAuthorityListPage();
 testHydrationUsesBoundedConcurrentRequestBudget();
 testDetailTasksReserveCapacityForEveryModuleBeforeFillingBudget();
 testDetailTasksPreferRecentLegalEventOverNavigationLinks();
+testGeneratedAttachmentExtractionUsesItsTwoArgumentContract();
 
 console.log('crawl4ai hydrate tests passed');
