@@ -95,7 +95,7 @@ async function resolveAuthorityOriginals(leads, days) {
 }
 
 async function runDiscoveryPass({ period: passPeriod, queryRows, recovery }) {
-  const days = recovery ? Number(process.env.DISCOVERY_RECOVERY_DAYS || 30) : DISCOVERY_WINDOW_DAYS;
+  const days = recovery ? Number(process.env.DISCOVERY_RECOVERY_DAYS || DISCOVERY_WINDOW_DAYS) : DISCOVERY_WINDOW_DAYS;
   const discovered = await discoverOpenWeb({
     period: passPeriod,
     queryRows,
@@ -129,7 +129,7 @@ try {
     period: period(),
     queryRows: buildDiscoveryQueries(),
     minimumPerModule: Number(process.env.DISCOVERY_MIN_PER_MODULE || 8),
-    recoveryDays: Number(process.env.DISCOVERY_RECOVERY_DAYS || 30),
+    recoveryDays: Number(process.env.DISCOVERY_RECOVERY_DAYS || DISCOVERY_WINDOW_DAYS),
     runPass: runDiscoveryPass,
   });
   let timeout;

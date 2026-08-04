@@ -167,6 +167,15 @@ function testDefaultPeriodCoversHalfMonth() {
   assert.deepEqual(getPeriod(new Date('2026-08-03T00:00:00Z')), { start: '2026-07-20', end: '2026-08-03' });
 }
 
+function testDiscoveryQueriesCoverUnderfilledBeautyLegalLanes() {
+  const queriesByModule = Object.groupBy(buildDiscoveryQueries(), row => row.module);
+  assert.ok(queriesByModule['广告合规及处罚案例'].some(row => row.query.includes('行政处罚决定书')));
+  assert.ok(queriesByModule['知识产权动态'].some(row => row.query.includes('包装装潢')));
+  assert.ok(queriesByModule['产品质量/召回与安全风险'].some(row => row.query.includes('product safety report')));
+  assert.ok(queriesByModule['进出口动态'].some(row => row.query.includes('海关 公告')));
+  assert.ok(queriesByModule['美妆动态'].some(row => row.query.includes('商家治理')));
+}
+
 function testFreshnessGateAcceptsHalfMonthBoundary() {
   const period = { start: '2026-07-13', end: '2026-07-19' };
   assert.equal(classifyFreshness({ published_at: '2026-07-19' }, period).status, 'current-week');
@@ -6056,7 +6065,7 @@ function testWeeklyWorkflowRunsLocalReportPipelineWithoutWorkerDeploy() {
   assert.ok(workflow.indexOf('node scripts/crawl4ai-hydrate.js') < workflow.indexOf('node worker/run-local.js'));
   const hydrateSource = readFileSync(new URL('../scripts/crawl4ai-hydrate.js', import.meta.url), 'utf8');
   assert.match(hydrateSource, /GITHUB_EVENT_NAME === 'workflow_dispatch'/);
-  assert.match(hydrateSource, /CRAWL4AI_PREVIEW_LIMIT \|\| 39/);
+  assert.match(hydrateSource, /CRAWL4AI_PREVIEW_LIMIT \|\| 72/);
   assert.match(hydrateSource, /prioritizeHydrationSources/);
   assert.match(hydrateSource, /MIN_CRAWL4AI_WITH_TEXT/);
   assert.match(hydrateSource, /CRAWL4AI_PREVIEW_TIMEOUT_MS \|\| 12000/);
@@ -6069,7 +6078,7 @@ function testWeeklyWorkflowRunsLocalReportPipelineWithoutWorkerDeploy() {
   assert.ok(workflow.includes('PREMIUM_MAX_ITEMS: 22'));
   assert.ok(workflow.includes('PREMIUM_MIN_PER_MODULE: 2'));
   assert.ok(workflow.includes('PREMIUM_MAX_PER_MODULE: 5'));
-  assert.ok(workflow.includes('DISCOVERY_RECOVERY_DAYS: 30'));
+  assert.ok(workflow.includes('DISCOVERY_RECOVERY_DAYS: 15'));
   assert.ok(workflow.includes('CRAWL4AI_MIN_PER_MODULE: 6'));
   assert.ok(workflow.includes('DISCOVERY_ENABLED: 1'));
   assert.ok(workflow.includes('DISCOVERY_MAX_ITEMS: 120'));
@@ -6250,6 +6259,7 @@ testCandidateFreshnessAndInfluenceRanking();
 testPrioritizeCandidatesForAnalysisPutsChinaEvidenceFirst();
 testModuleAnalysisBatchesChinaCandidatesBeforeForeignCandidates();
 testModuleFunnelAuditIncludesAllModulesAndStageKeys();
+testDiscoveryQueriesCoverUnderfilledBeautyLegalLanes();
 testHydrationSelectionReservesEvidenceBudgetForEveryModule();
 testHydrationSelectionHandlesModulesBelowConfiguredFloor();
 testAnalysisPromptKeepsChinaEvidenceFirst();

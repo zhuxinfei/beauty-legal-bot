@@ -364,6 +364,15 @@ function hydrationSourceScore(item = {}) {
 
 export function prioritizeHydrationSources(records = []) {
   return [...records].sort((a, b) => {
+    const scopeScore = item => {
+      const scope = String(item.source_scope || '');
+      if (scope === 'hard_fact_endpoint') return 3;
+      if (scope === 'discovered_article' || (isHardFactAcquisitionSource(item) && scope !== 'hard_fact_list')) return 2;
+      if (scope === 'hard_fact_list') return 1;
+      return 0;
+    };
+    const detailDelta = scopeScore(b) - scopeScore(a);
+    if (detailDelta) return detailDelta;
     const scopeDelta = Number(isHardFactAcquisitionSource(b)) - Number(isHardFactAcquisitionSource(a));
     return scopeDelta || hydrationSourceScore(b) - hydrationSourceScore(a);
   });
@@ -443,7 +452,7 @@ async function main() {
 
   const loaded = filterHydrationAcquisitionSources(await loadInput(resolve(input)));
   const manualPreviewLimit = process.env.GITHUB_EVENT_NAME === 'workflow_dispatch'
-    ? Number(process.env.CRAWL4AI_PREVIEW_LIMIT || 39)
+    ? Number(process.env.CRAWL4AI_PREVIEW_LIMIT || 72)
     : 0;
   const effectivePageTimeoutMs = manualPreviewLimit > 0
     ? Math.min(Number(pageTimeoutMs) || 20000, Number(process.env.CRAWL4AI_PREVIEW_TIMEOUT_MS || 12000))

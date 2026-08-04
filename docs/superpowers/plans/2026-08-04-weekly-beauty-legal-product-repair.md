@@ -56,31 +56,31 @@ Run: `git add worker/content-quality.js worker/open-web-discovery.js worker/inde
 - Test: `worker/test-runner.js`
 - Test: `scripts/crawl4ai-hydrate.test.js`
 
-- [ ] **Step 1: Write failing supply tests**
+- [x] **Step 1: Write failing supply tests**
 
 Test that discovery does not let regulation results consume the global resolution budget when advertising, IP, platform, import/export, and safety lanes are under their minimum. Test that recovery is invoked only for deficient modules and preserves the module name on returned candidates.
 
 Test that `selectHydrationSources` selects at least the configured per-module floor before filling remaining slots and excludes root/index/list records when an article/detail record is available for that module.
 
-- [ ] **Step 2: Run tests and verify the expected failures**
+- [x] **Step 2: Run tests and verify the expected failures**
 
 Run: `node worker/test-runner.js && node scripts/crawl4ai-hydrate.test.js`
 
 Expected: the new per-module budget assertions fail against the current globally pooled behavior.
 
-- [ ] **Step 3: Implement bounded lane budgets**
+- [x] **Step 3: Implement bounded lane budgets**
 
 Expand only the existing `QUERY_GROUPS` with targeted event queries for the three currently empty lanes: advertising enforcement, beauty/platform governance, and IP disputes; add source-specific queries for recall/safety and import/export detail events. Keep the existing maximum total, host, and module limits.
 
-Change `discoverOpenWeb` to resolve a balanced per-module slice first, then use remaining capacity globally. Run the existing recovery pass only for modules below the configured candidate floor, with the 15-day primary period and bounded 30-day recovery period.
+Change `discoverOpenWeb` to resolve a balanced per-module slice first, then use remaining capacity globally. Run the existing recovery pass only for modules below the configured candidate floor, using extra targeted queries within the same 15-day period.
 
 Change hydration selection to reserve the module floor and prioritize hard-fact endpoint/detail URLs over list or homepage URLs. Do not make a page successful merely because navigation returned HTTP 200.
 
-- [ ] **Step 4: Add workflow diagnostics without changing delivery format**
+- [x] **Step 4: Add workflow diagnostics without changing delivery format**
 
 Print one compact line per module after discovery and hydration, plus the existing overall totals. Keep the workflow within its current timeout and concurrency limits. Set debug duplicate behavior from the existing `allow_duplicate_debug` input; do not add a second deduplication switch.
 
-- [ ] **Step 5: Run tests and commit**
+- [x] **Step 5: Run tests and commit**
 
 Run: `node worker/test-runner.js && node scripts/crawl4ai-hydrate.test.js`
 

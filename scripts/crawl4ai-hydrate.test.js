@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
-import { annotateHydratedRecords, hydrationEvidenceStats } from './crawl4ai-hydrate.js';
+import { annotateHydratedRecords, hydrationEvidenceStats, selectHydrationSources } from './crawl4ai-hydrate.js';
 
 function testAnnotatesHydratedRecordsWithEvidenceGrades() {
   const records = annotateHydratedRecords([{
@@ -53,15 +53,43 @@ function testManualWorkflowHydratesEnoughChinaAuthoritySources() {
   const hydrateSource = readFileSync(new URL('./crawl4ai-hydrate.js', import.meta.url), 'utf8');
   const workflow = readFileSync(new URL('../.github/workflows/weekly.yml', import.meta.url), 'utf8');
 
-  assert.match(hydrateSource, /CRAWL4AI_PREVIEW_LIMIT \|\| 39/);
+  assert.match(hydrateSource, /CRAWL4AI_PREVIEW_LIMIT \|\| 72/);
   assert.match(hydrateSource, /CRAWL4AI_DETAIL_LINK_LIMIT", "12"/);
   assert.match(workflow, /CRAWL4AI_DETAIL_LINK_LIMIT:\s*12/);
-  assert.match(workflow, /--limit 39/);
+  assert.match(workflow, /--limit 72/);
+}
+
+function testHydrationPrefersEventEndpointOverAuthorityListPage() {
+  const listPage = {
+    url: 'https://official.example.gov.cn/xxgk/index.html',
+    module: '知识产权动态',
+    source_scope: 'hard_fact_list',
+    country: '中国',
+    authority_type: 'regulator',
+    source_type: 'official_site',
+    priority: 'high',
+  };
+  const eventPage = {
+    url: 'https://official.example.gov.cn/xxgk/penalty-2026.html',
+    module: '知识产权动态',
+    source_scope: 'hard_fact_endpoint',
+    country: '中国',
+    authority_type: 'regulator',
+    source_type: 'official_site',
+    priority: 'medium',
+  };
+  const selected = selectHydrationSources([listPage, eventPage], {
+    limit: 1,
+    minimumPerModule: 1,
+    modules: ['知识产权动态'],
+  });
+  assert.deepEqual(selected, [eventPage]);
 }
 
 testAnnotatesHydratedRecordsWithEvidenceGrades();
 testEvidenceStatsExposeChinaHardFactReady();
 testCrawl4AiScriptDiscoversHardDetailLinksFromLeadPages();
 testManualWorkflowHydratesEnoughChinaAuthoritySources();
+testHydrationPrefersEventEndpointOverAuthorityListPage();
 
 console.log('crawl4ai hydrate tests passed');

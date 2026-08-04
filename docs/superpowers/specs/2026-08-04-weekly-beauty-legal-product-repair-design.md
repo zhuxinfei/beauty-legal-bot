@@ -52,7 +52,7 @@ Each module owns an acquisition lane with:
 - a query matrix containing Chinese and English event terms, beauty product synonyms, and authority/source-specific terms;
 - an independent discovery, resolution, hydration, and analysis budget;
 - a minimum candidate floor before the global pool is assembled;
-- a recovery pass limited to the deficient module, widening freshness from 15 to 30 days only when needed and preserving the actual date in the report.
+- a recovery pass limited to the deficient module, using additional targeted queries within the same 15-day report period.
 
 The pipeline records the following counts per module:
 
