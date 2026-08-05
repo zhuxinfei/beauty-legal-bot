@@ -3051,6 +3051,73 @@ function testEvidenceCorroborationRequiresIndependentHardAnchors() {
     { ...base, url: 'https://media-b.example/item', article_text: '广州妍瑟化妆品有限公司侵权使用玻色因相关商标并刷单，被罚19万元。', hard_facts: { ...base.hard_facts, penalty_amount: '19万元' } },
   ]);
   assert.equal(conflict.candidates.length, 0);
+
+  const vicky = corroborateEvidenceCandidates([
+    {
+      title: '化妆品原料专精特新小巨人维琪科技登陆北交所',
+      url: 'https://media-a.example/vicky',
+      published_at: '2026-07-27',
+      source_type: 'industry_media',
+      authority_type: 'media',
+      evidence_grade: 'lead_only',
+      article_text: '维琪科技于2026年7月27日在北交所挂牌上市，专注于化妆品原料。',
+      hard_facts: { involved_party: '维琪科技', product_or_batch: '化妆品原料' },
+    },
+    {
+      title: '维琪科技上市首日大涨',
+      url: 'https://media-b.example/vicky',
+      published_at: '2026-07-27',
+      source_type: 'industry_media',
+      authority_type: 'media',
+      evidence_grade: 'lead_only',
+      article_text: '深圳市维琪科技股份有限公司于2026年7月27日在北交所挂牌上市，主营化妆品原料。',
+      hard_facts: { involved_party: '深圳市维琪科技股份有限公司', product_or_batch: '化妆品原料' },
+    },
+  ]);
+  assert.equal(vicky.candidates.length, 1);
+  assert.equal(hasVerifiedCorroboration(vicky.candidates[0]), true);
+
+  const banmu = corroborateEvidenceCandidates([
+    {
+      title: '半亩花田招股书失效上市停滞',
+      url: 'https://media-a.example/banmu',
+      published_at: '2026-07-30',
+      source_type: 'industry_media',
+      authority_type: 'media',
+      evidence_grade: 'lead_only',
+      article_text: '山东花物堂化妆品股份有限公司的上市申请状态变更为失效。2026年1月，公司向港交所递交主板上市申请。',
+      hard_facts: { involved_party: '国货个护品牌半亩花田母公司山东花物堂化妆品股份有限公司' },
+    },
+    {
+      title: '半亩花田首次IPO申请失效',
+      url: 'https://media-b.example/banmu',
+      published_at: '2026-07-24',
+      source_type: 'industry_media',
+      authority_type: 'media',
+      evidence_grade: 'lead_only',
+      article_text: '山东花物堂化妆品股份有限公司招股书失效。2026 年 1 月 16 日，公司向港交所递交主板上市申请。',
+      hard_facts: { involved_party: '半亩花田主体公司山东花物堂化妆品股份有限公司' },
+    },
+  ]);
+  assert.equal(banmu.candidates.length, 1);
+  assert.equal(banmu.candidates[0].agreed_anchors.includes('parties'), true);
+  assert.equal(banmu.candidates[0].agreed_anchors.includes('event_outcomes'), true);
+
+  const genericCompanyOverlap = corroborateEvidenceCandidates([
+    {
+      title: '甲品牌上市申请失效', url: 'https://media-a.example/generic', published_at: '2026-07-30',
+      source_type: 'industry_media', authority_type: 'media', evidence_grade: 'lead_only',
+      article_text: '2026年1月16日甲品牌上市申请失效。',
+      hard_facts: { involved_party: '甲美妆品牌化妆品股份有限公司', product_or_batch: '护肤产品' },
+    },
+    {
+      title: '乙品牌上市申请失效', url: 'https://media-b.example/generic', published_at: '2026-07-24',
+      source_type: 'industry_media', authority_type: 'media', evidence_grade: 'lead_only',
+      article_text: '2026年1月16日乙品牌上市申请失效。',
+      hard_facts: { involved_party: '乙美妆品牌化妆品股份有限公司', product_or_batch: '洗护产品' },
+    },
+  ]);
+  assert.equal(genericCompanyOverlap.candidates.length, 0);
 }
 
 function testAuthorityResolverBuildsSearchTasksFromLeadOnlySources() {

@@ -8,6 +8,13 @@ function hostOf(candidate) {
 }
 function values(value) { return (Array.isArray(value) ? value : [value]).map(text).filter(Boolean); }
 function normalized(value) { return text(value).toLowerCase().replace(/[\s\p{P}\p{S}]+/gu, ''); }
+function eventOutcomes(value) {
+  const source = normalized(value);
+  const outcomes = [];
+  if (/(?:上市申请(?:状态)?(?:变更为)?失效|ipo申请失效|招股书失效)/u.test(source)) outcomes.push('上市申请失效');
+  if (/(?:挂牌上市|登陆(?:北交所|上交所|深交所|港交所))/u.test(source)) outcomes.push('挂牌上市');
+  return outcomes;
+}
 
 export function classifyEvidenceSource(candidate = {}) {
   const host = hostOf(candidate);
@@ -29,8 +36,14 @@ export function extractEventAnchors(candidate = {}) {
     document_numbers: values(hard.document_number).length ? values(hard.document_number) : matches(/(?:[\u4e00-\u9fa5A-Za-z]{0,12}〔20\d{2}〕\d+号|20\d{2}年第\d+号)/g),
     amounts: values(hard.penalty_amount).length ? values(hard.penalty_amount) : matches(/\d+(?:\.\d+)?\s*(?:万|亿)?元/g),
     products_or_batches: values(hard.product_or_batch),
-    dates: values([hard.effective_date, hard.deadline]).flat(),
+    dates: values([
+      candidate.published_at,
+      hard.effective_date,
+      hard.deadline,
+      ...matches(/20\d{2}[-年]\d{1,2}[-月]\d{1,2}日?/g),
+    ]).flat(),
     dispositions: values(hard.confiscation_result),
+    event_outcomes: eventOutcomes(source),
   };
 }
 
@@ -38,13 +51,39 @@ function anchorMap(candidate) {
   const anchors = extractEventAnchors(candidate);
   return new Map(Object.entries(anchors).map(([key, rows]) => [key, new Set(rows.map(normalized).filter(Boolean))]));
 }
+function partyCore(value) {
+  return value.replace(/(?:有限责任公司|股份有限公司|有限公司|公司)$/u, '');
+}
+function hasDistinctivePartyOverlap(left, right) {
+  const a = partyCore(left); const b = partyCore(right);
+  if (a.length >= 4 && b.length >= 4 && (a.includes(b) || b.includes(a))) return true;
+  const [shorter, longer] = a.length <= b.length ? [a, b] : [b, a];
+  for (let index = 0; index <= shorter.length - 8; index += 1) {
+    const segment = shorter.slice(index, index + 8);
+    const distinctive = segment.replace(/(?:化妆品|母公司|主体|品牌|公司|股份|有限)/gu, '');
+    if (distinctive.length >= 4 && longer.includes(segment)) return true;
+  }
+  return false;
+}
 function matchedAnchorKinds(left, right) {
   const a = anchorMap(left); const b = anchorMap(right); const matched = [];
-  for (const [kind, rows] of a) if ([...rows].some(value => b.get(kind)?.has(value))) matched.push(kind);
+  for (const [kind, rows] of a) {
+    const other = b.get(kind) || new Set();
+    const hasMatch = [...rows].some(value => [...other].some(candidate => (
+      value === candidate
+      || (kind === 'parties' && hasDistinctivePartyOverlap(value, candidate))
+      || (kind === 'products_or_batches'
+        && value.length >= 4 && candidate.length >= 4
+        && (value.includes(candidate) || candidate.includes(value)))
+    )));
+    if (hasMatch) matched.push(kind);
+  }
   return matched;
 }
 function isSameEvent(left, right) {
   const kinds = matchedAnchorKinds(left, right);
+  const leftParties = anchorMap(left).get('parties'); const rightParties = anchorMap(right).get('parties');
+  if (leftParties?.size && rightParties?.size && !kinds.includes('parties')) return false;
   return kinds.includes('document_numbers') || kinds.length >= 2;
 }
 

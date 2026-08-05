@@ -52,6 +52,19 @@ function testProXylaneCaseExtractsTrademarkAndBrushing() {
   assert.equal(grade.evidence_grade, 'hard_fact_ready');
 }
 
+function testFinancialBeautyArticleDoesNotInventPenaltyOrFooterFacts() {
+  const text = [
+    '深圳市维琪科技股份有限公司于2026年7月27日在北交所挂牌上市，发行价格22.16元/股。',
+    '公司专注于化妆品原料及化妆品成品研发、生产与销售，上市委关注客户稳定性和业绩增长可持续性。',
+    '版权所有：媒体网站，意见与建议：4000300059，邮箱：service@example.com。',
+  ].join('');
+  const facts = extractHardFacts(text, { source_name: '行业媒体', module: '美妆动态' });
+
+  assert.equal(facts.penalty_amount, undefined);
+  assert.equal(facts.feedback_channel, undefined);
+  assert.equal(facts.involved_party, '深圳市维琪科技股份有限公司');
+}
+
 function testPolicyExtractsDeadlineFeedbackAndTransition() {
   const text = [
     '国家药品监督管理局就《化妆品标准管理规定（征求意见稿）》公开征求意见。',
@@ -268,6 +281,7 @@ function testHydrationMergeAppendsUnmatchedHardFactReadyRecordsAsCandidates() {
 
 testPenaltyCaseExtractsNamedPartiesAndDisposition();
 testProXylaneCaseExtractsTrademarkAndBrushing();
+testFinancialBeautyArticleDoesNotInventPenaltyOrFooterFacts();
 testPolicyExtractsDeadlineFeedbackAndTransition();
 testCustomsExtractsHsCodeAndImportProcess();
 testLeadOnlyAndGenericPagesCannotEnterPremiumEvidence();

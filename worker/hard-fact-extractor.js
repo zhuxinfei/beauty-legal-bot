@@ -58,7 +58,7 @@ function stripMarkdown(value) {
 
 function extractCompanyNames(value = '') {
   const source = stripMarkdown(value);
-  const companyPattern = /([\u4e00-\u9fa5A-Za-z0-9（）()·]{2,48}?(?:有限责任公司|股份有限公司|有限公司|个体工商户|工作室|商行|公司))/g;
+  const companyPattern = /([\u4e00-\u9fa5A-Za-z0-9（）()·]{2,48}?(?:有限责任公司|股份有限公司|有限公司|个体工商户|工作室|商行))/g;
   const matches = Array.from(source.matchAll(companyPattern))
     .map(match => match[1].replace(/^.*?(?:披露|通报|认定|处罚|当事人|被处罚人|涉案主体)/, ''))
     .filter(name => !/市场监督管理局|市场监管局|药品监督管理局|国家知识产权局|海关|人民法院|委员会|协会|监管部门/.test(name));
@@ -92,10 +92,10 @@ function extractInvolvedParty(source) {
 }
 
 function extractPenaltyAmount(source) {
+  if (!/(?:罚款|处罚金额|罚没金额|被罚|处罚|罚没|没收|责令改正)/.test(source)) return '';
   return firstMatch(source, [
     /(?:合计)?(?:罚款|处罚金额|罚没金额)[：:\s]*([0-9]+(?:\.[0-9]+)?\s*(?:万|亿)?元)/,
     /(?:被罚|罚款|处罚金额)([0-9]+(?:\.[0-9]+)?\s*(?:万|亿)?元)/,
-    /([0-9]+(?:\.[0-9]+)?\s*(?:万|亿)?元)/,
   ]);
 }
 
@@ -161,7 +161,6 @@ function extractDeadline(source) {
 function extractFeedbackChannel(source) {
   return firstMatch(source, [
     /(?:反馈渠道|反馈方式|提交方式)[：:\s]*([^。；;\n]{4,120})/,
-    /((?:电子邮箱|邮箱|邮寄地址|联系人)[：:\s]*[^。；;\n]{4,120})/,
   ]);
 }
 
