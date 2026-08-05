@@ -39,7 +39,10 @@ At runtime, a missing or underfilled module must not suppress valid cards from o
       Persisted: 南阳古法护肤品违规添加禁用原料案 (score=172,
       央视曝光+政府联合调查组通报) and 韩国Medicube面霜检出苏丹红案
       (score=149, 香港海关安全警示). Both pass `validatePremiumEvidenceCard`.
-- [ ] Produce and validate at least two complete import/export cards.
+- [x] Produce and validate at least two complete import/export cards.
+      Persisted: 海关总署令第284号化妆品进出口检验检疫新规 (score=148,
+      12月1日施行, customs.gov.cn) and 奉贤东方美谷十一条措施出口增34.1%
+      (score=176, 央广网). Both pass `validatePremiumEvidenceCard`.
 - [ ] Build a balanced local portfolio of 20-24 cards.
 - [ ] Pass Chinese, completeness, fragment, translation, relevance, and duplicate checks.
 - [ ] Pass the local quality gate.
