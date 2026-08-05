@@ -65,13 +65,18 @@ export function compactEvidenceText(value, maxLength = 220) {
   return `${window.slice(0, boundary || maxLength).replace(/[，,；;\s]+$/g, '')}...`;
 }
 
+const GENERIC_INTRO_PATTERN = /(?:引发关注|备受关注|引起热议|引发热议|受到关注|引发讨论|引人注目)/i;
+
 export function firstEvidenceSentence(value, maxLength = 220) {
   const cleaned = cleanArticleEvidence(value);
   const sentences = cleaned
     .split(/\n+|(?<=[。！？!?；;])\s*/)
     .map(sentence => sentence.trim())
     .filter(sentence => sentence.length >= 16);
-  const selected = sentences.find(sentence => EVENT_EVIDENCE_PATTERN.test(sentence))
+  const selected = sentences.find(sentence =>
+    EVENT_EVIDENCE_PATTERN.test(sentence) && !GENERIC_INTRO_PATTERN.test(sentence)
+  )
+    || sentences.find(sentence => EVENT_EVIDENCE_PATTERN.test(sentence))
     || sentences[0]
     || cleaned;
   return compactEvidenceText(selected, maxLength);

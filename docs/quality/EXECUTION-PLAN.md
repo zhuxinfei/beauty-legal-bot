@@ -29,7 +29,12 @@ At runtime, a missing or underfilled module must not suppress valid cards from o
       Persisted in `docs/quality/local-portfolio.json` (维琪科技北交所挂牌上市,
       山东花物堂/半亩花田港股上市申请失效; both corroborated, pass
       `validatePremiumEvidenceCard`).
-- [ ] Produce and validate at least two complete beauty IP cards.
+- [x] Produce and validate at least two complete beauty IP cards.
+      Persisted in portfolio: 欧莱雅诉盒马商标侵权 (score=157, corroborated,
+      浦东法院案号(2026)沪0115民初61781号) and 六神诉广州化妆品公司仿冒装潢案
+      (score=144, 上海虹口法院判赔25万). Both pass `validatePremiumEvidenceCard`.
+      Fixed `firstEvidenceSentence` to skip generic intros with `引发关注`-style
+      phrases. Added `人民法院`/`中级法院` to hard-fact authority patterns.
 - [ ] Produce and validate at least two complete quality/recall/safety cards.
 - [ ] Produce and validate at least two complete import/export cards.
 - [ ] Build a balanced local portfolio of 20-24 cards.
