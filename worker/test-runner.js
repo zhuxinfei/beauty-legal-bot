@@ -879,6 +879,24 @@ function testPremiumPortfolioGateRejectsUnachievableLiveInventoryEvenInDebugMode
   };
   assert.throws(() => assertPremiumPortfolioDelivery(insufficient), /Premium portfolio gate failed.*finalItems=7/);
   assert.throws(() => assertPremiumPortfolioDelivery(insufficient, { forceDelivery: true }), /Premium portfolio gate failed.*finalItems=7/);
+  assert.doesNotThrow(() => assertPremiumPortfolioDelivery({
+    finalItems: 12,
+    finalItemsByModule: {
+      '新法律法规政策': 2,
+      '广告处罚案例': 2,
+      '知识产权保护或者侵权': 0,
+      '进出口': 2,
+      '产品质量/召回与安全风险': 4,
+      '美妆动态': 2,
+    },
+    minimumItems: 20,
+    maximumItems: 24,
+    minimumPerModule: 2,
+  }, { allowPartial: true }));
+  assert.throws(
+    () => assertPremiumPortfolioDelivery({ finalItems: 0, finalItemsByModule: {} }, { allowPartial: true }),
+    /Premium portfolio gate failed.*finalItems=0/
+  );
 }
 
 function testPremiumDingTalkMarkdownDoesNotExposeRiskTierAndSignalType() {

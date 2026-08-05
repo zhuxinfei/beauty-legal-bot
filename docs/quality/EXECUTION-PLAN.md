@@ -15,6 +15,8 @@ The portfolio is complete only when `npm run quality:gate -- <report.json>` pass
 
 Do not run the full remote pipeline until the local portfolio gate passes. Debug mode may bypass historical KV dedupe only; it may not bypass card, module, count, language, completeness, or duplicate gates.
 
+At runtime, a missing or underfilled module must not suppress valid cards from other modules. The runtime may publish a partial portfolio with an explicit shortfall, while the local product-completion gate remains strict at 20-24 cards.
+
 ## Checklist
 
 - [x] Lock the product contract and existing card structure.

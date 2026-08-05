@@ -1255,10 +1255,19 @@ export function assertPremiumPortfolioDelivery(audit = {}, options = {}) {
   const minimumItems = Number(options.minimumItems ?? audit.minimumItems ?? 20);
   const maximumItems = Number(options.maximumItems ?? audit.maximumItems ?? 24);
   const minimumPerModule = Number(options.minimumPerModule ?? audit.minimumPerModule ?? 2);
+  const allowPartial = options.allowPartial === true;
   const finalItems = Number(audit.finalItems || 0);
   const counts = audit.finalItemsByModule || {};
   const missingModules = MODULE_ORDER.filter(module => !Object.hasOwn(counts, module) || Number(counts[module] || 0) === 0);
   const underfilledModules = MODULE_ORDER.filter(module => Number(counts[module] || 0) < minimumPerModule);
+  if (allowPartial && finalItems > 0 && finalItems <= maximumItems) {
+    return {
+      ...audit,
+      partialPortfolio: finalItems < minimumItems || missingModules.length > 0 || underfilledModules.length > 0,
+      missingModules,
+      underfilledModules,
+    };
+  }
   if (finalItems < minimumItems || finalItems > maximumItems || missingModules.length || underfilledModules.length) {
     throw new Error(`Premium portfolio gate failed: finalItems=${finalItems}, required=${minimumItems}-${maximumItems}, missingModules=${missingModules.join(',') || 'none'}, underfilledModules=${underfilledModules.join(',') || 'none'}, minimumPerModule=${minimumPerModule}`);
   }

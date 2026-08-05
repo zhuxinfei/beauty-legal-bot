@@ -1339,7 +1339,7 @@ export async function runPipeline(env, requestUrl = 'https://beauty-legal-bot.wo
           allowForeignOnly: env.ALLOW_FOREIGN_ONLY_DELIVERY === '1',
         });
         if (qualityMode && !artifactOnly && env.PREMIUM_PORTFOLIO_GATE !== '0') {
-          assertPremiumPortfolioDelivery(directDelivery.audit);
+          assertPremiumPortfolioDelivery(directDelivery.audit, { allowPartial: true });
         }
         assertFinalDingTalkMarkdownQuality(markdown, directDelivery.audit);
         const generatedAt = new Date().toISOString();
@@ -1487,7 +1487,7 @@ export async function runPipeline(env, requestUrl = 'https://beauty-legal-bot.wo
 	      allowForeignOnly: env.ALLOW_FOREIGN_ONLY_DELIVERY === '1',
 	    });
 	    if (qualityMode && !artifactOnly && env.PREMIUM_PORTFOLIO_GATE !== '0') {
-	      assertPremiumPortfolioDelivery(premiumDelivery.audit);
+	      assertPremiumPortfolioDelivery(premiumDelivery.audit, { allowPartial: true });
 	    }
 	    if (!Number(premiumDelivery.audit.finalItems || 0)) {
 	      console.log('[stage 3/5] 无达到精品证据门槛的事项，跳过推送');
@@ -3778,7 +3778,7 @@ async function runFinalizePhase(date, env, requestUrl) {
   });
   if ((env.REPORT_QUALITY_MODE === 'quality' || env.QUALITY_MODE === '1' || env.CONTENT_QUALITY_MODE === 'quality')
     && env.PREMIUM_PORTFOLIO_GATE !== '0') {
-    assertPremiumPortfolioDelivery(premiumDelivery.audit);
+    assertPremiumPortfolioDelivery(premiumDelivery.audit, { allowPartial: true });
   }
   assertFinalDingTalkMarkdownQuality(markdown, premiumDelivery.audit);
 
