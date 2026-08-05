@@ -1,0 +1,154 @@
+{
+ "period": {
+  "start": "2026-07-21",
+  "end": "2026-08-04"
+ },
+ "sections": [
+  {
+   "module": "美妆动态",
+   "items": [
+    {
+     "title": "维琪科技上市首日大涨599.5% 涨幅超长鑫科技",
+     "source_candidate": true,
+     "module": "美妆动态",
+     "source_url": "https://m.21jingji.com/article/20260727/herald/8dd937c4afa1d4099205fcb58d01eec8_zaker.html",
+     "source_name": "21世纪经济报道",
+     "source_type": "industry_media",
+     "authority_type": "media",
+     "source_scope": "discovered_article",
+     "detail_status": "hydrated",
+     "editorial_status": "",
+     "evidence_grade": "corroborated_fact_ready",
+     "verification_status": "corroborated",
+     "supporting_sources": [
+      {
+       "url": "https://m.21jingji.com/article/20260727/herald/8dd937c4afa1d4099205fcb58d01eec8_zaker.html",
+       "host": "m.21jingji.com",
+       "tier": "secondary",
+       "matched_anchors": [
+        "amounts",
+        "dates",
+        "event_outcomes"
+       ]
+      },
+      {
+       "url": "https://finance.eastmoney.com/a/202607273822247832.html",
+       "host": "finance.eastmoney.com",
+       "tier": "secondary",
+       "matched_anchors": [
+        "amounts",
+        "dates",
+        "event_outcomes"
+       ]
+      }
+     ],
+     "agreed_anchors": [
+      "amounts",
+      "dates",
+      "event_outcomes"
+     ],
+     "published_at": "2026-07-27",
+     "country": "中国",
+     "facts": [
+      "2026年7月27日，深圳市维琪科技股份有限公司（股票代码：920176，下称“维琪科技”）正式在北交所挂牌上市，此次公开发行股票数量为883万股，发行价格22.16元/股。",
+      "维琪科技上市首日大涨599.5% 涨幅超长鑫科技"
+     ],
+     "legal_signal": "2026年7月27日，深圳市维琪科技股份有限公司（股票代码：920176，下称“维琪科技”）正式在北交所挂牌上市，此次公开发行股票数量为883万股，发行价格22.16元/股，该事项已具备可追踪的事实节点。",
+     "business_impact": "影响中国市场美妆业务的配方/检验标准。",
+     "recommended_action": "观察配方/检验标准对应的正式文件、执行口径和配套问答。",
+     "evidence_text": "2026年7月27日，深圳市维琪科技股份有限公司（股票代码：920176，下称“维琪科技”）正式在北交所挂牌上市，此次公开发行股票数量为883万股，发行价格22.16元/股。 作为国内多肽原料头部企业，维琪科技今日上市，这也意味着北交所美妆“多肽原料第一股”正式诞生。 上市首日，N维琪（920176）表现亮眼，开盘即较发行价上涨超100%，午后涨幅一度拉升至825%，远超今日另一只热股长鑫科技。截至7月27日收盘，维琪科技股价涨幅达599.5%，报收155.01元/股，总市值达91.19亿元。 公开资料显示，维琪科技成立于2011年，专注于化妆品原料及化妆品成品的研发、生产与销售，公司实控人丁文锋博士拥有药物化学专业背景，曾长期在医药企业从事研发工作。丁文锋与其配偶赖燕敏合计控制公司约62%的股权，股权结构高度集中。 维琪科技是化妆品行业上游的“隐形龙头”。根据弗若斯特沙利文数据，在中国化妆品多肽原料市场，维琪科技以6.6%的市占率位列第一。其产品进入了宝洁、联合利华、资生堂等国际巨头以及丸美、珀莱雅、敷尔佳等国内知名品牌的供应链。 2023年，维琪科技开始向宝洁供应咖啡酰六肽-9原料产品，成为国内首家向国际品牌销售创新原料的化妆品原料供应商。 不难发现，维琪科技在化妆品原料尤其是多肽原料领域具有较强竞争力。许多女性消费者耳熟能详的“护肤大爆品”（如丸美小红笔眼霜、OLAY淡纹黑管面霜、海蓝之谜修护精粹水等），均使用了维琪科技生产的活性肽原料。 招股书显示，2023年—2025年，维琪科技营收分别为1.65亿元、2.48亿元、2.75亿元，三年复合增长率为29.19%；归母净利润分别为4228.72万元、7064.40万元、9084.67万元。2023年—2025年，其原料营收占比始终在50%以上，毛利率更是始终在70%以上。 在研发投入上，2023年至2025年，维琪科技研发费用分别为2253万元、2955万元和2915万元，占当期总营收比重分别高达13.67%、11.93%和10.59%，研发强度在行业内处于领先水平。 此外，维琪科技预计，今年上半年，其业绩将持续向好，其中营收同比增长10.39%至约1.46亿元；归母净利润同比增长16.92%至约4700万元。 除了中金资本、松禾资本等知名创投机构外，国货美妆两大巨头——珀莱雅（海南）投资有限公司与西安巨子生物基因技术股份有限公司双双作为战略投资者入股，各获配90252股，限售期为6个月。 对巨子生物而言，这是其首次战略投资外部原料供应商；对珀莱雅而言，则被视为向产业链上游核心技术环节延伸的关键布局。 需要注意的是，此前北交所上市委曾在IPO审议过程中关注到维琪科技客户稳定性问题，并就公司业绩增长的可持续性进行问询。 历史上，公司前五大客户变动较大。其中，丸美生物常年为维琪科技的第一或第二大客户，2022年至2025年累计为维琪科技贡献超3000万元化妆品原料收入。而除丸美生物外，2022年的第二至第五大客户在2023年—2024年已全部退出前五名单。同时，有市场专业人士分析指出，其主要客户丸美生物已逐步在产品迭代中使用自研原料替代维琪科技的部分原料。 这说明，虽然目前公司通过高度绑定“多肽”这一热门成分取得可观收益，但如果未来市场热点转移，则可能面临竞争压力。 据悉，此次维琪科技IPO募集资金将用于珠海市维琪科技有限公司新建维琪健康产业园项目、维琪科技研发中心项目。。维琪科技上市首日大涨599.5% 涨幅超长鑫科技",
+     "hard_facts": {
+      "document_number": "",
+      "authority": "21世纪经济报道",
+      "penalty_amount": "",
+      "confiscation_result": "",
+      "legal_basis": "",
+      "violation_behavior": "",
+      "involved_party": "深圳市维琪科技股份有限公司、珀莱雅（海南）投资有限公司、与西安巨子生物基因技术股份有限公司、此次维琪科技IPO募集资金将用于珠海市维琪科技有限公司",
+      "product_or_batch": "",
+      "hs_code": "",
+      "effective_date": "",
+      "deadline": "",
+      "feedback_channel": "",
+      "risk_tier": "持续监测",
+      "signal_type": "执法趋势",
+      "affected_processes": [
+       "配方/检验标准"
+      ],
+      "owner_teams": [],
+      "action_deadline": ""
+     }
+    },
+    {
+     "title": "半亩花田招股书失效上市停滞",
+     "source_candidate": true,
+     "module": "美妆动态",
+     "source_url": "https://www.donews.com/news/detail/1/6653117.html",
+     "source_name": "DoNews",
+     "source_type": "industry_media",
+     "authority_type": "media",
+     "source_scope": "discovered_article",
+     "detail_status": "hydrated",
+     "editorial_status": "",
+     "evidence_grade": "corroborated_fact_ready",
+     "verification_status": "corroborated",
+     "supporting_sources": [
+      {
+       "url": "https://www.donews.com/news/detail/1/6653117.html",
+       "host": "donews.com",
+       "tier": "secondary",
+       "matched_anchors": [
+        "parties",
+        "event_outcomes"
+       ]
+      },
+      {
+       "url": "http://www.stnn.cc/detail/6a6309884fa48e1392ef7ffa.html",
+       "host": "stnn.cc",
+       "tier": "secondary",
+       "matched_anchors": [
+        "parties",
+        "event_outcomes"
+       ]
+      }
+     ],
+     "agreed_anchors": [
+      "parties",
+      "event_outcomes"
+     ],
+     "published_at": "2026-07-30",
+     "country": "中国",
+     "facts": [
+      "但在递表半年窗口期内，公司始终未推进至聆讯环节，核心原因是6月证监会对其上市备案发出六项专项问询，直指企业经营与资本运作的核心漏洞。",
+      "半亩花田招股书失效上市停滞"
+     ],
+     "legal_signal": "但在递表半年窗口期内，公司始终未推进至聆讯环节，核心原因是6月证监会对其上市备案发出六项专项问询，直指企业经营与资本运作的核心漏洞，该事项已具备可追踪的事实节点。",
+     "business_impact": "影响中国市场美妆业务的备案/注册。",
+     "recommended_action": "观察备案/注册对应的正式文件、执行口径和配套问答。",
+     "evidence_text": "DoNews7月30日消息，据新黄河报道，近日，港交所官网显示，国货个护品牌半亩花田母公司山东花物堂化妆品股份有限公司（以下简称“花物堂”）的上市申请状态变更为失效，这意味着其历时半年的港股IPO进程暂时按下暂停键。 按照港股上市规则，企业递交招股书后6个月内若未完成上市聆讯，申请将自动失效。花物堂此次上市折戟，背后暗藏股权合规、经营模式、资金结构等多重深层问题。 此次IPO停滞的直接导火索，是监管部门的深度问询。此前，半亩花田IPO被证监会六连问，重点围绕股权架构、股东交易、股权激励、外资准入、经营资质、股份权属六大核心维度对花物堂提出细化问询，要求出具补充材料。 2026年1月，花物堂正式向港交所递交主板上市申请，冲击“国货身体护理第一股”。但在递表半年窗口期内，公司始终未推进至聆讯环节，核心原因是6月证监会对其上市备案发出六项专项问询，直指企业经营与资本运作的核心漏洞。 面对监管问询，花物堂并未完成完整的补充答复，最终错失上市窗口期，导致招股书失效。。半亩花田招股书失效上市停滞",
+     "hard_facts": {
+      "document_number": "",
+      "authority": "DoNews",
+      "penalty_amount": "",
+      "confiscation_result": "",
+      "legal_basis": "",
+      "violation_behavior": "",
+      "involved_party": "国货个护品牌半亩花田母公司山东花物堂化妆品股份有限公司",
+      "product_or_batch": "",
+      "hs_code": "",
+      "effective_date": "",
+      "deadline": "",
+      "feedback_channel": "",
+      "risk_tier": "持续监测",
+      "signal_type": "新增义务",
+      "affected_processes": [
+       "备案/注册"
+      ],
+      "owner_teams": [],
+      "action_deadline": ""
+     }
+    }
+   ]
+  }
+ ]
+}

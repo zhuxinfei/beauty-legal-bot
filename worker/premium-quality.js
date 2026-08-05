@@ -427,7 +427,11 @@ function hasHardLegalEvent(card) {
 function isNavigationOrGenericInformationPage(card) {
   const title = text(card.title);
   if (NAVIGATION_TITLE_PATTERN.test(title)) return true;
-  const source = sourceTextForCard(card);
+  // Judge the page by factual evidence only. Generated fields
+  // (legal_signal/business_impact/recommended_action) are templates that can
+  // contain generic-page vocabulary like "配套问答" and must not mark a real
+  // detail page as navigation.
+  const source = factualEvidenceTextForCard(card);
   if (isHardFactReadyDetailCard(card)) return false;
   if (PORTAL_EVIDENCE_PATTERN.test(source)) return true;
   if (!GENERIC_INFO_PAGE_PATTERN.test([title, source].join(' '))) return false;
@@ -993,7 +997,7 @@ function displayTitle(card) {
 
 function premiumCardFromItem(item, sectionModule) {
   const module = normalizeModule(item.module || sectionModule);
-  const evidenceText = text(item.evidence_excerpt || item.article_text || item.full_text || item.snippet);
+  const evidenceText = text(item.evidence_excerpt || item.article_text || item.full_text || item.snippet || item.evidence_text);
   const hardFactsInput = normalizeHardFacts(item.hard_facts || item.extraction?.hard_facts || item.extraction?.legal_facts || {});
   const baseCard = {
     title: text(item.title),
@@ -1384,7 +1388,7 @@ function candidateObservation(module, source = '', hardFacts = {}) {
     : '观察正式文件、执行口径和配套问答。';
 }
 
-function premiumCardFromCandidate(candidate = {}) {
+export function premiumCardFromCandidate(candidate = {}) {
   const source = candidateEvidenceText(candidate);
   const module = normalizeModule(candidate.module);
   const candidateFacts = uniqueValues([firstEvidenceSentence(source), text(candidate.title)]).filter(Boolean);
@@ -1490,15 +1494,23 @@ function sourceOnlyFallbackCards(candidates = [], maxItems = 18) {
 }
 
 function uniqueCardsBySelectionKey(cards = []) {
-  const seen = new Set();
-  const result = [];
+  const byKey = new Map();
   for (const card of cards) {
     const key = cardSelectionKey(card);
-    if (seen.has(key)) continue;
-    seen.add(key);
-    result.push(card);
+    const existing = byKey.get(key);
+    if (!existing) {
+      byKey.set(key, card);
+      continue;
+    }
+    // Strongest card wins the key. A sample-grade card (corroborated or
+    // hard-fact-endpoint evidence) must replace a weak same-key card that
+    // only survived the fallback filters; otherwise a weak report item can
+    // suppress the hard-fact candidate that should replace it.
+    if (!isSampleGradeCard(existing) && isSampleGradeCard(card)) {
+      byKey.set(key, card);
+    }
   }
-  return result;
+  return [...byKey.values()];
 }
 
 function fallbackChinaCandidateCards(candidates = [], maxItems = 3) {

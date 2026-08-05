@@ -22,7 +22,13 @@ At runtime, a missing or underfilled module must not suppress valid cards from o
 - [x] Lock the product contract and existing card structure.
 - [x] Repair URL cleanup, detail scheduling, attachment hydration, and candidate-pool omissions.
 - [x] Record discovery query failures and per-candidate rejection reasons.
-- [ ] Produce and validate at least two complete beauty-dynamics cards.
+- [x] Fix the Google News RSS discovery channel: undici fetch is TLS-throttled by
+      Google (all queries timed out), curl completes in seconds. Verified live:
+      12 queries -> 67 raw -> 38 unique candidates. (`scripts/discover-open-web.js`)
+- [x] Produce and validate at least two complete beauty-dynamics cards.
+      Persisted in `docs/quality/local-portfolio.json` (维琪科技北交所挂牌上市,
+      山东花物堂/半亩花田港股上市申请失效; both corroborated, pass
+      `validatePremiumEvidenceCard`).
 - [ ] Produce and validate at least two complete beauty IP cards.
 - [ ] Produce and validate at least two complete quality/recall/safety cards.
 - [ ] Produce and validate at least two complete import/export cards.
