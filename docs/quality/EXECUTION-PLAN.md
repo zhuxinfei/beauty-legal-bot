@@ -35,7 +35,10 @@ At runtime, a missing or underfilled module must not suppress valid cards from o
       (score=144, 上海虹口法院判赔25万). Both pass `validatePremiumEvidenceCard`.
       Fixed `firstEvidenceSentence` to skip generic intros with `引发关注`-style
       phrases. Added `人民法院`/`中级法院` to hard-fact authority patterns.
-- [ ] Produce and validate at least two complete quality/recall/safety cards.
+- [x] Produce and validate at least two complete quality/recall/safety cards.
+      Persisted: 南阳古法护肤品违规添加禁用原料案 (score=172,
+      央视曝光+政府联合调查组通报) and 韩国Medicube面霜检出苏丹红案
+      (score=149, 香港海关安全警示). Both pass `validatePremiumEvidenceCard`.
 - [ ] Produce and validate at least two complete import/export cards.
 - [ ] Build a balanced local portfolio of 20-24 cards.
 - [ ] Pass Chinese, completeness, fragment, translation, relevance, and duplicate checks.
