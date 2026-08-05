@@ -1,8 +1,12 @@
 import { mkdir, readFile, writeFile } from 'node:fs/promises';
+import { execFile } from 'node:child_process';
+import { promisify } from 'node:util';
 import { dirname, resolve } from 'node:path';
 import { buildDiscoveryQueries, discoverOpenWeb, discoverOpenWebWithRecovery } from '../worker/open-web-discovery.js';
 import { parseGoogleNewsRss, resolveGoogleNewsCandidates } from '../worker/google-rss-discovery.js';
 import { attachAuthorityResolutionProvenance, buildAuthoritySearchRows } from '../worker/authority-resolver.js';
+
+const execFileAsync = promisify(execFile);
 
 const DISCOVERY_WINDOW_DAYS = Number(process.env.DISCOVERY_WINDOW_DAYS || 15);
 const DISCOVERY_MODULES = String(process.env.DISCOVERY_MODULES || '')
@@ -20,15 +24,22 @@ function period() {
 const output = resolve(process.argv[2] || 'out/discovery.json');
 const manifestOutput = resolve(process.argv[3] || 'out/acquisition-manifest.json');
 const catalog = JSON.parse(await readFile(resolve('worker/sources.json'), 'utf8'));
-const fetchRssForDays = days => async query => {
+// Google News RSS over curl instead of fetch: undici's TLS fingerprint is
+// throttled by Google (every query times out), while curl completes in seconds.
+// Same curl path already proven in worker/google-rss-discovery.js resolution.
+async function curlGoogleNewsRss(query, days) {
   const url = `https://news.google.com/rss/search?q=${encodeURIComponent(`${query} when:${days}d`)}&hl=zh-CN&gl=CN&ceid=CN:zh-Hans`;
-  const controller = new AbortController();
-  const timer = setTimeout(() => controller.abort(), Number(process.env.DISCOVERY_QUERY_TIMEOUT_MS || 8000));
-  const response = await fetch(url, { headers: { 'User-Agent': 'Mozilla/5.0 beauty-legal-bot/2.0' }, signal: controller.signal });
-  clearTimeout(timer);
-  if (!response.ok) throw new Error(`Google News RSS HTTP ${response.status}`);
-  return response.text();
-};
+  const timeoutSeconds = Math.max(5, Math.ceil(Number(process.env.DISCOVERY_QUERY_TIMEOUT_MS || 8000) / 1000));
+  const { stdout } = await execFileAsync('/usr/bin/curl', [
+    '-L', '--max-time', String(timeoutSeconds), '-sS',
+    '-A', 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 Chrome/126 Safari/537.36',
+    '--compressed',
+    url,
+  ], { maxBuffer: 8 * 1024 * 1024 });
+  if (!stdout.trim()) throw new Error('Google News RSS empty response');
+  return stdout;
+}
+const fetchRssForDays = days => async query => curlGoogleNewsRss(query, days);
 const fetchSecondaryForDays = days => async (query, module) => {
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), Number(process.env.DISCOVERY_QUERY_TIMEOUT_MS || 8000));
