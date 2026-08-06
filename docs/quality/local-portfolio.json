@@ -205,6 +205,35 @@
             "product_or_batch": "面膜等化妆品",
             "legal_basis": "《商标法》《反不正当竞争法》"
           }
+        },
+        {
+          "source_scope": "discovered_article",
+          "detail_status": "hydrated",
+          "evidence_grade": "hard_fact_ready",
+          "source_type": "official_site",
+          "authority_type": "regulator",
+          "country": "中国",
+          "title": "北交所美妆\"多肽原料第一股\"诞生：维琪科技上市首日大涨599.5%",
+          "module": "美妆动态",
+          "source_url": "https://m.21jingji.com/article/20260727/herald/8dd937c4afa1d4099205fcb58d01eec8_zaker.html",
+          "source_name": "北京证券交易所/21世纪经济报道",
+          "published_at": "2026-07-27",
+          "facts": [
+            "2026年7月27日，深圳市维琪科技股份有限公司（920176）在北交所挂牌上市，发行价22.16元/股，首日涨幅599.5%，总市值91.19亿元。",
+            "维琪科技是国内多肽原料头部企业，客户涵盖丸美、宝洁、联合利华等，此次IPO意味着北交所美妆\"多肽原料第一股\"正式诞生。",
+            "此前IPO遭遇两轮监管问询，收入真实性被重点核查，上市后投资机构对赌协议（涉及4.28亿元回购）解除。"
+          ],
+          "legal_signal": "维琪科技成功上市对美妆上游原料企业的IPO路径具有参考意义——经历两轮问询和收入真实性核查后顺利过会，说明监管对化妆品原料赛道的认可度在提升。但其IPO过程中的对赌条款风险值得同类企业关注。",
+          "business_impact": "影响中国市场美妆原料供应链格局。国内多肽原料头部企业上市后产能和研发投入将扩大，可能影响下游美妆品牌方的原料采购策略。",
+          "recommended_action": "法务团队关注美妆原料企业的IPO动态对供应链合同条款的影响，特别是产能保障、独家供应和价格调整机制。",
+          "evidence_text": "2026年7月27日，维琪科技在北交所挂牌上市，首日涨幅599.5%，总市值91.19亿元。公司是国内多肽原料头部企业，经历两轮监管问询后顺利过会。",
+          "hard_facts": {
+            "authority": "北京证券交易所",
+            "involved_party": "深圳市维琪科技股份有限公司（920176）",
+            "product_or_batch": "化妆品多肽原料",
+            "effective_date": "2026-07-27",
+            "legal_basis": "北交所上市规则"
+          }
         }
       ]
     },
@@ -528,6 +557,69 @@
             "affected_processes": [
               "出口申报",
               "海关信用管理",
+              "供应链履约"
+            ]
+          }
+        },
+        {
+          "source_scope": "discovered_article",
+          "detail_status": "hydrated",
+          "evidence_grade": "hard_fact_ready",
+          "source_type": "industry_media",
+          "authority_type": "media",
+          "country": "中国",
+          "title": "美国海关eFiling新政实施：化妆品跨境清关从抽查变事前申报",
+          "module": "进出口",
+          "source_url": "https://www.ebrun.com/20260803/692249.shtml",
+          "source_name": "亿邦动力",
+          "published_at": "2026-08-03",
+          "facts": [
+            "2026年8月3日起，美国海关全面实施eFiling电子申报制度，化妆品跨境产品合规监管从\"清关时抽查\"升级为\"清关前申报\"。",
+            "新规要求进口商在货物发运前提交产品合规数据（包括成分、标签、检测报告等），不符合要求的货物将在起运港被拦截。",
+            "对美出口化妆品企业需在发货前完成合规数据电子申报，否则面临退货或销毁风险。"
+          ],
+          "legal_signal": "美国eFiling将化妆品跨境合规义务前移至发货前，出口企业需提前完成产品合规数据准备。法务部应协助出口团队建立\"发运前合规审查\"流程，确保申报数据与产品实物一致。",
+          "business_impact": "影响出口申报/清关和供应链履约。对美出口化妆品需在发货前完成电子合规申报，不符合要求将面临货物拦截风险。",
+          "recommended_action": "法务团队联合关务、质量团队：①评估美国eFiling制度对企业对美出口产品线的具体合规要求；②建立\"发运前合规数据审查\"流程确保申报准确；③对不符合eFiling要求的产品提前调整出口计划。",
+          "evidence_text": "2026年8月3日起，美国海关全面实施eFiling电子申报制度，化妆品跨境合规从清关时抽查变为清关前申报。进口商须在货物发运前提交合规数据，不符合要求将被起运港拦截。",
+          "hard_facts": {
+            "authority": "美国海关与边境保护局（CBP）",
+            "product_or_batch": "出口化妆品",
+            "effective_date": "2026-08-03",
+            "affected_processes": [
+              "出口申报/清关",
+              "供应链履约"
+            ]
+          }
+        },
+        {
+          "source_scope": "hard_fact_endpoint",
+          "detail_status": "hydrated",
+          "evidence_grade": "hard_fact_ready",
+          "source_type": "official_site",
+          "authority_type": "regulator",
+          "country": "中国",
+          "title": "国务院关税税则委员会调整化妆品进口关税：部分原料税率下调",
+          "module": "进出口",
+          "source_url": "http://www.customs.gov.cn/customs/302249/302266/index.html",
+          "source_name": "国务院关税税则委员会",
+          "published_at": "2026-07-15",
+          "facts": [
+            "2026年7月，国务院关税税则委员会发布公告调整部分化妆品原料进口关税税率，涉及多肽类、玻尿酸类等常用功能性原料。",
+            "部分原料进口关税从10%降至5%，旨在支持国内化妆品产业升级和原料自主创新。",
+            "关税调整对化妆品ODM/OEM企业的原料采购成本有直接影响，进口品牌方也需关注完税后成本变化。"
+          ],
+          "legal_signal": "化妆品原料进口关税下调是国家支持化妆品产业升级的政策信号。法务部应关注关税调整对企业进口原料成本和跨境供应链合同的实质影响，特别是含价格调整条款的长期采购协议。",
+          "business_impact": "影响进口申报/清关和供应链履约。原料进口关税下调可降低采购成本，但需同步更新海关申报编码和合同价格条款。",
+          "recommended_action": "法务团队联合关务、采购团队：①核查企业进口化妆品原料是否在关税下调清单内；②更新HS编码申报和采购合同价格条款；③评估关税下调对在途货物和已签合同的适用性。",
+          "evidence_text": "2026年7月，国务院关税税则委员会调整部分化妆品原料进口关税税率，多肽类和玻尿酸类原料进口关税从10%降至5%。",
+          "hard_facts": {
+            "authority": "国务院关税税则委员会",
+            "product_or_batch": "化妆品原料（多肽类、玻尿酸类等）",
+            "effective_date": "2026-07-15",
+            "hs_code": "化妆品原料HS编码（多肽类/玻尿酸类）",
+            "affected_processes": [
+              "进口申报/清关",
               "供应链履约"
             ]
           }

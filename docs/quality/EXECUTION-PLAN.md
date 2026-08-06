@@ -46,7 +46,11 @@ At runtime, a missing or underfilled module must not suppress valid cards from o
 - [x] Build a balanced local portfolio of 20-24 cards.
       Portfolio at 20 cards (4/3/3/2/4/4 across 6 modules), all pass
       `validatePremiumEvidenceCard`.
-- [ ] Pass Chinese, completeness, fragment, translation, relevance, and duplicate checks.
-- [ ] Pass the local quality gate.
+- [x] Pass Chinese, completeness, fragment, translation, relevance, and duplicate checks.
+      Quality gate validates: 21 cards, 6 modules (3-4 per module), 20 China items,
+      21 sample-grade, no duplicates, no missing/underfilled modules.
+- [x] Pass the local quality gate.
+      `npm run quality:gate -- docs/quality/local-portfolio.json` → pass: true,
+      finalItems=21, minimumItems=20, all modules ≥2.
 - [ ] Pass two `no_delivery` pipeline runs.
 - [ ] Show the final preview for user approval before real delivery.
