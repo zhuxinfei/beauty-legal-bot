@@ -37,10 +37,18 @@ const records = rawRecords
     return text.length > 100; // must have substantive text
   });
 
-// Step 2: Extract hard facts and grade evidence
+// Step 2: Pre-clean text then extract hard facts and grade evidence
 console.log(`Extracting hard facts from ${records.length} records...`);
+const WEAK_TITLE_PATTERN = /(?:举办|召开|培训|会议|活动|论坛|调研|考察|检查指导|工作部署)/;
 const candidates = records.map(r => {
-  const facts = extractHardFacts(r.article_text, {
+  // Pre-clean: strip common portal chrome from article text before extraction
+  const cleanedText = cleanArticleEvidence(r.article_text || '')
+    .replace(/化妆品审评\s*国家抽检管理\s*医疗器械标准与分类管理.*/g, '')
+    .replace(/访问我的专属空间.*/g, '')
+    .replace(/\s*智能问答\s*["'].*["'].*/g, '')
+    .replace(/无障碍\s*关怀版\s*繁體.*/g, '')
+    .replace(/\s{2,}/g, ' ');
+  const facts = extractHardFacts(cleanedText, {
     title: r.title,
     source_name: r.source_name || r.name,
     source_url: r.final_url || r.url,
@@ -48,14 +56,14 @@ const candidates = records.map(r => {
     country: r.country || r.region,
   });
   const grade = gradeEvidence({
-    text: r.article_text,
+    text: cleanedText,
     hard_facts: facts,
     source_url: r.final_url || r.url,
     title: r.title,
     source_name: r.source_name || r.name,
     country: r.country || r.region,
   });
-  return { ...r, hard_facts: facts, evidence_grade: grade.evidence_grade, evidence_reason: grade.evidence_reason };
+  return { ...r, article_text: cleanedText, hard_facts: facts, evidence_grade: grade.evidence_grade, evidence_reason: grade.evidence_reason };
 });
 
 // Step 3: Corroborate multi-source events
@@ -80,6 +88,13 @@ for (const c of hardFactPool) {
 
   if (!validation.accepted) {
     console.log(`  SKIP [${validation.reason}]: ${card.title.slice(0, 50)}`);
+    continue;
+  }
+
+  // Skip weak cards: meeting notices, training events, inspection tours
+  const titleText = card.title || '';
+  if (WEAK_TITLE_PATTERN.test(titleText) && !/(?:处罚|罚款|召回|不合格|通告|公告|标准|法规|办法)/.test(titleText)) {
+    console.log(`  SKIP [weak-content]: ${card.title.slice(0, 50)}`);
     continue;
   }
 
