@@ -1433,6 +1433,7 @@ export async function runPipeline(env, requestUrl = 'https://beauty-legal-bot.wo
         maxTokens,
         requireCandidateCoverage: requireFullText,
         maxBatchesPerModule: Number(env.ANALYSIS_BATCHES_PER_MODULE || DEFAULT_ANALYSIS_BATCHES_PER_MODULE),
+        enableEvidenceReview: qualityMode,
       }),
       analyzeRescue: ({ report: existingReport } = {}) => deepseekRescueAnalyze({
         apiKey: aiKey,
@@ -3141,7 +3142,13 @@ export async function analyzeReportWithRecovery({
   logger.warn(primary.audit.acceptedItems === 0
     ? '[stage 2/5] 主分析无准入条目，启动一次高价值救援分析'
     : `[stage 2/5] 主分析整体不足（准入 ${primary.audit.acceptedItems}/${targetItems}、行动 ${primaryActionItems}、活跃模块 ${primaryActiveModules}），启动一次补充分析`);
-  const rescueRawReport = await analyzeRescue({ report: primary.report });
+  let rescueRawReport;
+  try {
+    rescueRawReport = await analyzeRescue({ report: primary.report });
+  } catch (err) {
+    logger.warn(`[stage 2/5] 救援分析失败: ${(err?.message || err).slice(0, 200)}，仅使用主分析结果`);
+    return { ...primary, mode: primary.audit.acceptedItems > 0 ? 'primary' : 'no-update', primaryAudit: primary.audit, rescueError: String(err?.message || err).slice(0, 200) };
+  }
   const rescue = processAnalyzedReport(rescueRawReport, { candidates, sources, itemsPerModule });
   logReportAudit(logger, '救援分析', rescue.audit);
   const combinedRawReport = mergeModuleReports([primary.report, rescue.report], period);
@@ -3210,7 +3217,7 @@ export function buildModuleAnalysisBatches(candidates = [], batchSize = 4) {
   ].filter(batch => batch.length);
 }
 
-async function deepseekAnalyzeByModule({ apiKey, baseUrl, model, candidates, leads = [], sources = sourceCatalog.sources, period = getPeriod(), candidateLimit = DEFAULT_ANALYSIS_CANDIDATE_LIMIT, leadLimit = DEFAULT_ANALYSIS_LEAD_LIMIT, maxTokens = DEFAULT_AI_MAX_TOKENS, requireCandidateCoverage = true, maxBatchesPerModule = DEFAULT_ANALYSIS_BATCHES_PER_MODULE }) {
+async function deepseekAnalyzeByModule({ apiKey, baseUrl, model, candidates, leads = [], sources = sourceCatalog.sources, period = getPeriod(), candidateLimit = DEFAULT_ANALYSIS_CANDIDATE_LIMIT, leadLimit = DEFAULT_ANALYSIS_LEAD_LIMIT, maxTokens = DEFAULT_AI_MAX_TOKENS, requireCandidateCoverage = true, maxBatchesPerModule = DEFAULT_ANALYSIS_BATCHES_PER_MODULE, enableEvidenceReview = false }) {
   if (!candidates.length && !leads.length) {
     return { period, summary: [], risk_alerts: [], sections: REPORT_MODULES.map(m => ({ module: m, items: [] })) };
   }
@@ -3219,8 +3226,8 @@ async function deepseekAnalyzeByModule({ apiKey, baseUrl, model, candidates, lea
     leads,
     sources,
     period,
-    analyze: async ({ module, candidates: moduleCandidates, sources: moduleSources }) => {
-      if (!moduleCandidates.length) return { period, summary: [], risk_alerts: [], sections: [{ module, items: [] }] };
+    analyze: async ({ module, candidates: moduleCandidates, leads: moduleLeads = [], sources: moduleSources }) => {
+      if (!moduleCandidates.length && !moduleLeads.length) return { period, summary: [], risk_alerts: [], sections: [{ module, items: [] }] };
       const reports = [];
       const batches = buildModuleAnalysisBatches(moduleCandidates, 4)
         .slice(0, Math.max(1, Number(maxBatchesPerModule) || DEFAULT_ANALYSIS_BATCHES_PER_MODULE));
@@ -3231,14 +3238,14 @@ async function deepseekAnalyzeByModule({ apiKey, baseUrl, model, candidates, lea
             baseUrl,
             model,
             candidates: batch,
-            leads: [],
+            leads: moduleLeads.slice(0, Math.max(0, leadLimit || 4)),
             sources: moduleSources,
             period,
             candidateLimit,
             leadLimit,
             maxTokens,
             targetModule: module,
-            review: false,
+            review: enableEvidenceReview,
             requireCandidateCoverage,
           });
           const reviewed = Array.isArray(batchReport.reviewed_candidates) ? batchReport.reviewed_candidates : [];
@@ -3704,6 +3711,7 @@ async function runAnalysisPhase(date, env, additionalCandidates = []) {
       maxTokens: qualityOptions.maxTokens,
       requireCandidateCoverage: true,
       maxBatchesPerModule: Number(env.ANALYSIS_BATCHES_PER_MODULE || DEFAULT_ANALYSIS_BATCHES_PER_MODULE),
+      enableEvidenceReview: true,
     }),
     analyzeRescue: () => deepseekRescueAnalyze({
       apiKey: aiKey,

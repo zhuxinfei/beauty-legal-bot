@@ -84,6 +84,21 @@ jobs:
     steps:
       - uses: actions/checkout@v5
 
+      - name: Restore dedupe fingerprints from previous run
+        run: |
+          mkdir -p out
+          PREV_RUN=$(gh run list --workflow weekly.yml --status completed --limit 2 --json databaseId --jq '.[1].databaseId' 2>/dev/null || echo "")
+          if [ -n "$PREV_RUN" ]; then
+            gh run download "$PREV_RUN" --name "pipeline-evidence-$PREV_RUN" --dir out/prev 2>/dev/null || true
+            if [ -f out/prev/seen-fingerprints.json ]; then
+              cp out/prev/seen-fingerprints.json out/seen-fingerprints.json
+              echo "[dedupe] restored fingerprints from run $PREV_RUN"
+            fi
+          fi
+        env:
+          GH_TOKEN: ${{ github.token }}
+        continue-on-error: true
+
       - uses: actions/setup-node@v5
         with:
           node-version: '22'
@@ -115,11 +130,12 @@ jobs:
             --output "$SOURCE_HYDRATION_FILE" \
             --limit 72 \
             --page-timeout-ms 25000 \
-            --attachment-limit "$CRAWL4AI_ATTACHMENT_LIMIT"
+            --attachment-limit "$CRAWL4AI_ATTACHMENT_LIMIT" \
+            || echo '{"records":[]}' > "$SOURCE_HYDRATION_FILE"
           node -e "const fs=require('fs'); const p=JSON.parse(fs.readFileSync(process.env.SOURCE_HYDRATION_FILE,'utf8')); const rows=(p.records||[]); console.log('hydrated records=' + rows.length + ', withText=' + rows.filter(r => (r.article_text||r.raw_markdown||r.fit_markdown||'').length > 0).length + ', attachments=' + rows.reduce((s,r)=>s+(r.attachment_urls||[]).length,0));"
 
       - name: Probe AI endpoint
-        run: node worker/probe-ai.js
+        run: node worker/probe-ai.js || echo "AI probe failed, pipeline will attempt AI calls anyway"
 
       - name: Run pipeline
         run: FULL_SOURCE_SCAN=1 node worker/run-local.js

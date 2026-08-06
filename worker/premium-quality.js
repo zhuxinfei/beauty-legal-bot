@@ -35,6 +35,9 @@ const BROKEN_FIELD_PATTERN = /(?:\[\s*\]\s*\(|\]\($|\(\s*$|\[\s*$|javascript:voi
 const FRAGMENT_FIELD_PATTERN = /^(?:的|和|及|并|依法|予以|进行|相关|上述|该|此|其|对|将|已|了)[，,、；;\s]*(?:依法)?(?:严肃查处|处理|监管|处罚|执行|实施|发布|通告|公告)?$/;
 const DOCUMENT_TITLE_AS_PRODUCT_PATTERN = /(?:关于)?(?:\d+\s*批次)?(?:不符合规定)?化妆品的(?:公告|通告)[（(]20\d{2}年第\d+号[）)](?:\s|$)/;
 const MIXED_NOTICE_CHROME_PATTERN = /20\d{2}[-年]\d{1,2}[-月]\d{1,2}.*(?:召开|工作动态|监管动态|新闻|会议|活动|培训|论坛|检查)/;
+const GENERIC_NAVIGATION_TITLE_PATTERN = /^(?:全文页|政策解读|通知公告|政府信息公开|首页|网站首页|信息公示|行政执法结果|工作动态|监管动态|新闻中心|最新动态|栏目页|专题页|信息发布|公示公告)$/;
+const JUNK_DATE_PATTERN = /^20(?:0\d|1[0-9]|2[01])/;
+const GOVERNMENT_FOOTER_PATTERN = /(?:中国政府网|国家政务服务平台|国家市场监督管理总局|©|版权所有|党政机关|政府网站|站点地图|主办单位|通信地址|滇ICP|网站标识码|无障碍浏览|适老化|隐私保护|法律声明)/i;
 
 function text(value) {
   return String(value || '').replace(/\s+/g, ' ').trim();
@@ -118,6 +121,7 @@ function hardText(value) {
   if (!source || /见原文|未知|待核验|未披露|未明确|待明确|空$/.test(source)) return '';
   if (BROKEN_FIELD_PATTERN.test(source) || FRAGMENT_FIELD_PATTERN.test(source) || /^的[，,、；;：:]/.test(source) || /^的[，,、；;：:].*按照相关法律、行政法规的规定处理/.test(source)) return '';
   if (DOCUMENT_TITLE_AS_PRODUCT_PATTERN.test(source) || MIXED_NOTICE_CHROME_PATTERN.test(source)) return '';
+  if (GOVERNMENT_FOOTER_PATTERN.test(source)) return '';
   return source;
 }
 
@@ -706,10 +710,20 @@ export function validatePremiumEvidenceCard(card = {}) {
   if (normalized.source_candidate && !/[\u4e00-\u9fff]/.test(normalized.title)) {
     return { accepted: false, reason: 'missing-chinese-display-title', card: normalized };
   }
+  if (GENERIC_NAVIGATION_TITLE_PATTERN.test(normalized.title)) {
+    return { accepted: false, reason: 'navigation-title', card: normalized };
+  }
   if (!isHttpUrl(normalized.source_url)) return { accepted: false, reason: 'missing-source-url', card: normalized };
   if (isNonAuthoritativeRepublisher(normalized) && !isConcreteDiscoveredPublisherCard(normalized)) return { accepted: false, reason: 'non-authoritative-source', card: normalized };
   if (isNavigationOrGenericInformationPage(normalized)) return { accepted: false, reason: 'navigation-or-generic-page', card: normalized };
   if (!/^20\d{2}-\d{2}-\d{2}$/.test(normalized.published_at)) return { accepted: false, reason: 'missing-date', card: normalized };
+  // Reject garbage dates: month > 12, month = 0, day > 31, day = 0, year < 2020
+  {
+    const [y, m, d] = (normalized.published_at || '').split('-').map(Number);
+    if (!y || y < 2020 || m < 1 || m > 12 || d < 1 || d > 31) {
+      return { accepted: false, reason: 'invalid-date', card: normalized };
+    }
+  }
   if (isCrossDomainPenaltyNoise(normalized)) return { accepted: false, reason: 'case-not-beauty-specific', card: normalized };
   if (!isBeautyRelevantCard(normalized)) return { accepted: false, reason: 'not-beauty-relevant', card: normalized };
   if (!normalized.facts.length || !CONCRETE_PATTERNS.test(normalized.facts.join(' '))) {

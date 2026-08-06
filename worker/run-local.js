@@ -1,9 +1,47 @@
-import { writeFile, mkdir } from 'node:fs/promises';
+import { readFile, writeFile, mkdir } from 'node:fs/promises';
+import { existsSync } from 'node:fs';
+import { resolve } from 'node:path';
 import { chromium } from 'playwright';
 import { createBrowserSourceFetcher } from './browser-fetch.js';
 import { runPipeline } from './index.js';
 
+// File-based KV for CI dedupe persistence across weekly runs.
+// Reads `out/seen-fingerprints.json` if present, writes back on change.
+// Falls back to in-memory when the file is missing or unreadable.
+const SEEN_FILE = resolve('out', 'seen-fingerprints.json');
 const store = new Map();
+let storeDirty = false;
+
+async function loadPersistedFingerprints() {
+  try {
+    if (!existsSync(SEEN_FILE)) return;
+    const raw = await readFile(SEEN_FILE, 'utf8');
+    const data = JSON.parse(raw);
+    if (data && typeof data === 'object') {
+      for (const [k, v] of Object.entries(data)) {
+        store.set(k, v);
+      }
+      console.log(`[dedupe] loaded ${store.size} fingerprints from ${SEEN_FILE}`);
+    }
+  } catch (err) {
+    console.warn(`[dedupe] could not load ${SEEN_FILE}: ${err.message.slice(0, 120)}`);
+  }
+}
+
+async function savePersistedFingerprints() {
+  if (!storeDirty) return;
+  try {
+    await mkdir('out', { recursive: true });
+    const obj = Object.fromEntries(store);
+    await writeFile(SEEN_FILE, JSON.stringify(obj), 'utf8');
+    console.log(`[dedupe] saved ${store.size} fingerprints to ${SEEN_FILE}`);
+  } catch (err) {
+    console.warn(`[dedupe] could not save ${SEEN_FILE}: ${err.message.slice(0, 120)}`);
+  }
+}
+
+await loadPersistedFingerprints();
+
 const kv = {
   async get(key, type) {
     const value = store.get(key);
@@ -15,6 +53,7 @@ const kv = {
   },
   async put(key, value) {
     store.set(key, value);
+    storeDirty = true;
   },
 };
 
@@ -111,6 +150,7 @@ try {
   console.log(`Pipeline ${result.status}: ${result.message}`);
 } finally {
   if (browserSourceFetcher) await browserSourceFetcher.close();
+  await savePersistedFingerprints();
 }
 
 await mkdir('out', { recursive: true });
