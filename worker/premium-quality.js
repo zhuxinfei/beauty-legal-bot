@@ -25,7 +25,7 @@ const OWNER_PATTERN = /法务|合规|法规|质量|研发|供应链|采购|电�
 const REPUBLISHER_HOST_PATTERN = /(?:^|\.)((?:sohu|163|sina|qq|toutiao|baijiahao|thepaper|jiemian|36kr)\.com|(?:baijiahao|mp)\.baidu\.com)$/i;
 const MEDIA_SOURCE_TYPES = new Set(['industry_media', 'media', 'wechat_lead', 'wechat_public_account']);
 const NAVIGATION_TITLE_PATTERN = /^(?:(?:欢迎访问|欢迎来到).+|(?:网站首页|首页|站点导航|登录|注册|搜索|联系我们|栏目|专题|新闻中心|通知公告|工作动态|化妆品|Cosmetics|Home|Welcome|Menu|Search)(?:$|[\s｜|:：_-].*))/i;
-const GENERIC_INFO_PAGE_PATTERN = /(?:安全使用|消费者提示|消费提示|使用提示|科普|问答|常见问题|指南页面|专题页|栏目页|监管入口|信息入口|Q&A|questions?\s+and\s+answers?|how\s+to\s+use|safe\s+use|cosmetics\s+safety)/i;
+const GENERIC_INFO_PAGE_PATTERN = /(?:安全使用|消费者提示|消费提示|使用提示|科普|常见问题|指南页面|Q&A|questions?\s+and\s+answers?|how\s+to\s+use|safe\s+use|cosmetics\s+safety)/i;
 const PORTAL_EVIDENCE_PATTERN = /(?:\* \[新闻\]|\* \[首页\]|javascript:void|司局介绍|时政要闻|地方\]\(|媒体聚焦|重要政策举措及实施效果|召回查询|信息查询平台|注册管理信息系统|数据查询|产业创新|统计监控|快捷检索|高级检索|友情链接|用户需求与满意度调查|证明商标使用申请表|填写说明|查看更多|通知公告\s*更多)/i;
 const HARD_LEGAL_EVENT_PATTERN = /(?:文号|公告|通告|通报|征求意见|反馈截止|截止日期|截止|生效|实施|过渡期|新旧衔接|行政处罚|处罚决定|罚款|罚没|没收|违法所得|责令改正|吊销|停止销售|召回|警示信|warning\s+letter|判决|裁定|赔偿|侵权|冒用|假冒|刷单|虚假交易|虚假宣传|功效宣称|平台治理|专项治理|治理公告|商标|专利|著作权|海关|口岸|报关|清关|HS\s*编码|进口|出口|禁用|限用|15\s*个?工作日|serious\s+adverse\s+event|mandatory\s+report)/i;
 const BEAUTY_RELEVANCE_PATTERN = /(?:化妆品|美妆|护肤|彩妆|香水|口红|面膜|洗护|防晒|染发|染眉|染睫|美容|医美|祛斑|美白|功效宣称|玻色因|爱马仕|配方|着色剂|色素|进口化妆品|出口化妆品|化妆品标准|cosmetic|cosmetics|MoCRA|color additives?)/i;
@@ -436,7 +436,14 @@ function isNavigationOrGenericInformationPage(card) {
   // contain generic-page vocabulary like "配套问答" and must not mark a real
   // detail page as navigation.
   const source = factualEvidenceTextForCard(card);
+  // Hard-fact endpoint or corroborated sources are always valid pages
   if (isHardFactReadyDetailCard(card)) return false;
+  // Substantive beauty regulatory content on government/industry portals
+  // should not be rejected even if the page has some portal chrome.
+  if (/(?:化妆品|美妆|护肤|彩妆|防晒|染发|洗护|香水|备案|注册|标准|检验方法|行政处罚|处罚决定|通告|公告|征求意见|安全技术规范)/.test(source)
+      && /(?:国家药监局|药监局|中检院|市场监督管理局|海关|nmpa|nifdc|customs)/i.test(source)) {
+    return false;
+  }
   if (PORTAL_EVIDENCE_PATTERN.test(source)) return true;
   if (!GENERIC_INFO_PAGE_PATTERN.test([title, source].join(' '))) return false;
   return !hasHardLegalEvent(card);
@@ -483,6 +490,13 @@ function hostOf(value) {
 
 function isNonAuthoritativeRepublisher(card = {}) {
   if (hasVerifiedCorroboration(card)) return false;
+  // Industry media with concrete beauty legal content is acceptable
+  const source = factualEvidenceTextForCard(card);
+  if ((MEDIA_SOURCE_TYPES.has(text(card.source_type)) || text(card.authority_type) === 'media')
+      && BEAUTY_RELEVANCE_PATTERN.test(source)
+      && HARD_LEGAL_EVENT_PATTERN.test(source)) {
+    return false;
+  }
   return REPUBLISHER_HOST_PATTERN.test(hostOf(card.source_url || card.url))
     || MEDIA_SOURCE_TYPES.has(text(card.source_type))
     || text(card.authority_type) === 'media'
