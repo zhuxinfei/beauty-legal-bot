@@ -34,6 +34,10 @@
     "公告",
     "检验方法",
     "国家药监局"
+   ],
+   "monitor_only": true,
+   "alternate_urls": [
+    "https://www.nmpa.gov.cn/xxgk/ggtg/hzhpggtg/jmhzhptg/index.html"
    ]
   },
   {
@@ -52,6 +56,10 @@
     "注册备案",
     "资料管理规定",
     "国家药监局"
+   ],
+   "monitor_only": true,
+   "alternate_urls": [
+    "https://www.nmpa.gov.cn/xxgk/fgwj/xzhgfxwj/index.html"
    ]
   },
   {
@@ -1575,7 +1583,8 @@
     "专利",
     "判决"
    ],
-   "source_scope": "hard_fact_list"
+   "source_scope": "hard_fact_list",
+   "monitor_only": true
   },
   {
    "name": "国家知识产权局商标评审裁定",
@@ -1591,7 +1600,8 @@
     "无效宣告",
     "异议裁定"
    ],
-   "source_scope": "hard_fact_list"
+   "source_scope": "hard_fact_list",
+   "monitor_only": true
   },
   {
    "name": "国家药监局化妆品监管动态",
@@ -1607,7 +1617,11 @@
     "飞行检查",
     "风险监测"
    ],
-   "source_scope": "hard_fact_list"
+   "source_scope": "hard_fact_list",
+   "monitor_only": true,
+   "alternate_urls": [
+    "https://www.nmpa.gov.cn/hzhp/hzhpjgdt/index.html"
+   ]
   },
   {
    "name": "中国食品药品检定研究院化妆品标准公告",
@@ -1640,23 +1654,11 @@
     "检验检疫",
     "化妆品"
    ],
-   "source_scope": "hard_fact_list"
-  },
-  {
-   "name": "商务部外贸司化妆品进出口预警",
-   "url": "http://wms.mofcom.gov.cn/article/zcfb/",
-   "module": "进出口动态",
-   "region": "亚洲",
-   "country": "中国",
-   "source_type": "official_site",
-   "authority_type": "regulator",
-   "priority": "medium",
-   "topics": [
-    "进出口",
-    "贸易预警",
-    "技术性贸易壁垒"
-   ],
-   "source_scope": "hard_fact_list"
+   "source_scope": "hard_fact_list",
+   "monitor_only": true,
+   "alternate_urls": [
+    "http://www.customs.gov.cn/customs/302249/302266/index.html"
+   ]
   }
  ]
 }
