@@ -204,12 +204,18 @@ async def run():
                 url = item.get("url") or item.get("source_url") or ""
                 module = item.get("discovery_module") or item.get("module") or ""
                 config = CrawlerRunConfig(
-                    word_count_threshold=80,
-                    scan_full_page=True,
+                    word_count_threshold=60,
+                    scan_full_page=False,
                     wait_for_images=False,
                     remove_consent_popups=True,
                     adjust_viewport_to_content=True,
-                    markdown_generator=DefaultMarkdownGenerator(content_filter=PruningContentFilter()),
+                    markdown_generator=DefaultMarkdownGenerator(
+                        content_filter=PruningContentFilter(
+                            threshold=0.45,
+                            threshold_type="fixed",
+                            min_word_threshold=30,
+                        )
+                    ),
                     page_timeout=${JSON.stringify(Math.max(5000, Number(pageTimeoutMs) || 20000))},
                     cache_mode=CacheMode.BYPASS if hasattr(CacheMode, "BYPASS") else None,
                 )

@@ -272,6 +272,13 @@ function isRootOrIndexUrl(value = '') {
 
 function isPortalDump({ title = '', text: textValue = '', source_url = '', source_name = '' } = {}) {
   const source = stripMarkdown(`${title} ${source_name} ${textValue}`);
+  // Strong legal content overrides portal noise: a page with a real
+  // administrative penalty decision, court judgment, or detailed regulatory
+  // notice is not a portal dump even if gov-chrome patterns are present.
+  if (/(?:行政处罚决定书|判决书|裁定书|〔20\d{2}〕\d+号|依法立案|违反《[^》]+》第[一二三四五六七八九十百零\d]+条|责令.*停止|没收违法所得|处以?罚款|警告.*并处罚)/.test(source)
+      && /(?:化妆品|美妆|护肤|彩妆|香水|防晒|染发|洗护|标签|备案|功效|广告)/.test(source)) {
+    return false;
+  }
   const navHits = [
     /新闻|时政要闻|媒体聚焦|司局介绍|政策法规|通知公告/,
     /首页|站点导航|搜索|联系我们|地方|总局/,
