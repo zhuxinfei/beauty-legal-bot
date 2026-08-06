@@ -140,6 +140,9 @@ jobs:
       - name: Run pipeline
         run: FULL_SOURCE_SCAN=1 node worker/run-local.js
 
+      - name: Assemble cards directly from hydration (supplementary)
+        run: node scripts/assemble-cards.js "$SOURCE_HYDRATION_FILE" out/assembled-cards.json
+
       - name: Upload pipeline evidence
         if: always()
         uses: actions/upload-artifact@v4
