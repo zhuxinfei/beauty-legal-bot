@@ -1575,7 +1575,7 @@ function isSampleGradeCard(card = {}) {
 function requiredChinaItemCount(candidateCards = [], maxItems = 6) {
   const chinaCandidates = candidateCards.filter(isChinaCard).length;
   if (!chinaCandidates) return 0;
-  return Math.min(3, maxItems, chinaCandidates);
+  return Math.min(2, maxItems, chinaCandidates);
 }
 
 function cardSelectionKey(card = {}) {

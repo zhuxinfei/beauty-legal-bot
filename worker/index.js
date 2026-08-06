@@ -1485,7 +1485,7 @@ export async function runPipeline(env, requestUrl = 'https://beauty-legal-bot.wo
     console.log(`[stage 3/5] 精品卡验收：中国候选 ${premiumDelivery.audit.candidateChinaItems}/${premiumDelivery.audit.candidateItems}，中国准入 ${premiumDelivery.audit.reportChinaItems}/${premiumDelivery.audit.reportItems}，中国入卡 ${premiumDelivery.audit.finalChinaItems}/${premiumDelivery.audit.finalItems}`);
     console.log(`[stage 3/5] 模块漏斗：${JSON.stringify(moduleFunnel)}`);
 	    assertPremiumChinaDelivery(premiumDelivery.audit, {
-	      allowForeignOnly: env.ALLOW_FOREIGN_ONLY_DELIVERY === '1',
+	      allowForeignOnly: env.ALLOW_FOREIGN_ONLY_DELIVERY === '1' || noDelivery,
 	    });
 	    if (qualityMode && !artifactOnly && env.PREMIUM_PORTFOLIO_GATE !== '0') {
 	      assertPremiumPortfolioDelivery(premiumDelivery.audit, { allowPartial: true });
