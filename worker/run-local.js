@@ -92,8 +92,15 @@ if (!process.env.FEISHU_WEBHOOK_URL) {
   });
 }
 
-const browserSourceFetcher = await createBrowserSourceFetcher({ chromium });
-env.BROWSER_FETCH_HTML = browserSourceFetcher.fetchHtml;
+let browserSourceFetcher = null;
+try {
+  browserSourceFetcher = await createBrowserSourceFetcher({ chromium });
+  env.BROWSER_FETCH_HTML = browserSourceFetcher.fetchHtml;
+  console.log('Playwright browser launched for source recovery');
+} catch (err) {
+  console.warn(`Playwright browser unavailable (${err.message.slice(0, 120)}), source recovery will skip browser fallback`);
+  env.BROWSER_FETCH_HTML = undefined;
+}
 
 let result;
 try {
@@ -103,7 +110,7 @@ try {
   }
   console.log(`Pipeline ${result.status}: ${result.message}`);
 } finally {
-  await browserSourceFetcher.close();
+  if (browserSourceFetcher) await browserSourceFetcher.close();
 }
 
 await mkdir('out', { recursive: true });

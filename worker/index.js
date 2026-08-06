@@ -2345,7 +2345,7 @@ JSON 结构：
 信息源统计：${JSON.stringify(getSourceStats(sources))}
 候选信息 candidates（已按中国优先、15天新鲜度、来源权威性和行业影响力预排序）：${JSON.stringify(prioritizeCandidatesForAnalysis(candidates.map((candidate, candidateIndex) => ({ ...candidate, candidate_index: candidateIndex }))).map(candidate => ({
   ...candidate,
-  snippet: String(candidate.snippet || ''),
+  snippet: String(candidate.snippet || '').slice(0, 6000),
 })))}
 线索 leads（仅用于发现选题，不得直接输出为正式条目）：${JSON.stringify(leads)}`;
 }
@@ -2613,7 +2613,7 @@ function buildRescueAnalysisPrompt(evidence, period) {
     published_at: candidate.published_at,
     authority_type: candidate.authority_type,
     source_type: candidate.source_type,
-    snippet: String(candidate.snippet || ''),
+    snippet: String(candidate.snippet || '').slice(0, 6000),
   }));
   return `你是美妆行业客观资讯编辑。常规提取不足，请从已抓取全文证据中识别与美妆行业有实质关系的客观资讯，数量不设业务上限。
 
