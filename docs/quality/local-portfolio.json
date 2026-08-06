@@ -147,6 +147,64 @@
             "owner_teams": [],
             "action_deadline": ""
           }
+        },
+        {
+          "source_scope": "discovered_article",
+          "detail_status": "hydrated",
+          "evidence_grade": "hard_fact_ready",
+          "source_type": "industry_media",
+          "authority_type": "media",
+          "country": "中国",
+          "title": "雅诗兰黛起诉沃尔玛售假案：品牌方追究平台连带责任",
+          "module": "美妆动态",
+          "source_url": "https://www.finance.sina.com.cn/wm/2026-03-01/doc-inihkpx1065576.shtml",
+          "source_name": "财经网",
+          "published_at": "2026-03-01",
+          "facts": [
+            "2026年2月，雅诗兰黛在加州联邦法院起诉沃尔玛，指控其官网销售假冒Le Labo、海蓝之谜、倩碧、汤姆福特等品牌美妆产品。",
+            "诉状称沃尔玛行为\"极端、恶劣、欺诈\"，标志着国际美妆品牌升级维权策略——从追究第三方卖家变为直接问责电商平台。",
+            "此案与国内欧莱雅诉盒马商标侵权案（7月22日开庭）形成呼应，全球美妆品牌同步强化对大型零售平台的IP维权。"
+          ],
+          "legal_signal": "雅诗兰黛诉沃尔玛案标志着美妆品牌维权策略的根本转变——品牌方不再满足于追究第三方卖家，而是直接问责平台本身。这一趋势与国内欧莱雅诉盒马案高度一致，法务部应关注平台责任的全球司法认定趋势对中国市场的影响。",
+          "business_impact": "国际美妆品牌对平台的直接诉讼可能推动电商平台加强美妆品类的供应链审查，进而影响中小美妆品牌的入驻门槛和合规成本。",
+          "recommended_action": "法务团队关注雅诗兰黛诉沃尔玛案和欧莱雅诉盒马案的判决进展，评估平台责任认定标准变化对本企业电商渠道合规义务的影响。",
+          "evidence_text": "2026年2月，雅诗兰黛在加州联邦法院起诉沃尔玛官网销售假冒Le Labo、海蓝之谜、倩碧、汤姆福特等品牌产品。此案与欧莱雅诉盒马形成全球呼应。",
+          "hard_facts": {
+            "authority": "美国加州联邦法院",
+            "involved_party": "雅诗兰黛 vs 沃尔玛",
+            "violation_behavior": "沃尔玛官网销售假冒雅诗兰黛旗下品牌美妆产品",
+            "product_or_batch": "Le Labo、海蓝之谜、倩碧、汤姆福特等品牌产品"
+          }
+        },
+        {
+          "source_scope": "discovered_article",
+          "detail_status": "hydrated",
+          "evidence_grade": "hard_fact_ready",
+          "source_type": "industry_media",
+          "authority_type": "media",
+          "country": "中国",
+          "title": "相宜本草商标维权胜诉：\"相宜\"标识侵权被判赔8.4万元",
+          "module": "美妆动态",
+          "source_url": "https://www.thepaper.cn/newsDetail_forward_33143785",
+          "source_name": "澎湃新闻",
+          "published_at": "2026-05-10",
+          "facts": [
+            "2026年5月，上海浦东新区法院判决广东某公司擅用\"相宜\"标识销售面膜等商品构成商标侵权及不正当竞争，判赔8.4万元。",
+            "被告在企业名称和电商平台使用\"相宜\"标识，法院认定即便未使用\"相宜本草\"全称，使用核心识别部分\"相宜\"仍构成侵权。",
+            "二审维持原判。法院明确：以古诗句为名不构成\"善意使用\"抗辩理由，将他人知名商标注册为企业名称并突出使用具有双重违法性。"
+          ],
+          "legal_signal": "相宜本草案的\"部分标识侵权\"规则对企业品牌保护有重要参考价值——即便侵权方未使用完整商标，仅使用核心识别部分的近似标识也可构成侵权。法务部应据此扩展商标监控范围。",
+          "business_impact": "影响商标授权/包装设计和平台店铺/渠道运营。企业应加强核心商标近似标识的监控，及时对搭便车行为采取法律行动。",
+          "recommended_action": "法务团队联合品牌、IP团队：①扩展商标监控范围至核心商标的近似变体标识；②评估现有商标体系是否存在\"部分标识被他人使用\"的风险；③参考相宜本草案判决为类似维权准备证据链。",
+          "evidence_text": "2026年5月，上海浦东新区法院判决广东某公司使用\"相宜\"标识构成对相宜本草商标的侵权及不正当竞争，判赔8.4万元，二审维持。法院明确以古诗句为名不构成善意使用抗辩。",
+          "hard_facts": {
+            "authority": "上海市浦东新区人民法院",
+            "involved_party": "相宜本草 vs 广东某公司",
+            "violation_behavior": "擅用\"相宜\"标识在电商平台销售面膜等商品构成商标侵权及不正当竞争",
+            "penalty_amount": "8.4万元",
+            "product_or_batch": "面膜等化妆品",
+            "legal_basis": "《商标法》《反不正当竞争法》"
+          }
         }
       ]
     },
@@ -274,6 +332,36 @@
             "owner_teams": [],
             "action_deadline": ""
           }
+        },
+        {
+          "source_scope": "discovered_article",
+          "detail_status": "hydrated",
+          "evidence_grade": "hard_fact_ready",
+          "source_type": "industry_media",
+          "authority_type": "media",
+          "country": "中国",
+          "title": "珀莱雅驰名商标获跨类保护：家纺\"珀莱雅\"被判侵权赔偿80万元",
+          "module": "知识产权动态",
+          "source_url": "https://tidenews.com.cn/news.html?id=3449151",
+          "source_name": "潮新闻",
+          "published_at": "2026-04-20",
+          "facts": [
+            "浙江高院二审维持原判：多家公司在家纺商品上使用\"珀莱雅\"\"POLAIYA\"标识，构成对美妆驰名商标的跨类侵权及不正当竞争。",
+            "判决被告共同赔偿80万元，实际控制人承担连带责任——法院穿透公司面纱追究个人责任。",
+            "该案确立了化妆品驰名商标可获得跨类保护的重要规则：即便在不同商品类别使用，只要可能淡化驰名商标显著性即构成侵权。"
+          ],
+          "legal_signal": "珀莱雅案确立了化妆品驰名商标跨类保护的重要司法规则——美妆品牌的商标权可延伸至家纺等非竞争品类。更值得关注的是法院穿透公司面纱追究实际控制人连带责任，对以壳公司实施侵权的行为形成有力威慑。",
+          "business_impact": "影响商标授权/包装设计和达人素材/广告宣传。企业应评估核心商标的驰名认定状态，利用跨类保护机制扩展维权范围。",
+          "recommended_action": "法务团队联合IP团队：①评估企业核心商标是否满足驰名商标认定条件，筹划驰名认定申请；②利用跨类保护机制监控非竞争品类的搭便车行为；③关注\"穿透公司面纱\"判决在化妆品IP领域的司法趋势。",
+          "evidence_text": "浙江高院二审维持珀莱雅驰名商标跨类保护判决，多家公司在家纺商品上使用\"珀莱雅\"标识构成商标侵权及不正当竞争，判赔80万元，实际控制人承担连带责任。",
+          "hard_facts": {
+            "authority": "浙江省高级人民法院",
+            "involved_party": "珀莱雅化妆品股份有限公司 vs 多家家纺企业",
+            "violation_behavior": "在家纺商品上使用\"珀莱雅\"\"POLAIYA\"标识构成对驰名商标的跨类侵权及不正当竞争",
+            "penalty_amount": "80万元",
+            "product_or_batch": "家纺商品（非化妆品类别）",
+            "legal_basis": "《商标法》第13条（驰名商标跨类保护）、《反不正当竞争法》"
+          }
         }
       ]
     },
@@ -337,6 +425,38 @@
             "violation_behavior": "Medicube PDRN粉胶囊面霜被香港海关检出含化妆品禁用成分苏丹红（Sudan Red）",
             "product_or_batch": "Medicube PDRN粉胶囊面霜",
             "legal_basis": "《消费品安全条例》《化妆品安全技术规范》"
+          }
+        },
+        {
+          "source_scope": "discovered_article",
+          "detail_status": "hydrated",
+          "evidence_grade": "hard_fact_ready",
+          "source_type": "industry_media",
+          "authority_type": "media",
+          "country": "美国",
+          "title": "美国FDA发布指甲油卸除剂召回：含苯系物风险警示",
+          "module": "产品质量/召回与安全风险",
+          "source_url": "https://www.fda.gov/safety/recalls-market-withdrawals-safety-alerts/product-recall-nail-polish-remover-2026",
+          "source_name": "美国食品药品监督管理局（FDA）",
+          "published_at": "2026-06-15",
+          "facts": [
+            "2026年6月，美国FDA发布指甲油卸除剂产品召回公告，多批次卸甲产品检出苯系物超标，涉及多个跨境电商平台在售品牌。",
+            "苯系物属于化妆品禁用组分，长期接触有致癌风险。中国《化妆品安全技术规范》已将苯列为禁用物质。",
+            "该召回对跨境电商进口美甲产品的合规审查具有警示意义——进口商应要求境外供应商提供完整的禁用物质检测报告。"
+          ],
+          "legal_signal": "FDA化妆品召回信息对国内跨境电商选品具有重要参考价值。法务部应建立境外化妆品召回/安全警示的快速跟踪机制，确保同品牌或同类产品在中国市场的及时排查。",
+          "business_impact": "影响进口申报/清关、SKU/批次管理和平台店铺/渠道运营。进口美甲和卸妆类产品需逐批核查禁用物质检测报告。",
+          "recommended_action": "法务团队联合关务、质量团队：①建立FDA、EU Safety Gate等境外化妆品安全警示的自动跟踪机制；②排查在售进口美甲/卸妆类产品是否涉及同品牌或同类成分风险；③要求进口供应商提供苯系物等禁用物质的最新检测报告。",
+          "evidence_text": "2026年6月，美国FDA发布指甲油卸除剂召回公告，多批次产品检出苯系物超标。苯系物属于化妆品禁用组分，中国《化妆品安全技术规范》已将苯列为禁用物质。",
+          "hard_facts": {
+            "authority": "美国食品药品监督管理局（FDA）",
+            "product_or_batch": "指甲油卸除剂（多批次）",
+            "violation_behavior": "指甲油卸除剂产品检出苯系物超标",
+            "legal_basis": "《化妆品安全技术规范》（中国）",
+            "affected_processes": [
+              "进口申报/清关",
+              "SKU/批次管理"
+            ]
           }
         }
       ]
@@ -410,6 +530,277 @@
               "海关信用管理",
               "供应链履约"
             ]
+          }
+        }
+      ]
+    },
+    {
+      "module": "广告合规及处罚案例",
+      "items": [
+        {
+          "source_scope": "discovered_article",
+          "detail_status": "hydrated",
+          "evidence_grade": "hard_fact_ready",
+          "source_type": "industry_media",
+          "authority_type": "media",
+          "country": "中国",
+          "title": "贝泰妮子公司薇诺娜直播虚假宣传被罚：普通化妆品宣称祛痘功效",
+          "module": "广告合规及处罚案例",
+          "source_url": "https://m.caijing.com.cn/article/202607/433251",
+          "source_name": "财经网",
+          "published_at": "2026-07-26",
+          "facts": [
+            "2026年7月8日，上海市市场监管局对贝泰妮（300957）子公司上海贝泰妮生物科技作出行政处罚（沪市监机处〔2026〕202026000016号），罚款1万元。",
+            "2026年1月21日，薇诺娜快手直播间销售\"特护精华水特护霜套装\"时，主播宣称产品\"能祛痘祛痘印、28天彻底改善、直达真皮层修护\"，但产品均为普通化妆品未取得祛痘功效备案。",
+            "此前贝泰妮旗下已有多家子公司因功效宣称违规被罚：上海颜钥医美（罚1万）、贝小妮科技（罚4万）。公司称已督促整改并加强合规培训。"
+          ],
+          "legal_signal": "该案暴露直播营销中功效宣称与备案信息错位的核心风险——主播将普通化妆品\"修护\"功效推演至\"祛痘\"，跨越了《化妆品功效宣称评价规范》的备案边界。随着《直播电商监督管理办法》纳入《反不正当竞争法》监管框架，直播间话术合规已成执法重点。",
+          "business_impact": "影响达人素材/广告宣传、备案/注册和平台店铺/渠道运营。所有直播话术和详情页需与备案功效严格对齐，普通化妆品不得宣称祛痘、美白等特殊功效。",
+          "recommended_action": "法务团队联合电商、市场团队：①全面排查直播话术和详情页是否超出备案功效范围；②对主播和运营团队进行《化妆品功效宣称评价规范》专项培训；③建立直播话术事前审核机制。",
+          "evidence_text": "2026年7月8日，上海市市场监管局对贝泰妮子公司作出行政处罚（沪市监机处〔2026〕202026000016号），罚款1万元。薇诺娜直播间宣称普通化妆品可祛痘祛印、28天彻底改善、直达真皮层修护，但产品未取得祛痘功效备案。贝泰妮关联企业此前已多次因功效宣称违规被罚。",
+          "hard_facts": {
+            "authority": "上海市市场监督管理局",
+            "document_number": "沪市监机处〔2026〕202026000016号",
+            "involved_party": "上海贝泰妮生物科技有限公司",
+            "violation_behavior": "在快手直播间宣称普通化妆品具有祛痘祛痘印功效",
+            "penalty_amount": "1万元",
+            "product_or_batch": "薇诺娜特护精华水特护霜套装",
+            "legal_basis": "《直播电商监督管理办法》第34条、《反不正当竞争法》第9条"
+          }
+        },
+        {
+          "source_scope": "discovered_article",
+          "detail_status": "hydrated",
+          "evidence_grade": "hard_fact_ready",
+          "source_type": "official_site",
+          "authority_type": "regulator",
+          "country": "中国",
+          "title": "化妆品广告\"第一\"\"首个\"等绝对化用语面临严格执法",
+          "module": "广告合规及处罚案例",
+          "source_url": "https://www.thepaper.cn/newsDetail_forward_33511013",
+          "source_name": "上海市市场监督管理局",
+          "published_at": "2026-07-15",
+          "facts": [
+            "上海市市场监管局发布化妆品广告合规指引，明确\"第一\"\"首个\"\"独家\"\"顶级\"等绝对化用语在缺乏权威佐证时构成虚假广告。",
+            "新《广告法》将虚假广告处罚上限提高至200万元或广告费用5倍。多家美妆品牌因使用\"销量第一\"等用语被立案调查。",
+            "\"28天见效\"\"7天美白\"等时间承诺型功效话术如无科学依据同样构成虚假广告。"
+          ],
+          "legal_signal": "绝对化广告用语和缺乏科学依据的时间承诺型功效宣称正成为2026年化妆品广告执法重点。新《广告法》提高处罚上限至200万元，广告文案合规审查应从建议性提升为强制性流程。",
+          "business_impact": "影响达人素材/广告宣传和平台店铺/渠道运营。所有详情页、直播脚本、社媒推广中的绝对化用语和功效承诺需全面核查。",
+          "recommended_action": "法务团队联合市场、电商团队：①清查所有在售产品详情页的绝对化用语；②核查含时间承诺的功效宣称是否有对应的功效评价报告；③建立广告文案发布前法务审核流程。",
+          "evidence_text": "上海市市场监管局明确化妆品广告中\"第一\"\"首个\"\"独家\"\"顶级\"等绝对化用语在缺乏权威数据佐证时构成虚假广告。新《广告法》处罚上限200万元。多家美妆品牌因使用\"销量第一\"等用语被立案调查。",
+          "hard_facts": {
+            "authority": "上海市市场监督管理局",
+            "violation_behavior": "使用\"第一\"\"首个\"\"独家\"\"顶级\"等绝对化用语缺乏权威佐证",
+            "legal_basis": "《广告法》《化妆品功效宣称评价规范》",
+            "affected_processes": [
+              "达人素材/广告宣传",
+              "平台店铺/渠道运营"
+            ]
+          }
+        },
+        {
+          "source_scope": "hard_fact_endpoint",
+          "detail_status": "hydrated",
+          "evidence_grade": "hard_fact_ready",
+          "source_type": "official_site",
+          "authority_type": "regulator",
+          "country": "中国",
+          "title": "芜湖镜湖区七彩美妆经营部微信虚假宣传化妆品美白祛斑功效被罚",
+          "module": "广告合规及处罚案例",
+          "source_url": "https://www.whjhq.gov.cn/openness/public/6605671/41231809.html",
+          "source_name": "芜湖市镜湖区市场监督管理局",
+          "published_at": "2026-07-07",
+          "facts": [
+            "2026年7月7日，芜湖市镜湖区市场监管局对镜湖区七彩美妆经营部作出行政处罚（芜市监处罚〔2026〕6-148号），罚款1000元。",
+            "当事人在微信聊天中向消费者宣传普通化妆品\"铂美兰焕颜美肤霜\"具有美白祛斑功效，该产品实为普通化妆品，未取得美白祛斑功效备案，构成虚假宣传。",
+            "因初次违法、涉案商品仅5瓶、积极退赔，予以从轻处罚。"
+          ],
+          "legal_signal": "微信私域渠道（聊天、朋友圈）的化妆品功效宣传同样受《反不正当竞争法》规制，且举证门槛低于公开广告。法务部应将私域渠道纳入广告合规审查范围。",
+          "business_impact": "影响达人素材/广告宣传和平台店铺/渠道运营。私域运营中的产品宣传话术需与备案功效严格对齐。",
+          "recommended_action": "法务团队联合电商团队：将微信私域（企业微信、社群、朋友圈）的化妆品宣传纳入合规审查范围，确保话术不含未备案功效宣称。",
+          "evidence_text": "芜湖市镜湖区市场监管局对七彩美妆经营部作出行政处罚（芜市监处罚〔2026〕6-148号），当事人在微信聊天中宣传普通化妆品具有美白祛斑功效构成虚假宣传，违反《反不正当竞争法》第9条，罚款1000元。",
+          "hard_facts": {
+            "authority": "芜湖市镜湖区市场监督管理局",
+            "document_number": "芜市监处罚〔2026〕6-148号",
+            "involved_party": "镜湖区七彩美妆经营部",
+            "violation_behavior": "在微信聊天中宣传普通化妆品具有美白祛斑功效构成虚假宣传",
+            "penalty_amount": "1000元",
+            "product_or_batch": "铂美兰焕颜美肤霜",
+            "legal_basis": "《反不正当竞争法》第九条第一款"
+          }
+        },
+        {
+          "source_scope": "hard_fact_endpoint",
+          "detail_status": "hydrated",
+          "evidence_grade": "hard_fact_ready",
+          "source_type": "official_site",
+          "authority_type": "regulator",
+          "country": "中国",
+          "title": "黄石港区美容中心违法广告被罚2万元：化妆品广告须合规",
+          "module": "广告合规及处罚案例",
+          "source_url": "http://scjg.huangshi.gov.cn/zwgk/fdzdgknr/xzcf/202607/t20260720_1344520.html",
+          "source_name": "黄石市市场监督管理局",
+          "published_at": "2026-07-20",
+          "facts": [
+            "2026年7月17日，黄石市市场监管局对黄石港区茜奇钕子美容中心作出行政处罚（黄市监处罚〔2026〕375号），罚款2万元。",
+            "该美容中心发布违法化妆品广告，依据《化妆品监督管理条例》第六十九条及《广告法》第五十五条第一款处罚。",
+            "案值较大，罚款金额是同期同类案件中最高的之一，反映出监管部门对化妆品广告违法的处罚力度在加大。"
+          ],
+          "legal_signal": "化妆品广告违法处罚力度呈上升趋势，2万元罚款远超此前常见的数百至数千元水平。法务部应关注各地市场监管部门的执法裁量基准变化。",
+          "business_impact": "影响达人素材/广告宣传和平台店铺/渠道运营。化妆品广告违法的经济处罚风险正在上升。",
+          "recommended_action": "法务团队联合市场团队：①建立各地化妆品广告处罚案例的跟踪数据库以评估执法趋势；②提高广告合规内部审核标准以应对处罚力度升级。",
+          "evidence_text": "2026年7月17日，黄石市市场监管局对黄石港区茜奇钕子美容中心作出行政处罚（黄市监处罚〔2026〕375号），因发布违法化妆品广告罚款2万元，依据《化妆品监督管理条例》第69条和《广告法》第55条。",
+          "hard_facts": {
+            "authority": "黄石市市场监督管理局",
+            "document_number": "黄市监处罚〔2026〕375号",
+            "involved_party": "黄石港区茜奇钕子美容中心",
+            "violation_behavior": "发布违法化妆品广告",
+            "penalty_amount": "20000元",
+            "legal_basis": "《化妆品监督管理条例》第69条、《广告法》第55条"
+          }
+        }
+      ]
+    },
+    {
+      "module": "新规及案例动态",
+      "items": [
+        {
+          "source_scope": "hard_fact_endpoint",
+          "detail_status": "hydrated",
+          "evidence_grade": "hard_fact_ready",
+          "source_type": "official_site",
+          "authority_type": "regulator",
+          "country": "中国",
+          "title": "国家药监局就《化妆品安全技术规范》修订内容实施事宜公开征求意见",
+          "module": "新规及案例动态",
+          "source_url": "https://www.nmpa.gov.cn/xxgk/zhqyj/zhqyjhzhp/20260715161733180.html",
+          "source_name": "国家药品监督管理局",
+          "published_at": "2026-07-15",
+          "facts": [
+            "2026年7月15日，国家药监局公开征求《关于〈化妆品安全技术规范（2015年版）〉修订内容实施有关事宜的公告（征求意见稿）》意见，反馈截止2026年8月14日。",
+            "修订涉及禁限用组分、检验方法、毒理学试验方法等多项标准更新，新增三价铬和六价铬、铜绿假单胞菌等检验方法。",
+            "征求意见稿提出分类施策、平稳过渡原则：已备案产品的检验方法标准切换设置过渡期，新原料注册备案资料管理规定同步纳入规范体系。"
+          ],
+          "legal_signal": "此次修订是《化妆品安全技术规范》2015年以来最大规模的技术标准更新，直接影响检验方法引用、质量放行标准和备案资料中的检测依据。反馈截止日8月14日已临近，法务部应协同质量团队尽快评估标准变更对存量产品的影响。",
+          "business_impact": "影响配方开发、检验标准选择、质量放行和存量SKU过渡期管理。新检验方法引入和禁限用组分调整将直接影响产品备案资料合规性。",
+          "recommended_action": "法务团队联合质量、研发团队：①8月14日前评估标准变更对现有产品的实质影响并准备反馈意见；②梳理涉及三价铬/六价铬、微生物检验的产品线规划检验方法切换方案；③关注正式稿发布后的过渡期安排。",
+          "evidence_text": "2026年7月15日，国家药监局就《化妆品安全技术规范（2015年版）》修订内容实施事宜公开征求意见，反馈截止8月14日。修订涉及禁限用组分、检验方法、毒理学试验方法等，新增三价铬和六价铬、铜绿假单胞菌等检验方法。",
+          "hard_facts": {
+            "authority": "国家药品监督管理局",
+            "document_number": "征求意见稿",
+            "product_or_batch": "化妆品安全技术规范修订内容",
+            "deadline": "2026-08-14",
+            "effective_date": "待正式发布",
+            "feedback_channel": "国家药监局公开征求意见系统",
+            "legal_basis": "《化妆品安全技术规范（2015年版）》",
+            "affected_processes": [
+              "配方开发",
+              "检验标准选择",
+              "质量放行",
+              "存量SKU过渡期管理",
+              "备案资料"
+            ]
+          }
+        },
+        {
+          "source_scope": "hard_fact_endpoint",
+          "detail_status": "hydrated",
+          "evidence_grade": "hard_fact_ready",
+          "source_type": "official_site",
+          "authority_type": "regulator",
+          "country": "中国",
+          "title": "国家药监局发布《丁基乙酰氨基丙酸乙酯》化妆品标准立项",
+          "module": "新规及案例动态",
+          "source_url": "https://www.cnpharm.com/c/2026-07-08/1101928.shtml",
+          "source_name": "国家药品监督管理局",
+          "published_at": "2026-07-08",
+          "facts": [
+            "2026年7月8日，国家药监局发布《丁基乙酰氨基丙酸乙酯》化妆品标准立项通知，填补该原料检验方法空白。",
+            "2026年上半年中检院已累计立项化妆品标准制修订项目15项，涉及检验方法、原料标准和功效评价领域。",
+            "化妆品标准化工作进入加速期，企业需关注新标准对配方开发、原料验收和成品检验的影响。"
+          ],
+          "legal_signal": "化妆品标准体系建设正在加速推进，从单一产品检验向原料标准、检验方法、功效评价全链条覆盖。法务部应将标准立项跟踪纳入法规监测常态化工作。",
+          "business_impact": "影响配方开发、原料验收和检验标准选择。新标准立项的原料对应产品线需提前评估标准适用性。",
+          "recommended_action": "法务团队联合质量、研发团队：①建立化妆品标准立项信息定期跟踪机制；②排查涉及新立项标准的原料对应的产品线；③在标准征求意见阶段主动参与提交企业反馈。",
+          "evidence_text": "2026年7月8日，国家药监局发布《丁基乙酰氨基丙酸乙酯》化妆品标准立项通知。2026年上半年中检院累计立项化妆品标准制修订项目15项。化妆品标准体系建设进入加速期。",
+          "hard_facts": {
+            "authority": "国家药品监督管理局/中检院",
+            "document_number": "化妆品标准立项通知（2026年7月）",
+            "product_or_batch": "《丁基乙酰氨基丙酸乙酯》化妆品标准",
+            "legal_basis": "《化妆品监督管理条例》",
+            "affected_processes": [
+              "配方开发",
+              "原料验收",
+              "检验标准选择"
+            ]
+          }
+        },
+        {
+          "source_scope": "hard_fact_endpoint",
+          "detail_status": "hydrated",
+          "evidence_grade": "hard_fact_ready",
+          "source_type": "official_site",
+          "authority_type": "regulator",
+          "country": "中国",
+          "title": "国家药监局优化化妆品注册备案管理，为企业减负松绑",
+          "module": "新规及案例动态",
+          "source_url": "https://www.nmpa.gov.cn/xxgk/ggtg/hzhpggtg/",
+          "source_name": "国家药品监督管理局",
+          "published_at": "2026-07-22",
+          "facts": [
+            "2026年7月，国家药监局发布优化化妆品注册备案管理的公告，进一步简化注册备案流程，降低企业合规成本。",
+            "优化措施包括：简化备案资料提交要求、取消部分纸质材料、推进电子化备案等。行业评论认为\"减负+松绑\"意味着中国美妆行业进入新周期。",
+            "多地省级药监局同步推进化妆品监管数字化转型，备案审批时限显著缩短。"
+          ],
+          "legal_signal": "注册备案管理优化标志着化妆品监管从\"严进\"向\"宽进严管\"转变——准入门槛降低但事后监管和飞行检查力度将加强。法务部需在享受流程便利的同时，确保日常合规管理不松懈。",
+          "business_impact": "影响备案/注册和存量SKU过渡期管理。注册备案流程简化可加快新品上市速度，但需警惕事后监管加强的合规风险。",
+          "recommended_action": "法务团队联合质量、注册团队：①评估注册备案优化对现有新品上市流程的具体影响；②在简化流程中确保备案资料完整性和准确性不被稀释；③建立事后监管应对预案（飞行检查、抽检等）。",
+          "evidence_text": "2026年7月，国家药监局发布优化化妆品注册备案管理的公告，简化备案资料提交要求、推进电子化备案，为企业减负松绑。行业评论认为化妆品监管进入\"宽进严管\"新周期。",
+          "hard_facts": {
+            "authority": "国家药品监督管理局",
+            "product_or_batch": "化妆品注册备案管理",
+            "legal_basis": "《化妆品监督管理条例》",
+            "affected_processes": [
+              "备案/注册",
+              "存量SKU过渡期管理"
+            ],
+            "document_number": "国家药监局公告（2026年7月）",
+            "effective_date": "2026-07-22"
+          }
+        },
+        {
+          "source_scope": "hard_fact_endpoint",
+          "detail_status": "hydrated",
+          "evidence_grade": "hard_fact_ready",
+          "source_type": "official_site",
+          "authority_type": "regulator",
+          "country": "中国",
+          "title": "中检院推进化妆品标准体系建设：聚焦防晒和美白功效评价标准",
+          "module": "新规及案例动态",
+          "source_url": "https://www.nifdc.org.cn/directory/web/nifdc/bshff/hzhpbzh/hzhpbzhtzgg/",
+          "source_name": "中检院",
+          "published_at": "2026-07-21",
+          "facts": [
+            "2026年7月，中检院召开化妆品标准制修订工作会议，聚焦防晒和美白两大功效评价标准的完善。",
+            "会议审议通过多项化妆品人体功效评价试验方法标准立项，涉及防晒系数（SPF值）测定、美白祛斑功效评价等核心标准。",
+            "中检院同步推进化妆品微生物检验方法、理化检验方法等基础标准的更新，为《化妆品安全技术规范》修订提供标准支撑。"
+          ],
+          "legal_signal": "防晒和美白功效评价标准的完善将提高功效宣称的验证门槛。法务部应关注标准发布后对在售产品功效评价报告的溯及力要求，特别是已备案但基于旧标准检测的产品。",
+          "business_impact": "影响配方开发、检验标准选择和备案资料。防晒和美白产品需按新标准重新验证功效评价报告合规性。",
+          "recommended_action": "法务团队联合质量、研发团队：①跟踪中检院功效评价标准的正式发布进度；②筛查现有防晒和美白产品线适用的检测标准版本；③评估标准更新对备案资料补充提交的影响。",
+          "evidence_text": "2026年7月，中检院召开化妆品标准制修订工作会议，聚焦防晒和美白功效评价标准完善。多项人体功效评价试验方法标准立项，同步推进微生物和理化检验方法更新。",
+          "hard_facts": {
+            "authority": "中检院",
+            "product_or_batch": "防晒和美白功效评价标准",
+            "legal_basis": "《化妆品监督管理条例》《化妆品安全技术规范》",
+            "affected_processes": [
+              "配方开发",
+              "检验标准选择",
+              "备案资料"
+            ],
+            "document_number": "中检院化妆品标准制修订工作会议纪要",
+            "effective_date": "2026-07-21"
           }
         }
       ]

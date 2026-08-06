@@ -43,7 +43,9 @@ At runtime, a missing or underfilled module must not suppress valid cards from o
       Persisted: 海关总署令第284号化妆品进出口检验检疫新规 (score=148,
       12月1日施行, customs.gov.cn) and 奉贤东方美谷十一条措施出口增34.1%
       (score=176, 央广网). Both pass `validatePremiumEvidenceCard`.
-- [ ] Build a balanced local portfolio of 20-24 cards.
+- [x] Build a balanced local portfolio of 20-24 cards.
+      Portfolio at 20 cards (4/3/3/2/4/4 across 6 modules), all pass
+      `validatePremiumEvidenceCard`.
 - [ ] Pass Chinese, completeness, fragment, translation, relevance, and duplicate checks.
 - [ ] Pass the local quality gate.
 - [ ] Pass two `no_delivery` pipeline runs.
