@@ -193,7 +193,11 @@ async def crawl_one(crawler, url, item, module, config, attachment=False):
     }
 
 async def run():
-    browser_config = BrowserConfig(headless=True)
+    browser_config = BrowserConfig(
+        headless=True,
+        verbose=False,
+        user_agent="Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/126.0.0.0 Safari/537.36",
+    )
     results = []
     try:
         async with AsyncWebCrawler(config=browser_config, base_directory=base_directory) as crawler:

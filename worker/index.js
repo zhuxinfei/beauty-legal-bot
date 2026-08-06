@@ -111,8 +111,8 @@ const WORKER_FETCH_SOURCE_BUDGET = 15;
 const AI_REQUEST_TIMEOUT_MS = 120000;
 const AI_REQUEST_MAX_ATTEMPTS = 2;
 const AI_RETRY_BASE_DELAY_MS = 1500;
-const DEFAULT_AI_MAX_TOKENS = 8000;
-const QUALITY_AI_MAX_TOKENS = 16000;
+const DEFAULT_AI_MAX_TOKENS = 16000;
+const QUALITY_AI_MAX_TOKENS = 32000;
 const DEFAULT_ANALYSIS_CANDIDATE_LIMIT = 140;
 const QUALITY_ANALYSIS_CANDIDATE_LIMIT = 220;
 const DEFAULT_ANALYSIS_LEAD_LIMIT = 120;
@@ -158,8 +158,8 @@ export async function requestAiChat({
     temperature,
     max_tokens: maxTokens,
   };
-  if (model === 'gpt-5.6-sol') {
-    body.reasoning_effort = reasoningEffort || 'medium';
+  if (model === 'gpt-5.6-sol' || /gpt-5\.6|claude|deepseek/i.test(model)) {
+    body.reasoning_effort = reasoningEffort || 'high';
   }
   const endpoint = `${String(baseUrl || DEFAULT_AI_API_BASE_URL).replace(/\/+$/, '')}/chat/completions`;
   const attempts = Math.max(1, Number(maxAttempts) || AI_REQUEST_MAX_ATTEMPTS);
@@ -2258,8 +2258,8 @@ export function buildAnalysisPrompt({ candidates, leads = [], sources, period, t
 
 输出要求：
 - 输出合法 JSON，不要 Markdown，不要解释。
-- 六个模块分别监测，但只输出通过质量标准的条目；任何模块都允许为空，总量不设最低要求。
-- 对每个候选逐条判断；凡正文与美妆实质相关、事实明确、日期合格且有具体原文 URL 的信息都应输出，不得只挑“最重要”的少数几条。
+- 六个模块分别监测，输出所有通过质量标准的条目。每个模块至少输出 2 条（无相关候选除外）。总量目标 18-24 条。候选不足时可在事实明确的前提下适当放宽至 watch 级别简讯。
+- 对每个候选逐条判断；凡正文与美妆实质相关、事实明确、日期合格且有具体原文 URL 的信息都必须输出，严禁只挑”最重要”的少数几条。一个模块有 10 条合格信息就输出 10 条。
 - 中国候选优先：在相同强相关门槛下先处理并优先收录中国原文；不得因为外国事项影响力更高就省略合格的中国信息。中国中强相关、事实明确的简讯可以以 watch 类型收录。
 - “不够重大”不是排除理由。只要正文明确包含美妆相关的主体、产品、规则、处罚结果、抽检/召回、进出口要求或品牌保护事实，即使影响为 medium/low 也应作为 report_tier=watch 的新闻简讯收录。
 - 仍然必须排除：正文无美妆对象、只有欢迎语/导航/来源首页、事实无法核验、超期且无时效例外、或与已收录事件重复的候选。
@@ -2483,6 +2483,7 @@ function candidateEvidenceMetadata(candidate = {}) {
 
 function materializeCandidateBackedReport(report, candidates, targetModule) {
   const reviewed = Array.isArray(report.reviewed_candidates) ? report.reviewed_candidates : [];
+  const hasExplicitDecisions = reviewed.length > 0;
   const decisions = new Map();
   for (const entry of reviewed) {
     const index = Number(entry?.candidate_index);
@@ -2494,10 +2495,16 @@ function materializeCandidateBackedReport(report, candidates, targetModule) {
     }
     decisions.set(index, entry.decision);
   }
-  if (decisions.size !== candidates.length) {
+  if (hasExplicitDecisions && decisions.size !== candidates.length) {
     const missing = candidates.map((_, index) => index).filter(index => !decisions.has(index));
     throw new Error(`candidate review incomplete; missing indexes: ${missing.join(',')}`);
   }
+  // When reviewed_candidates is absent (model didn't produce it), accept
+  // all items whose candidate_index references a valid candidate. This
+  // is more permissive than the strict path but prevents the most common
+  // AI output failure mode: valid items rejected because the model
+  // omitted the reviewed_candidates envelope.
+  if (!hasExplicitDecisions) return processFlexibleItems(report, candidates, targetModule);
 
   const rawItems = (report.sections || []).flatMap(section => section.items || []);
   const itemIndexes = new Set();
@@ -2812,6 +2819,41 @@ export function normalizeModuleReport(report, targetModule) {
     ...report,
     sections: [{ module: targetModule, items }],
   };
+}
+
+// Flexible item processing when AI omitted reviewed_candidates.
+// Accepts items with valid candidate_index, skips rest.
+function processFlexibleItems(report, candidates, targetModule) {
+  const rawItems = (report.sections || []).flatMap(section => section.items || []);
+  const items = [];
+  const used = new Set();
+  for (const item of rawItems) {
+    const index = Number(item.candidate_index);
+    if (!Number.isInteger(index) || index < 0 || index >= candidates.length || used.has(index)) continue;
+    used.add(index);
+    const candidate = candidates[index];
+    const title = preferredDisplayTitle(item.display_title_zh, candidate.title, candidate.country);
+    if (isNavigationTitle(title)) continue;
+    items.push({
+      ...item,
+      candidate_index: index,
+      module: targetModule,
+      title,
+      evidence_title: candidate.title,
+      evidence_excerpt: candidateEvidenceExcerpt(candidate),
+      ...candidateEvidenceMetadata(candidate),
+      source_name: preferredDisplaySourceName(item.source_name_zh, candidate.source_name || candidate.name),
+      evidence_source_name: candidate.source_name || candidate.name || '',
+      source_url: candidate.url || candidate.source_url,
+      source_type: signalSourceType(candidate),
+      country: candidate.country,
+      region: candidate.region,
+      published_at: candidate.published_at || '未知',
+      updated_at: candidate.updated_at || '未知',
+      hard_facts: mergeHardFactsPreferEvidence(candidate.hard_facts, item.hard_facts),
+    });
+  }
+  return { ...report, sections: targetModule ? [{ module: targetModule, items }] : (report.sections || []) };
 }
 
 function signalSourceType(candidate) {
@@ -3207,7 +3249,7 @@ export async function analyzeReportByModule({
   return mergeModuleReports(reports, period, modules);
 }
 
-export function buildModuleAnalysisBatches(candidates = [], batchSize = 4) {
+export function buildModuleAnalysisBatches(candidates = [], batchSize = 8) {
   const prioritized = prioritizeCandidatesForAnalysis(candidates);
   const china = prioritized.filter(candidate => candidate.country === '中国');
   const nonChina = prioritized.filter(candidate => candidate.country !== '中国');
@@ -3229,7 +3271,7 @@ async function deepseekAnalyzeByModule({ apiKey, baseUrl, model, candidates, lea
     analyze: async ({ module, candidates: moduleCandidates, leads: moduleLeads = [], sources: moduleSources }) => {
       if (!moduleCandidates.length && !moduleLeads.length) return { period, summary: [], risk_alerts: [], sections: [{ module, items: [] }] };
       const reports = [];
-      const batches = buildModuleAnalysisBatches(moduleCandidates, 4)
+      const batches = buildModuleAnalysisBatches(moduleCandidates, 8)
         .slice(0, Math.max(1, Number(maxBatchesPerModule) || DEFAULT_ANALYSIS_BATCHES_PER_MODULE));
       for (const batch of batches) {
         try {
