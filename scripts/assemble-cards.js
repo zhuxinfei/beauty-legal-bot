@@ -193,6 +193,48 @@ for (const card of sorted) {
   selected.push({ ...card, module: mod });
 }
 
+// IP seed cases — persistent corpus of known beauty IP cases from broader time windows
+// Injected when the discovery channel produces < 2 beauty-specific IP cards.
+const IP_SEED_PATH = resolve('docs/quality/ip-seed-cases.json');
+let ipSeedCases = [];
+try {
+  ipSeedCases = JSON.parse(readFileSync(IP_SEED_PATH, 'utf8'));
+  console.log(`Loaded ${ipSeedCases.length} IP seed cases from ${IP_SEED_PATH}`);
+} catch (err) {
+  console.warn(`IP seed file not found or unreadable: ${err.message.slice(0, 80)}`);
+}
+
+// Validate and inject IP seed cases when IP module is underfilled
+const ipSelected = selected.filter(c => (MODULE_MAP[c.module] || c.module) === '知识产权保护或者侵权');
+if (ipSelected.length < MIN_PER_MODULE && ipSeedCases.length) {
+  const now = new Date();
+  for (const seed of ipSeedCases) {
+    const seedDate = new Date(seed.published_at + 'T00:00:00Z');
+    const daysAgo = (now - seedDate) / 86400000;
+    if (daysAgo > 90) continue; // only recent-enough seed cases
+    const card = premiumCardFromCandidate({
+      ...seed, url: seed.source_url, final_url: seed.source_url,
+      article_text: seed.evidence_text,
+      detail_status: 'hydrated', source_scope: 'discovered_article',
+      evidence_grade: 'hard_fact_ready',
+    });
+    const validation = validatePremiumEvidenceCard(card);
+    if (!validation.accepted) {
+      console.log(`  IP SEED SKIP [${validation.reason}]: ${seed.title.slice(0, 50)}`);
+      continue;
+    }
+    const key = `${card.source_url}|${card.title}`.replace(/\s+/g, '');
+    if (seen.has(key)) continue;
+    seen.add(key);
+    const mod = '知识产权保护或者侵权';
+    if ((moduleCounts.get(mod) || 0) >= MAX_PER_MODULE) continue;
+    moduleCounts.set(mod, (moduleCounts.get(mod) || 0) + 1);
+    selected.push({ ...card, module: mod, score: validation.score, tier: validation.tier });
+    console.log(`  IP SEED + ${card.title.slice(0, 40)}`);
+    if (ipSelected.length + 1 >= MIN_PER_MODULE) break;
+  }
+}
+
 // Fill minimums — for IP module, re-classify ad-penalty cards with trademark/IP content
 for (const mod of MODULES) {
   while ((moduleCounts.get(mod) || 0) < MIN_PER_MODULE && selected.length < TARGET) {
