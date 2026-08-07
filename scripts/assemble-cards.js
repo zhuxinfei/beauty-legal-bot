@@ -179,10 +179,14 @@ const markdown = buildPremiumDingTalkMarkdown({ period, cards: selected });
 
 writeFileSync(outputPath, JSON.stringify({ report, audit, cards: selected }, null, 2) + '\n');
 writeFileSync(outputPath.replace('.json', '.md'), markdown, 'utf8');
+// Overwrite the pipeline report so CI produces a single consolidated output
+const mainMd = resolve('out', 'latest-report.md');
+writeFileSync(mainMd, markdown, 'utf8');
+writeFileSync(resolve('out', 'latest-report.json'), JSON.stringify({ report, audit, cards: selected }, null, 2) + '\n');
 
 console.log(`\n=== FINAL ===`);
 console.log(`Period: ${period.start} → ${period.end}`);
 console.log(`Cards: ${selected.length}`);
 sections.forEach(s => console.log(`  ${s.module}: ${s.items.length}`));
 console.log(`Audit: ${audit.accepted}/${audit.input} accepted`);
-console.log(`Assembled: ${outputPath.replace('.json', '.md')}`);
+console.log(`Wrote: ${outputPath.replace('.json', '.md')} → also ${mainMd}`);
