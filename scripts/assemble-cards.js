@@ -1,6 +1,6 @@
 // Direct card assembly from hydrated records.
-// Code handles selection + fact extraction; AI handles only narrative fields.
-// Usage: AI_API_KEY=xxx node scripts/assemble-cards.js [hydrated-authority.json] [output.json]
+// Code handles selection + fact extraction; templates generate narrative.
+// Usage: node scripts/assemble-cards.js [hydrated-authority.json] [output.json]
 import { readFileSync, writeFileSync } from 'node:fs';
 import { resolve } from 'node:path';
 import { normalizeHydratedRecord } from '../worker/source-hydration.js';
@@ -16,92 +16,115 @@ import { cleanArticleEvidence } from '../worker/article-evidence.js';
 
 const inputPath = resolve(process.argv[2] || 'out/hydrated-authority.json');
 const outputPath = resolve(process.argv[3] || 'out/assembled-cards.json');
+
 console.log(`Loading hydration records from ${inputPath}...`);
 const payload = JSON.parse(readFileSync(inputPath, 'utf8'));
 const rawRecords = payload.records || [];
 
-// Step 1: Normalize and grade all records
+// Derive period from hydration data, filtering outliers
+const now = new Date();
+const dates = rawRecords
+  .map(r => r.published_at)
+  .filter(d => /^20\d{2}-\d{2}-\d{2}$/.test(d))
+  .filter(d => {
+    const dt = new Date(d + 'T00:00:00Z');
+    const daysAgo = (now - dt) / 86400000;
+    return daysAgo > 0 && daysAgo < 60; // last 60 days only
+  })
+  .sort();
+const period = {
+  start: dates[0] || new Date(now - 15*86400000).toISOString().slice(0, 10),
+  end: dates[dates.length - 1] || now.toISOString().slice(0, 10),
+};
+
+// --- Patterns ---
+const BEAUTY_PATTERN = /(?:化妆品|美妆|护肤|彩妆|香水|口红|面膜|洗护|防晒|染发|美容|祛斑|美白|功效宣称|玻色因|配方|着色剂|色素|进口化妆品|出口化妆品|化妆品标准|cosmetic|cosmetics|MoCRA)/i;
+const NON_BEAUTY_PATTERN = /(?:五金|建材|食品|餐饮|农产品|食用|汽车|电动|机票|酒店|房地产|医疗器械(?!.*化妆品)|药品集采|保险|银行|在线酒店|旅游行业|金融监管|证券|外汇|教育培训)/i;
+const FORUM_HOSTS = /(?:wenxuecity\.com|\.tieba\.|\.zhihu\.|\.douban\.|\.weibo\.)/i;
+const WEAK_TITLE_PATTERN = /(?:举办|召开|培训|会议|活动|论坛|调研|考察|检查指导|工作部署)/;
+const PORTAL_CHROME = [
+  /化妆品审评\s*国家抽检管理\s*医疗器械标准与分类管理[^。]*/g,
+  /访问我的专属空间[^。]*/g,
+  /无障碍\s*关怀版\s*繁體[^。]*/g,
+  /办理流程\s*立案→调查取证→审查→告知→决定→送达→执行/g,
+  /返回首页\s*页面放大\s*页面缩小[^。]*/g,
+  /移动版\s*本站查询[^。]*/g,
+  /主要职责\s*基本信息\s*领导介绍\s*机构设置[^。]*/g,
+  /缴纳情况\s*\d{4}年\d{1,2}月\d{1,2}日已缴纳[^。]*/g,
+  /智能问答\s*["'][^"']*["'][^。]*/g,
+];
+
+// Step 1: Normalize records with substantive text
 console.log(`Normalizing ${rawRecords.length} records...`);
 const records = rawRecords
   .map(r => normalizeHydratedRecord(r))
-  .filter(r => {
-    const text = r.article_text || '';
-    return text.length > 100; // must have substantive text
-  });
+  .filter(r => (r.article_text || '').length > 100);
 
-// Step 2: Pre-clean text then extract hard facts and grade evidence
+// Step 2: Pre-clean, extract hard facts, grade evidence
 console.log(`Extracting hard facts from ${records.length} records...`);
-const WEAK_TITLE_PATTERN = /(?:举办|召开|培训|会议|活动|论坛|调研|考察|检查指导|工作部署)/;
 const candidates = records.map(r => {
-  // Pre-clean: strip common portal chrome from article text before extraction
-  const cleanedText = cleanArticleEvidence(r.article_text || '')
-    .replace(/化妆品审评\s*国家抽检管理\s*医疗器械标准与分类管理.*/g, '')
-    .replace(/访问我的专属空间.*/g, '')
-    .replace(/\s*智能问答\s*["'].*["'].*/g, '')
-    .replace(/无障碍\s*关怀版\s*繁體.*/g, '')
-    .replace(/办理流程\s*立案→调查取证→审查→告知→决定→送达→执行/g, '')
-    .replace(/返回首页\s*页面放大\s*页面缩小.*/g, '')
-    .replace(/移动版\s*本站查询.*/g, '')
-    .replace(/主要职责\s*基本信息\s*领导介绍\s*机构设置.*/g, '')
-    .replace(/缴纳情况\s*\d{4}年\d{1,2}月\d{1,2}日已缴纳.*/g, '')
-    .replace(/\s{2,}/g, ' ');
-  const facts = extractHardFacts(cleanedText, {
-    title: r.title,
-    source_name: r.source_name || r.name,
-    source_url: r.final_url || r.url,
-    module: r.module,
+  let text = cleanArticleEvidence(r.article_text || '');
+  for (const pattern of PORTAL_CHROME) text = text.replace(pattern, '');
+  text = text.replace(/\s{2,}/g, ' ');
+
+  const facts = extractHardFacts(text, {
+    title: r.title, source_name: r.source_name || r.name,
+    source_url: r.final_url || r.url, module: r.module,
     country: r.country || r.region,
   });
   const grade = gradeEvidence({
-    text: cleanedText,
-    hard_facts: facts,
-    source_url: r.final_url || r.url,
-    title: r.title,
+    text, hard_facts: facts,
+    source_url: r.final_url || r.url, title: r.title,
     source_name: r.source_name || r.name,
     country: r.country || r.region,
   });
-  return { ...r, article_text: cleanedText, hard_facts: facts, evidence_grade: grade.evidence_grade, evidence_reason: grade.evidence_reason };
+  return { ...r, article_text: text, hard_facts: facts,
+    evidence_grade: grade.evidence_grade, evidence_reason: grade.evidence_reason };
 });
 
 // Step 3: Corroborate multi-source events
 const corroboration = corroborateEvidenceCandidates(candidates);
-console.log(`Corroboration: ${corroboration.audit.records} records → ${corroboration.audit.events} events (${corroboration.audit.corroborated} corroborated, ${corroboration.audit.primaryVerified} primary)`);
+console.log(`Corroboration: ${corroboration.audit.records} → ${corroboration.audit.events} events (${corroboration.audit.corroborated} corrob, ${corroboration.audit.primaryVerified} primary)`);
 
-// Step 4: Build premium cards from hard_fact_ready candidates
-let hardFactPool = [...corroboration.candidates, ...candidates.filter(c =>
-  ['hard_fact_ready'].includes(c.evidence_grade) && !corroboration.candidates.some(cc => cc.url === c.url)
-)];
-console.log(`Hard fact pool: ${hardFactPool.length} candidates`);
+// Step 4: Build cards — accept all grades that have substantive text, let premium gate filter
+let pool = [
+  ...corroboration.candidates,
+  ...candidates.filter(c =>
+    !corroboration.candidates.some(cc => cc.url === c.url)
+    && c.evidence_grade !== 'reject'
+    && (c.article_text || '').length > 200
+  ),
+];
+console.log(`Candidate pool: ${pool.length} records`);
 
-// Step 5: Generate narrative fields via AI for each card
+// Step 5: Build and validate cards
 const cards = [];
-for (const c of hardFactPool) {
+for (const c of pool) {
+  // Skip non-beauty upfront
+  const combined = `${c.title || ''} ${c.article_text || ''}`;
+  const host = String(c.final_url || c.url || '');
+  if (FORUM_HOSTS.test(host)) { console.log(`  SKIP [forum-host]: ${(c.title||'').slice(0,40)}`); continue; }
+  if (NON_BEAUTY_PATTERN.test(combined) && !BEAUTY_PATTERN.test(combined)) { console.log(`  SKIP [non-beauty]: ${(c.title||'').slice(0,40)}`); continue; }
+
   const card = premiumCardFromCandidate({
-    ...c,
-    detail_status: 'hydrated',
+    ...c, detail_status: 'hydrated',
     source_scope: c.source_scope || 'discovered_article',
   });
   const validation = validatePremiumEvidenceCard(card);
-
   if (!validation.accepted) {
     console.log(`  SKIP [${validation.reason}]: ${card.title.slice(0, 50)}`);
     continue;
   }
 
-  // Skip weak cards: meeting notices, training events, inspection tours
+  // Skip weak cards
   const titleText = card.title || '';
   if (WEAK_TITLE_PATTERN.test(titleText) && !/(?:处罚|罚款|召回|不合格|通告|公告|标准|法规|办法)/.test(titleText)) {
     console.log(`  SKIP [weak-content]: ${card.title.slice(0, 50)}`);
     continue;
   }
 
-  console.log(`  OK  ${card.module.slice(0, 8)} | ${card.title.slice(0, 40)}`);
-
-  // Re-validate after AI enhancement
-  const recheck = validatePremiumEvidenceCard(card);
-  if (recheck.accepted) {
-    cards.push({ ...card, score: recheck.score, tier: recheck.tier });
-  }
+  console.log(`  OK  ${card.module.slice(0, 8)} | score=${validation.score} | ${card.title.slice(0, 40)}`);
+  cards.push({ ...card, score: validation.score, tier: validation.tier });
 }
 
 // Step 6: Select balanced portfolio
@@ -115,52 +138,51 @@ const MODULE_MAP = {
   '知识产权动态': '知识产权保护或者侵权', '进出口动态': '进出口',
   '产品质量/召回与安全风险': '产品质量/召回与安全风险',
 };
+const TARGET = 24;
+const MIN_PER_MODULE = 2;
+const MAX_PER_MODULE = 5;
 
 for (const card of sorted) {
   const mod = MODULE_MAP[card.module] || card.module;
   const key = `${card.source_url || ''}|${card.title}`.replace(/\s+/g, '');
   if (seen.has(key)) continue;
-  if ((moduleCounts.get(mod) || 0) >= 5) continue;
-  if (selected.length >= 24) break;
+  if ((moduleCounts.get(mod) || 0) >= MAX_PER_MODULE) continue;
+  if (selected.length >= TARGET) break;
   seen.add(key);
   moduleCounts.set(mod, (moduleCounts.get(mod) || 0) + 1);
   selected.push({ ...card, module: mod });
 }
 
-// Fill minimums: each module at least 2
+// Fill minimums
 for (const mod of MODULES) {
-  while ((moduleCounts.get(mod) || 0) < 2 && selected.length < 24) {
+  while ((moduleCounts.get(mod) || 0) < MIN_PER_MODULE && selected.length < TARGET) {
     const fallback = sorted.find(c => {
       const m = MODULE_MAP[c.module] || c.module;
       return m === mod && !seen.has(`${c.source_url}|${c.title}`.replace(/\s+/g, ''));
     });
     if (!fallback) break;
-    const key = `${fallback.source_url}|${fallback.title}`.replace(/\s+/g, '');
-    seen.add(key);
+    seen.add(`${fallback.source_url}|${fallback.title}`.replace(/\s+/g, ''));
     moduleCounts.set(mod, (moduleCounts.get(mod) || 0) + 1);
     selected.push({ ...fallback, module: mod });
   }
 }
 
-// Build final report
+// Build report
 const sections = MODULES.map(mod => ({
   module: mod,
   items: selected.filter(c => (MODULE_MAP[c.module] || c.module) === mod),
 }));
 
-const report = {
-  period: { start: '2026-07-23', end: '2026-08-06' },
-  sections,
-};
-
+const report = { period, sections };
 const audit = auditPremiumEvidenceCards(selected);
-const markdown = buildPremiumDingTalkMarkdown({ period: report.period, cards: selected });
+const markdown = buildPremiumDingTalkMarkdown({ period, cards: selected });
 
-writeFileSync(outputPath, JSON.stringify({ report, audit, cards: selected, markdown }, null, 2) + '\n');
+writeFileSync(outputPath, JSON.stringify({ report, audit, cards: selected }, null, 2) + '\n');
 writeFileSync(outputPath.replace('.json', '.md'), markdown, 'utf8');
 
 console.log(`\n=== FINAL ===`);
-console.log(`Total: ${selected.length} cards`);
+console.log(`Period: ${period.start} → ${period.end}`);
+console.log(`Cards: ${selected.length}`);
 sections.forEach(s => console.log(`  ${s.module}: ${s.items.length}`));
 console.log(`Audit: ${audit.accepted}/${audit.input} accepted`);
-console.log(`Markdown: ${outputPath.replace('.json', '.md')}`);
+console.log(`Assembled: ${outputPath.replace('.json', '.md')}`);
