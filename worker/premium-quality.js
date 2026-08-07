@@ -1111,12 +1111,14 @@ export function buildPremiumDingTalkMarkdown({ period = {}, cards = [], preselec
     : selectPremiumEvidenceCards(cards, { maxItems: cards.length || 8, minItems: 0 });
   const start = text(period.start);
   const end = text(period.end);
+  const actionCount = selected.filter(card => card.tier === 'action').length;
+  const watchCount = selected.filter(card => card.tier !== 'action').length;
+  const moduleCount = [...new Set(selected.map(card => card.module))].length;
   const lines = [
-    `# 美妆法务资讯精品卡${start || end ? `（${start} 至 ${end}）` : ''}`,
+    `# 美妆法务资讯周报${start || end ? `（${start} 至 ${end}）` : ''}`,
     '',
-    selected.length
-      ? `本期精选 ${selected.length} 条。`
-      : '本期没有达到精品证据门槛的事项，宁缺毋滥。',
+    `> 本期共 ${selected.length} 条，覆盖 ${moduleCount} 个模块。🔴 行动事项 ${actionCount} 条，🔵 关注事项 ${watchCount} 条。`,
+    '',
   ];
 
   let number = 0;
@@ -1132,14 +1134,15 @@ export function buildPremiumDingTalkMarkdown({ period = {}, cards = [], preselec
   for (const module of modules) {
     const items = selected
       .filter(card => card.module === module)
-      .sort(comparePremiumCards);
+      .sort((a, b) => (b.tier === 'action' ? 1 : 0) - (a.tier === 'action' ? 1 : 0) || comparePremiumCards(a, b));
     if (!items.length) continue;
     lines.push('', `## ${module}`);
     for (const card of items) {
       number += 1;
+      const badge = card.tier === 'action' || card.score >= 95 ? '🔴' : '🔵';
       lines.push(
         '',
-        `### ${number}. ${esc(displayTitle(card))}`,
+        `### ${number}. ${badge} ${esc(displayTitle(card))}`,
         `- **来源**：${esc(card.source_name)} / ${esc(card.country)} / ${esc(card.published_at)} / [原文](${card.source_url})`,
         ...renderFieldBlock('事实依据', renderFactLines(card)),
         ...renderFieldBlock('法务观察', renderJudgementLines(card)),
