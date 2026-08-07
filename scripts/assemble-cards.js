@@ -106,7 +106,22 @@ let pool = [
     && c.evidence_grade !== 'reject'
     && (c.article_text || '').length > 200
   ),
+  // Lead-only candidates with substantive body text can still produce useful cards
+  ...candidates.filter(c =>
+    !corroboration.candidates.some(cc => cc.url === c.url)
+    && c.evidence_grade === 'lead_only'
+    && (c.article_text || '').length > 500
+    && BEAUTY_PATTERN.test(c.title + ' ' + c.article_text)
+  ),
 ];
+// Deduplicate by URL
+const seen_urls = new Set();
+pool = pool.filter(c => {
+  const key = (c.url || c.source_url || '').trim();
+  if (!key || seen_urls.has(key)) return false;
+  seen_urls.add(key);
+  return true;
+});
 console.log(`Candidate pool: ${pool.length} records`);
 
 // Step 5: Build and validate cards
@@ -174,17 +189,36 @@ for (const card of sorted) {
   selected.push({ ...card, module: mod });
 }
 
-// Fill minimums
+// Fill minimums — for IP module, re-classify ad-penalty cards with trademark/IP content
 for (const mod of MODULES) {
   while ((moduleCounts.get(mod) || 0) < MIN_PER_MODULE && selected.length < TARGET) {
     const fallback = sorted.find(c => {
       const m = MODULE_MAP[c.module] || c.module;
       return m === mod && !seen.has(`${c.source_url}|${c.title}`.replace(/\s+/g, ''));
     });
-    if (!fallback) break;
-    seen.add(`${fallback.source_url}|${fallback.title}`.replace(/\s+/g, ''));
-    moduleCounts.set(mod, (moduleCounts.get(mod) || 0) + 1);
-    selected.push({ ...fallback, module: mod });
+    if (fallback) {
+      seen.add(`${fallback.source_url}|${fallback.title}`.replace(/\s+/g, ''));
+      moduleCounts.set(mod, (moduleCounts.get(mod) || 0) + 1);
+      selected.push({ ...fallback, module: mod });
+      continue;
+    }
+    // Cross-module fill: ad-penalty cards with trademark/IP keywords → IP module
+    if (mod === '知识产权保护或者侵权') {
+      const crossCard = sorted.find(c => {
+        const m = MODULE_MAP[c.module] || c.module;
+        if (m !== '广告处罚案例') return false;
+        const combined = `${c.title} ${c.legal_signal} ${c.evidence_text}`;
+        if (!/商标|专利|著作权|冒用|假冒|仿冒|包装装潢/i.test(combined)) return false;
+        return !seen.has(`${c.source_url}|${c.title}`.replace(/\s+/g, ''));
+      });
+      if (crossCard) {
+        seen.add(`${crossCard.source_url}|${crossCard.title}`.replace(/\s+/g, ''));
+        moduleCounts.set(mod, (moduleCounts.get(mod) || 0) + 1);
+        selected.push({ ...crossCard, module: mod });
+        continue;
+      }
+    }
+    break;
   }
 }
 
