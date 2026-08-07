@@ -334,7 +334,9 @@ export function gradeEvidence({ text: textValue = '', hard_facts: hardFacts = {}
   const combined = `${title} ${source}`;
   if (/product safety alerts,? reports and recalls/i.test(combined)
     && /search recalls|product category/i.test(combined)) {
-    return { evidence_grade: 'reject', evidence_reason: 'generic-recall-index', evidence_quotes: {} };
+    // OPSS/FDA recall listing pages contain individual product entries
+    // with dates and names — useful as lead_only watch items
+    return { evidence_grade: 'lead_only', evidence_reason: 'generic-recall-index', evidence_quotes: {} };
   }
   if (!source && !text(title)) {
     return { evidence_grade: 'reject', evidence_reason: 'empty-evidence', evidence_quotes: {} };
@@ -354,6 +356,12 @@ export function gradeEvidence({ text: textValue = '', hard_facts: hardFacts = {}
   const hardCount = objectiveHardFactCount(facts);
   if (hardCount >= 1 && hasHardLegalEvent(`${title} ${source} ${source_name} ${country}`, facts)) {
     return { evidence_grade: 'hard_fact_ready', evidence_reason: `hard-facts=${hardCount}`, evidence_quotes: evidenceQuotes(source, facts) };
+  }
+  // Beauty-company business events (IPO, bankruptcy, M&A) are valid intelligence
+  // even without classic legal-event patterns
+  if (hardCount >= 2 && /(?:上市|IPO|挂牌|招股|退市|破产|清算|收购|并购|重组|融资|财报|业绩)/.test(`${title} ${source}`)
+      && /(?:化妆品|美妆|护肤|彩妆|香水|防晒|洗护|美容)/i.test(`${title} ${source}`)) {
+    return { evidence_grade: 'hard_fact_ready', evidence_reason: `beauty-biz-event=${hardCount}`, evidence_quotes: evidenceQuotes(source, facts) };
   }
   if (/征求意见|行政处罚|公告|附件|处罚决定|海关|进口|商标|侵权/.test(`${title} ${source}`)) {
     return { evidence_grade: 'lead_only', evidence_reason: `insufficient-hard-facts=${hardCount}`, evidence_quotes: evidenceQuotes(source, facts) };

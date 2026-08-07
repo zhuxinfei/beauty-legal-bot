@@ -114,7 +114,7 @@ let pool = [
   ...candidates.filter(c =>
     !corroboration.candidates.some(cc => cc.url === c.url)
     && c.evidence_grade === 'lead_only'
-    && (c.article_text || '').length > 500
+    && (c.article_text || '').length > 300
     && BEAUTY_PATTERN.test(c.title + ' ' + c.article_text)
   ),
 ];
