@@ -33,24 +33,16 @@ jobs:
     timeout-minutes: 45
     env:
       AI_API_KEY: ${{ secrets.AI_API_KEY }}
-      AI_API_BASE_URL: ${{ vars.AI_API_BASE_URL || 'https://hk.testvideo.site/v1' }}
+      AI_API_BASE_URL: ${{ vars.AI_API_BASE_URL || 'https://api.deepseek.com/v1' }}
       MIN_SOURCE_COVERAGE: ${{ vars.MIN_SOURCE_COVERAGE || '0.9' }}
       MIN_CHINA_CRITICAL_COVERAGE: ${{ vars.MIN_CHINA_CRITICAL_COVERAGE || '0.9' }}
       REPORT_QUALITY_MODE: quality
-      ANALYSIS_CANDIDATE_LIMIT: 60
-      ANALYSIS_LEAD_LIMIT: 24
-      AI_MODEL: gpt-5.6-sol
-      AI_MAX_TOKENS: 32000
-      REPORT_ITEMS_PER_MODULE: 12
+      AI_MODEL: deepseek-chat
       REPORT_TARGET_ITEMS: 20
-      PREMIUM_TARGET_ITEMS: 20
       PREMIUM_MIN_ITEMS: 20
       PREMIUM_MAX_ITEMS: 24
       PREMIUM_MIN_PER_MODULE: 2
       PREMIUM_MAX_PER_MODULE: 5
-      PREMIUM_PORTFOLIO_GATE: 1
-      ANALYSIS_BATCHES_PER_MODULE: 6
-      DISCOVERY_ENABLED: 1
       DISCOVERY_MAX_ITEMS: 120
       DISCOVERY_MAX_PER_HOST: 8
       DISCOVERY_MAX_PER_MODULE: 30
@@ -59,7 +51,6 @@ jobs:
       DISCOVERY_TOTAL_TIMEOUT_MS: 180000
       AUTHORITY_RESOLUTION_LEAD_LIMIT: 24
       AUTHORITY_RESULTS_PER_QUERY: 2
-      DETAIL_FETCH_ENABLED: 1
       DETAIL_CANDIDATE_LIMIT: 48
       DETAIL_FETCH_TIMEOUT_MS: 12000
       DETAIL_FETCH_CONCURRENCY: 8
@@ -134,13 +125,7 @@ jobs:
             || echo '{"records":[]}' > "$SOURCE_HYDRATION_FILE"
           node -e "const fs=require('fs'); const p=JSON.parse(fs.readFileSync(process.env.SOURCE_HYDRATION_FILE,'utf8')); const rows=(p.records||[]); console.log('hydrated records=' + rows.length + ', withText=' + rows.filter(r => (r.article_text||r.raw_markdown||r.fit_markdown||'').length > 0).length + ', attachments=' + rows.reduce((s,r)=>s+(r.attachment_urls||[]).length,0));"
 
-      - name: Probe AI endpoint
-        run: node worker/probe-ai.js || echo "AI probe failed, pipeline will attempt AI calls anyway"
-
-      - name: Run pipeline
-        run: FULL_SOURCE_SCAN=1 node worker/run-local.js
-
-      - name: Assemble cards directly from hydration (supplementary)
+      - name: Assemble report from hydrated evidence
         run: node scripts/assemble-cards.js "$SOURCE_HYDRATION_FILE" out/assembled-cards.json
 
       - name: Upload pipeline evidence

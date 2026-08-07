@@ -51,8 +51,8 @@ import {
 // ---------------------------------------------------------------------------
 // 配置
 // ---------------------------------------------------------------------------
-const DEFAULT_AI_API_BASE_URL = 'https://hk.testvideo.site/v1';
-const DEFAULT_AI_MODEL = 'gpt-5.5';
+const DEFAULT_AI_API_BASE_URL = 'https://api.deepseek.com/v1';
+const DEFAULT_AI_MODEL = 'deepseek-chat';
 
 const RELEVANT_KEYWORDS = [
   '化妆品', '美妆', '护肤', '彩妆', '香水', '防晒', '洗护', '功效宣称', '备案', '注册',
@@ -158,7 +158,7 @@ export async function requestAiChat({
     temperature,
     max_tokens: maxTokens,
   };
-  if (model === 'gpt-5.6-sol' || /gpt-5\.6|claude|deepseek/i.test(model)) {
+  if (/deepseek|claude/i.test(model)) {
     body.reasoning_effort = reasoningEffort || 'high';
   }
   const endpoint = `${String(baseUrl || DEFAULT_AI_API_BASE_URL).replace(/\/+$/, '')}/chat/completions`;

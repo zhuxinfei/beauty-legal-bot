@@ -62,8 +62,8 @@ const manualPreview = defaultArtifactOnly === '1' && process.env.ARTIFACT_ONLY !
 
 const env = {
   AI_API_KEY: process.env.AI_API_KEY,
-  AI_API_BASE_URL: process.env.AI_API_BASE_URL || 'https://hk.testvideo.site/v1',
-  AI_MODEL: process.env.AI_MODEL || 'gpt-5.5',
+  AI_API_BASE_URL: process.env.AI_API_BASE_URL || 'https://api.deepseek.com/v1',
+  AI_MODEL: process.env.AI_MODEL || 'deepseek-chat',
   AI_MAX_TOKENS: manualPreview ? '4000' : process.env.AI_MAX_TOKENS,
   DINGTALK_WEBHOOK_URL: process.env.DINGTALK_WEBHOOK_URL,
   DINGTALK_SECRET: process.env.DINGTALK_SECRET,

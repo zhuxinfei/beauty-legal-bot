@@ -10,6 +10,6 @@ binding = "SEEN_NEWS"
 id = "3b38ee9b31b74c4faee81ee5b92b3bdb"
 
 [vars]
-AI_API_BASE_URL = "https://hk.testvideo.site/v1"
-AI_MODEL = "gpt-5.5"
+AI_API_BASE_URL = "https://api.deepseek.com/v1"
+AI_MODEL = "deepseek-chat"
 NOTIFY_CHANNEL = "dingtalk"
