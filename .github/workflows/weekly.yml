@@ -43,11 +43,12 @@ jobs:
       PREMIUM_MAX_ITEMS: 24
       PREMIUM_MIN_PER_MODULE: 2
       PREMIUM_MAX_PER_MODULE: 5
-      DISCOVERY_MAX_ITEMS: 120
-      DISCOVERY_MAX_PER_HOST: 8
-      DISCOVERY_MAX_PER_MODULE: 30
-      DISCOVERY_MIN_PER_MODULE: 8
-      DISCOVERY_RECOVERY_DAYS: 15
+      DISCOVERY_WINDOW_DAYS: 30
+      DISCOVERY_MAX_ITEMS: 160
+      DISCOVERY_MAX_PER_HOST: 10
+      DISCOVERY_MAX_PER_MODULE: 36
+      DISCOVERY_MIN_PER_MODULE: 10
+      DISCOVERY_RECOVERY_DAYS: 30
       DISCOVERY_QUERY_TIMEOUT_MS: 15000
       DISCOVERY_TOTAL_TIMEOUT_MS: 180000
       AUTHORITY_RESOLUTION_LEAD_LIMIT: 24
@@ -60,7 +61,7 @@ jobs:
       CRAWL4_AI_BASE_DIRECTORY: /tmp/beauty-legal-bot-crawl4ai
       CRAWL4AI_ATTACHMENT_LIMIT: 2
       CRAWL4AI_DETAIL_LINK_LIMIT: 12
-      CRAWL4AI_PREVIEW_LIMIT: 72
+      CRAWL4AI_PREVIEW_LIMIT: 96
       CRAWL4AI_MIN_PER_MODULE: 6
       CRAWL4AI_CONCURRENCY: 6
       CRAWL4AI_REQUEST_LIMIT: 96
@@ -120,7 +121,7 @@ jobs:
             --python python \
             --input out/acquisition-manifest.json \
             --output "$SOURCE_HYDRATION_FILE" \
-            --limit 72 \
+            --limit 96 \
             --page-timeout-ms 25000 \
             --attachment-limit "$CRAWL4AI_ATTACHMENT_LIMIT" \
             || echo '{"records":[]}' > "$SOURCE_HYDRATION_FILE"
