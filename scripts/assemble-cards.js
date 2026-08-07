@@ -67,6 +67,17 @@ const PORTAL_CHROME = [
   /主要职责\s*基本信息\s*领导介绍\s*机构设置[^。]*/g,
   /缴纳情况\s*\d{4}年\d{1,2}月\d{1,2}日已缴纳[^。]*/g,
   /智能问答\s*["'][^"']*["'][^。]*/g,
+  /返回首页[^。]*/g,
+  /智能问答[^。]*/g,
+  /访问我的专属空间[^。]*/g,
+  /一网通查[^。]*/g,
+  /请\s*\d+s\)\s*抱歉[^。]*/g,
+  /药品GSP认证公示[^。]*/g,
+  /生物制品批签发[^。]*/g,
+  /国家标准物质与菌毒种[^。]*/g,
+  /阳光采购平台[^。]*/g,
+  /补充检验方法管理系统[^。]*/g,
+  /业务咨询\s*区[^。]*/g,
 ];
 
 // Step 1: Normalize records with substantive text
@@ -136,6 +147,12 @@ for (const c of pool) {
   const host = String(c.final_url || c.url || '');
   if (FORUM_HOSTS.test(host)) { console.log(`  SKIP [forum-host]: ${(c.title||'').slice(0,40)}`); continue; }
   if (NON_BEAUTY_PATTERN.test(combined) && !BEAUTY_PATTERN.test(combined)) { console.log(`  SKIP [non-beauty]: ${(c.title||'').slice(0,40)}`); continue; }
+  // The business name in the title tells us what the entity actually is.
+  // A hardware store penalized under cosmetics law is not a beauty case.
+  if (NON_BEAUTY_PATTERN.test(c.title || '')) {
+    console.log(`  SKIP [non-beauty-title]: ${(c.title||'').slice(0,40)}`);
+    continue;
+  }
   // Stricter check: if business type is clearly non-beauty and beauty keywords
   // only appear in regulatory citations (not product descriptions), skip it
   if (NON_BEAUTY_PATTERN.test(combined) && BEAUTY_PATTERN.test(combined)) {
