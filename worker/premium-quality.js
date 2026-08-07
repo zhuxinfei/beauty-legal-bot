@@ -339,6 +339,11 @@ function sourceNameFromCanonicalSource(candidate = {}) {
     if (/凤凰/i.test(name)) return '凤凰网';
     if (/新浪/i.test(name)) return '新浪财经';
   }
+  // Clean common raw-domain names
+  const name = text(candidate.source_name || candidate.name);
+  if (/haiwaiwai\.com/i.test(name)) return '海外外媒';
+  if (/nfplus\.nfnews/i.test(name)) return '南方+';
+  if (/reach24h|瑞欧/i.test(name)) return '瑞欧科技';
   return text(candidate.source_name || candidate.name);
 }
 

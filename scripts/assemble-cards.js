@@ -44,6 +44,7 @@ const period = {
 // --- Patterns ---
 const BEAUTY_PATTERN = /(?:化妆品|美妆|护肤|彩妆|香水|口红|面膜|洗护|防晒|染发|美容|祛斑|美白|功效宣称|玻色因|配方|着色剂|色素|进口化妆品|出口化妆品|化妆品标准|cosmetic|cosmetics|MoCRA)/i;
 const NON_BEAUTY_PATTERN = /(?:五金|建材|食品|餐饮|农产品|食用|汽车|电动|机票|酒店|房地产|医疗器械(?!.*化妆品)|药品集采|保险|银行|在线酒店|旅游行业|金融监管|证券|外汇|教育培训|日用五金|超市|便利店|网吧|歌厅|理发店(?!.*化妆品)|浴池|洗浴|执业药师|京彩药检|跨境B2C|珈凯生物|生物科技.*IPO)/i;
+const ACADEMIC_IP_PATTERN = /(?:损害赔偿请求权.*认定|.*实现路径|法理.*探析|.*制度研究)/i;
 const NEWS_CHROME = [
   /要闻\s*北京\s*科技\s*财经\s*AI\s*更多[^。]*/g,
   /正在浏览：[^。]*/g,
@@ -170,6 +171,12 @@ for (const c of pool) {
   const validation = validatePremiumEvidenceCard(card);
   if (!validation.accepted) {
     console.log(`  SKIP [${validation.reason}]: ${card.title.slice(0, 50)}`);
+    continue;
+  }
+
+  // Skip academic IP theory articles (not beauty-specific case law)
+  if (ACADEMIC_IP_PATTERN.test(titleText) && !/(?:化妆品|美妆|护肤|彩妆|香水|防晒|品牌|商标.*案)/i.test(titleText + (c.evidence_text || ''))) {
+    console.log(`  SKIP [academic-ip]: ${card.title.slice(0, 50)}`);
     continue;
   }
 
