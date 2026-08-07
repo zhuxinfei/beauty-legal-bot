@@ -1,0 +1,44 @@
+name: Deliver Existing Report
+
+on:
+  workflow_dispatch:
+    inputs:
+      run_id:
+        description: 'Run ID with the report to deliver'
+        required: true
+        type: string
+
+permissions:
+  contents: read
+
+jobs:
+  deliver:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v5
+
+      - uses: actions/setup-node@v5
+        with:
+          node-version: '22'
+
+      - name: Download report from previous run
+        run: |
+          mkdir -p out
+          gh run download "${{ inputs.run_id }}" --name "pipeline-evidence-${{ inputs.run_id }}" --dir out/prev 2>/dev/null || true
+          if [ -f out/prev/latest-report.md ]; then
+            cp out/prev/latest-report.md out/latest-report.md
+            echo "Downloaded report from run ${{ inputs.run_id }}"
+            wc -l out/latest-report.md
+          else
+            echo "No report found in run ${{ inputs.run_id }}"
+            exit 1
+          fi
+        env:
+          GH_TOKEN: ${{ github.token }}
+
+      - name: Deliver to DingTalk
+        run: node scripts/deliver-report.js out/latest-report.md
+        env:
+          DINGTALK_WEBHOOK_URL: ${{ secrets.DINGTALK_WEBHOOK_URL }}
+          DINGTALK_SECRET: ${{ secrets.DINGTALK_SECRET }}
