@@ -149,13 +149,8 @@ export async function discoverOpenWeb({ period = {}, queryRows = buildDiscoveryQ
           discovery_module: row.module,
           discovery_beauty_scoped: row.beautyScoped !== false,
         }));
-      } catch (error) {
-        queryErrors.push({
-          provider: 'secondary',
-          module: row.module,
-          query: row.query,
-          error: String(error?.message || error).slice(0, 240),
-        });
+      } catch (_error) {
+        // GDELT is frequently unavailable; silently skip
         return [];
       }
     }))).flat()
