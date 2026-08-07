@@ -1457,6 +1457,11 @@ function candidateObservation(module, source = '', hardFacts = {}) {
   if (party) {
     return `跟踪${party}相关事项的后续监管动态和公开进展。`;
   }
+  // Extract a concrete observation from the first factual sentence
+  const firstFact = (Array.isArray(hard.affected_processes) ? '' : '') || firstEvidenceSentence(source, 120);
+  if (firstFact && firstFact.length > 20) {
+    return `关注该事项的后续进展：${firstFact.replace(/[。；;]+$/g, '')}。`;
+  }
   return '查阅原文获取完整细节，评估对企业合规义务的具体影响。';
 }
 
