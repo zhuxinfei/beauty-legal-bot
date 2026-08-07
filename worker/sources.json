@@ -1659,6 +1659,176 @@
    "alternate_urls": [
     "http://www.customs.gov.cn/customs/302249/302266/index.html"
    ]
+  },
+  {
+   "name": "CNIPA化妆品类商标评审裁决",
+   "url": "https://sbj.cnipa.gov.cn/sbj/sbsp/",
+   "module": "知识产权动态",
+   "region": "亚洲",
+   "country": "中国",
+   "source_type": "official_site",
+   "authority_type": "regulator",
+   "priority": "high",
+   "topics": [
+    "商标评审",
+    "化妆品",
+    "无效宣告"
+   ],
+   "source_scope": "hard_fact_list"
+  },
+  {
+   "name": "中国裁判文书网化妆品知识产权判决",
+   "url": "https://wenshu.court.gov.cn/website/wenshu/181217BMTKHNT2W0/index.html?pageId=0.0&s8=03&s14=5374&s4=%E5%8C%96%E5%A6%86%E5%93%81%20%E5%95%86%E6%A0%87",
+   "module": "知识产权动态",
+   "region": "亚洲",
+   "country": "中国",
+   "source_type": "official_site",
+   "authority_type": "court",
+   "priority": "high",
+   "topics": [
+    "裁判文书",
+    "化妆品",
+    "商标",
+    "专利"
+   ],
+   "source_scope": "hard_fact_list",
+   "monitor_only": true
+  },
+  {
+   "name": "上海知识产权法院最新判决",
+   "url": "https://www.shzcfy.gov.cn/courtweb/web/fyjs/",
+   "module": "知识产权动态",
+   "region": "亚洲",
+   "country": "中国",
+   "source_type": "official_site",
+   "authority_type": "court",
+   "priority": "medium",
+   "topics": [
+    "知识产权",
+    "判决",
+    "商标",
+    "不正当竞争"
+   ],
+   "source_scope": "hard_fact_list"
+  },
+  {
+   "name": "信用中国化妆品行政处罚公示",
+   "url": "https://www.creditchina.gov.cn/xinyongxinxi/detail?companyid=&keyword=%E5%8C%96%E5%A6%86%E5%93%81&searchtype=1",
+   "module": "广告合规及处罚案例",
+   "region": "亚洲",
+   "country": "中国",
+   "source_type": "official_site",
+   "authority_type": "regulator",
+   "priority": "high",
+   "topics": [
+    "行政处罚",
+    "化妆品",
+    "虚假宣传",
+    "罚款"
+   ],
+   "source_scope": "hard_fact_list",
+   "monitor_only": true
+  },
+  {
+   "name": "上海市药监局化妆品处罚公示",
+   "url": "https://yjj.sh.gov.cn/hzp-cfxx/index.html",
+   "module": "广告合规及处罚案例",
+   "region": "亚洲",
+   "country": "中国",
+   "source_type": "official_site",
+   "authority_type": "regulator",
+   "priority": "high",
+   "topics": [
+    "化妆品",
+    "处罚",
+    "飞行检查",
+    "抽检"
+   ],
+   "source_scope": "hard_fact_list"
+  },
+  {
+   "name": "NMPA化妆品政策法规",
+   "url": "https://www.nmpa.gov.cn/xxgk/fgwj/index.html",
+   "module": "新规及案例动态",
+   "region": "亚洲",
+   "country": "中国",
+   "source_type": "official_site",
+   "authority_type": "regulator",
+   "priority": "high",
+   "topics": [
+    "法规",
+    "公告",
+    "办法",
+    "通知"
+   ],
+   "source_scope": "hard_fact_list"
+  },
+  {
+   "name": "中国香料香精化妆品工业协会公告",
+   "url": "https://www.caffci.org/feed/wdL9NBge",
+   "module": "美妆动态",
+   "region": "亚洲",
+   "country": "中国",
+   "source_type": "official_site",
+   "authority_type": "industry",
+   "priority": "medium",
+   "topics": [
+    "团体标准",
+    "行业动态",
+    "化妆品"
+   ],
+   "source_scope": "hard_fact_list"
+  },
+  {
+   "name": "青眼美妆行业资讯",
+   "url": "https://www.qingyan.cn/news",
+   "module": "美妆动态",
+   "region": "亚洲",
+   "country": "中国",
+   "source_type": "industry_media",
+   "authority_type": "media",
+   "priority": "medium",
+   "topics": [
+    "美妆",
+    "行业动态",
+    "品牌",
+    "监管"
+   ],
+   "source_scope": "discovery_only"
+  },
+  {
+   "name": "中国国际贸易单一窗口化妆品政策",
+   "url": "https://www.singlewindow.cn/wmzx/zcfg/",
+   "module": "进出口动态",
+   "region": "亚洲",
+   "country": "中国",
+   "source_type": "official_site",
+   "authority_type": "regulator",
+   "priority": "high",
+   "topics": [
+    "进出口",
+    "化妆品",
+    "政策",
+    "单一窗口"
+   ],
+   "source_scope": "hard_fact_list"
+  },
+  {
+   "name": "欧盟Safety Gate化妆品通报",
+   "url": "https://ec.europa.eu/safety-gate-alerts/screen/webReport?category=cosmetics",
+   "module": "产品质量/召回与安全风险",
+   "region": "欧洲",
+   "country": "欧盟",
+   "source_type": "official_site",
+   "authority_type": "regulator",
+   "priority": "high",
+   "topics": [
+    "召回",
+    "安全",
+    "化妆品",
+    "RAPEX"
+   ],
+   "source_scope": "hard_fact_list"
   }
  ]
 }
