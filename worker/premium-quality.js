@@ -37,7 +37,7 @@ const DOCUMENT_TITLE_AS_PRODUCT_PATTERN = /(?:关于)?(?:\d+\s*批次)?(?:不符
 const MIXED_NOTICE_CHROME_PATTERN = /20\d{2}[-年]\d{1,2}[-月]\d{1,2}.*(?:召开|工作动态|监管动态|新闻|会议|活动|培训|论坛|检查)/;
 const GENERIC_NAVIGATION_TITLE_PATTERN = /^(?:全文页|政策解读|通知公告|政府信息公开|首页|网站首页|信息公示|行政执法结果|工作动态|监管动态|新闻中心|最新动态|栏目页|专题页|信息发布|公示公告)$/;
 const JUNK_DATE_PATTERN = /^20(?:0\d|1[0-9]|2[01])/;
-const GOVERNMENT_FOOTER_PATTERN = /(?:中国政府网|国家政务服务平台|国家市场监督管理总局|©|版权所有|党政机关|政府网站|站点地图|主办单位|通信地址|滇ICP|网站标识码|无障碍浏览|适老化|隐私保护|法律声明)/i;
+const GOVERNMENT_FOOTER_PATTERN = /(?:中国政府网|国家政务服务平台|国家市场监督管理总局|©|版权所有|党政机关|政府网站|站点地图|主办单位|通信地址|滇ICP|网站标识码|无障碍浏览|适老化|隐私保护|法律声明|返回首页|页面放大|页面缩小|移动版|本站查询|一网通查|主要职责|基本信息|领导介绍|机构设置|按主题分类|按时间分类|药品GSP|化妆品审评\s*国家抽检管理|办理流程\s*立案|缴纳情况\s*\d{4}年|请\s*\d+s\)\s*抱歉|信息中心|网站声明|智能问答|业务咨询|關閉|esc键)/i;
 
 function text(value) {
   return String(value || '').replace(/\s+/g, ' ').trim();
@@ -1384,36 +1384,80 @@ function candidateLegalSignal(module, source, hardFacts = {}) {
   if (module === '产品质量/召回与安全风险') {
     if (product && (disposition || act)) return `${product}已经出现${disposition || act}，批次放行、召回和渠道处置需要同步校验。`;
   }
+  // Build a concrete legal signal from available hard facts instead of
+  // the generic "该事项已具备可追踪的事实节点" placeholder.
+  const parts = [];
+  if (party) parts.push(party);
+  if (act) parts.push(`因${act}`);
+  if (amount) parts.push(`被处罚${amount}`);
+  if (disposition && !amount) parts.push(`处置措施：${disposition}`);
+  if (basis) parts.push(`依据${basis}`);
+  if (product) parts.push(`涉及${product}`);
+  if (parts.length >= 2) {
+    return `${parts.join('，')}，已形成公开执法或监管信号，需要法务团队评估合规影响。`;
+  }
+  if (parts.length === 1) {
+    return `${parts[0]}，该事项存在合规关注价值，建议进一步核实原文细节。`;
+  }
   const sentence = firstEvidenceSentence(source);
-  return sentence ? `${sentence.replace(/[。；;]+$/g, '')}，该事项已具备可追踪的事实节点。` : '';
+  return sentence
+    ? `${sentence.replace(/[。；;]+$/g, '').slice(0, 100)}`
+    : '原文未披露足够的结构化信息，建议直接查阅原文评估合规风险。';
 }
 
 function candidateBusinessImpact(module, hardFacts = {}, source = '') {
   const processes = hardFacts.affected_processes?.length
     ? hardFacts.affected_processes
-    : inferAffectedProcesses(source);
-  if (processes.length) return `影响中国市场美妆业务的${processes.join('、')}。`;
-  if (module === '知识产权保护或者侵权') return '影响中国市场美妆品牌授权、商标使用、包装设计、达人素材和平台店铺审查。';
-  if (module === '进出口') return '影响中国市场美妆产品进口申报、清关资料、标签备案和供应链履约。';
-  return '影响中国市场美妆产品标签、备案注册、广告素材、平台上架和存量SKU管理。';
+    : inferAffectedProcesses(hardFacts.product_or_batch ? `${source} ${hardFacts.product_or_batch}` : source, {}, { module });
+  const labels = processes.length ? processes : inferAffectedProcesses(source, {}, { module });
+  if (labels.length) return `影响中国市场美妆业务的${labels.join('、')}。`;
+  // Module-specific fallbacks derived from actual business workflows
+  const defaults = {
+    '知识产权保护或者侵权': '商标授权、包装设计、达人素材、平台店铺',
+    '进出口': '进口申报、清关、原产地文件、供应链履约',
+    '产品质量/召回与安全风险': 'SKU/批次管理、库存隔离、渠道下架、消费者通知',
+    '广告处罚案例': '达人素材/广告宣传、平台店铺/渠道运营',
+    '新法律法规政策': '配方开发、备案资料、标签审核、存量SKU管理',
+  };
+  const fallback = defaults[module] || '标签、备案注册、广告素材、平台上架';
+  return `影响中国市场美妆业务的${fallback}。`;
 }
 
 function candidateObservation(module, source = '', hardFacts = {}) {
   const hard = hardFacts || {};
   const product = hardText(hard.product_or_batch);
   const party = meaningfulInvolvedParty(hard.involved_party);
+  const deadline = hardText(hard.deadline);
+  const effective = hardText(hard.effective_date);
   const processes = hard.affected_processes?.length ? hard.affected_processes.join('、') : '';
-  if (/征求意见|反馈截止|截止/.test(source) || hardText(hard.deadline)) {
-    return `观察${product || '相关化妆品规则'}正式稿发布日期、反馈截止日、过渡期安排，以及${processes || '标签备案和执行标准'}是否需要同步调整。`;
+
+  // Concrete, time-bound observations from hard facts
+  if (deadline) {
+    return `在${deadline}前完成${product || '相关要求'}的${processes || '合规评估和流程调整'}。`;
   }
-  if (/处罚|罚款|没收|侵权|冒用|假冒|商标/.test(source)) {
-    return `观察${party || '同类主体'}在处罚决定、行政复议、诉讼和平台治理中的后续公开，并复核${processes || '商标授权、包装设计和达人素材'}。`;
+  if (effective) {
+    return `在${effective}前评估${product || '新规'}对${processes || '现有业务流程'}的影响，制定过渡方案。`;
   }
-  if (/海关|进口|出口|清关|HS\s*编码/i.test(source)) return `观察${product || '相关化妆品'}的口岸执行口径、申报字段、HS编码适用和配套清关说明。`;
-  if (module === '产品质量/召回与安全风险') return '观察后续抽检、召回、停止销售、整改公告和同类产品风险扩散。';
-  return processes
-    ? `观察${processes}对应的正式文件、执行口径和配套问答。`
-    : '观察正式文件、执行口径和配套问答。';
+  if (/征求意见|反馈截止/.test(source) || hardText(hard.feedback_channel)) {
+    const channel = hardText(hard.feedback_channel) || '官方反馈渠道';
+    return `通过${channel}在截止日前提交企业反馈意见。`;
+  }
+  if (party && /处罚|罚款|没收|侵权|冒用|假冒|商标/.test(source)) {
+    return `跟踪${party}的后续行政处罚执行、行政复议或诉讼进展，同步复核内部${processes || '合规流程'}。`;
+  }
+  if (/海关|进口|出口|清关|HS\s*编码/i.test(source)) {
+    return `核查${product || '相关化妆品'}的最新口岸执行口径、HS编码适用和申报要求。`;
+  }
+  if (module === '产品质量/召回与安全风险') {
+    return `跟踪后续抽检结果、召回进度、批次处置和同类产品风险扩散情况。`;
+  }
+  if (product) {
+    return `关注${product}的正式发布、执行口径和配套文件更新。`;
+  }
+  if (party) {
+    return `跟踪${party}相关事项的后续监管动态和公开进展。`;
+  }
+  return '查阅原文获取完整细节，评估对企业合规义务的具体影响。';
 }
 
 export function premiumCardFromCandidate(candidate = {}) {

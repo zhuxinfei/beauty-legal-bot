@@ -16,14 +16,6 @@ import { cleanArticleEvidence } from '../worker/article-evidence.js';
 
 const inputPath = resolve(process.argv[2] || 'out/hydrated-authority.json');
 const outputPath = resolve(process.argv[3] || 'out/assembled-cards.json');
-const aiKey = process.env.AI_API_KEY;
-const aiBaseUrl = process.env.AI_API_BASE_URL || 'https://hk.testvideo.site/v1';
-const aiModel = process.env.AI_MODEL || 'gpt-5.6-sol';
-
-// Dynamically import requestAiChat (it's not exported from index.js directly)
-const indexModule = await import('../worker/index.js');
-const requestAiChat = indexModule.requestAiChat;
-
 console.log(`Loading hydration records from ${inputPath}...`);
 const payload = JSON.parse(readFileSync(inputPath, 'utf8'));
 const rawRecords = payload.records || [];
@@ -47,6 +39,11 @@ const candidates = records.map(r => {
     .replace(/访问我的专属空间.*/g, '')
     .replace(/\s*智能问答\s*["'].*["'].*/g, '')
     .replace(/无障碍\s*关怀版\s*繁體.*/g, '')
+    .replace(/办理流程\s*立案→调查取证→审查→告知→决定→送达→执行/g, '')
+    .replace(/返回首页\s*页面放大\s*页面缩小.*/g, '')
+    .replace(/移动版\s*本站查询.*/g, '')
+    .replace(/主要职责\s*基本信息\s*领导介绍\s*机构设置.*/g, '')
+    .replace(/缴纳情况\s*\d{4}年\d{1,2}月\d{1,2}日已缴纳.*/g, '')
     .replace(/\s{2,}/g, ' ');
   const facts = extractHardFacts(cleanedText, {
     title: r.title,
@@ -98,40 +95,7 @@ for (const c of hardFactPool) {
     continue;
   }
 
-  // AI generates narrative fields only if they're template-generated (weak)
-  const source = [card.evidence_text, card.title, card.facts].flat().join('。');
-  const hasTemplateLegalSignal = card.legal_signal && card.legal_signal.length < 80;
-  const hasTemplateAction = card.recommended_action && card.recommended_action.length < 60;
-
-  if (hasTemplateLegalSignal || hasTemplateAction) {
-    try {
-      const content = await requestAiChat({
-        apiKey: aiKey,
-        baseUrl: aiBaseUrl,
-        model: aiModel,
-        messages: [{
-          role: 'system',
-          content: '你是一个美妆法务情报提炼助手。根据提供的结构化事实，生成三个字段：legal_signal（法务观察，一句话说明合规含义）、business_impact（业务影响，关联具体流程/环节）、recommended_action（下一步建议，一个可操作的观察点）。使用简体中文，不编造不在原文中的事实。输出纯JSON：{"legal_signal":"...","business_impact":"...","recommended_action":"..."}',
-        }, {
-          role: 'user',
-          content: `模块：${card.module}\n标题：${card.title}\n事实：${card.facts.join('；')}\n硬事实：${JSON.stringify(card.hard_facts)}\n\n请输出JSON。`,
-        }],
-        temperature: 0.2,
-        maxTokens: 800,
-        timeoutMs: 60000,
-        maxAttempts: 2,
-      });
-      const parsed = JSON.parse(content.replace(/```json\s*|\s*```/g, '').trim());
-      if (parsed.legal_signal) card.legal_signal = parsed.legal_signal;
-      if (parsed.business_impact) card.business_impact = parsed.business_impact;
-      if (parsed.recommended_action) card.recommended_action = parsed.recommended_action;
-      console.log(`  AI+ ${card.module.slice(0, 8)} | ${card.title.slice(0, 40)}`);
-    } catch (err) {
-      console.log(`  USE ${card.module.slice(0, 8)} | ${card.title.slice(0, 40)} (AI: ${err.message.slice(0, 60)})`);
-    }
-  } else {
-    console.log(`  OK  ${card.module.slice(0, 8)} | ${card.title.slice(0, 40)}`);
-  }
+  console.log(`  OK  ${card.module.slice(0, 8)} | ${card.title.slice(0, 40)}`);
 
   // Re-validate after AI enhancement
   const recheck = validatePremiumEvidenceCard(card);
