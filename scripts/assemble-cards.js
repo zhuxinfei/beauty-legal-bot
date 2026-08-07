@@ -14,6 +14,10 @@ import {
 } from '../worker/premium-quality.js';
 import { cleanArticleEvidence } from '../worker/article-evidence.js';
 
+// Client context — used to prioritize geographically relevant content
+const CLIENT = { name: '杭州丽知', cities: ['杭州', '上海', '郑州'], province: '浙江' };
+const IS_CLIENT_CITY = new RegExp(CLIENT.cities.join('|'));
+
 const inputPath = resolve(process.argv[2] || 'out/hydrated-authority.json');
 const outputPath = resolve(process.argv[3] || 'out/assembled-cards.json');
 

@@ -50,6 +50,8 @@ const QUERY_GROUPS = Object.freeze({
     '华熙生物 OR 贝泰妮 OR 珀莱雅 OR 上美 OR 巨子生物 公告',
     '化妆品 企业 收购 OR 并购 OR 重组',
     '美妆 品牌 上市 OR IPO OR 招股 2026',
+    '杭州 美妆 化妆品 监管 政策 浙江',
+    '上海 化妆品 电商 合规 监管',
   ],
 });
 
