@@ -39,7 +39,18 @@ const period = {
 
 // --- Patterns ---
 const BEAUTY_PATTERN = /(?:化妆品|美妆|护肤|彩妆|香水|口红|面膜|洗护|防晒|染发|美容|祛斑|美白|功效宣称|玻色因|配方|着色剂|色素|进口化妆品|出口化妆品|化妆品标准|cosmetic|cosmetics|MoCRA)/i;
-const NON_BEAUTY_PATTERN = /(?:五金|建材|食品|餐饮|农产品|食用|汽车|电动|机票|酒店|房地产|医疗器械(?!.*化妆品)|药品集采|保险|银行|在线酒店|旅游行业|金融监管|证券|外汇|教育培训)/i;
+const NON_BEAUTY_PATTERN = /(?:五金|建材|食品|餐饮|农产品|食用|汽车|电动|机票|酒店|房地产|医疗器械(?!.*化妆品)|药品集采|保险|银行|在线酒店|旅游行业|金融监管|证券|外汇|教育培训|日用五金|超市|便利店|网吧|歌厅|理发店(?!.*化妆品)|浴池|洗浴)/i;
+const NEWS_CHROME = [
+  /要闻\s*北京\s*科技\s*财经\s*AI\s*更多[^。]*/g,
+  /正在浏览：[^。]*/g,
+  /GPLP\s*游戏\s*应用\s*网页设置[^。]*/g,
+  /安装电脑版\s*内容更精彩[^。]*/g,
+  /微信\s*随时随地看[^。]*/g,
+  /元宝\s*·\s*新闻妹[^。]*/g,
+  /文章配图-\d[^。]*/g,
+  /链接复制成功[^。]*/g,
+  /发布于：[^。]*/g,
+];
 const FORUM_HOSTS = /(?:wenxuecity\.com|\.tieba\.|\.zhihu\.|\.douban\.|\.weibo\.)/i;
 const WEAK_TITLE_PATTERN = /(?:举办|召开|培训|会议|活动|论坛|调研|考察|检查指导|工作部署)/;
 const PORTAL_CHROME = [
@@ -65,6 +76,7 @@ console.log(`Extracting hard facts from ${records.length} records...`);
 const candidates = records.map(r => {
   let text = cleanArticleEvidence(r.article_text || '');
   for (const pattern of PORTAL_CHROME) text = text.replace(pattern, '');
+  for (const pattern of NEWS_CHROME) text = text.replace(pattern, '');
   text = text.replace(/\s{2,}/g, ' ');
 
   const facts = extractHardFacts(text, {
@@ -105,6 +117,15 @@ for (const c of pool) {
   const host = String(c.final_url || c.url || '');
   if (FORUM_HOSTS.test(host)) { console.log(`  SKIP [forum-host]: ${(c.title||'').slice(0,40)}`); continue; }
   if (NON_BEAUTY_PATTERN.test(combined) && !BEAUTY_PATTERN.test(combined)) { console.log(`  SKIP [non-beauty]: ${(c.title||'').slice(0,40)}`); continue; }
+  // Stricter check: if business type is clearly non-beauty and beauty keywords
+  // only appear in regulatory citations (not product descriptions), skip it
+  if (NON_BEAUTY_PATTERN.test(combined) && BEAUTY_PATTERN.test(combined)) {
+    const productText = combined.replace(/化妆品监督管理条例|化妆品安全技术规范|化妆品标识管理规定|化妆品标签管理办法|化妆品注册备案/g, '');
+    if (!BEAUTY_PATTERN.test(productText)) {
+      console.log(`  SKIP [non-beauty-biz]: ${(c.title||'').slice(0,40)}`);
+      continue;
+    }
+  }
 
   const card = premiumCardFromCandidate({
     ...c, detail_status: 'hydrated',
