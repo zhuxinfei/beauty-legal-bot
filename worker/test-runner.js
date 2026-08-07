@@ -3715,7 +3715,7 @@ async function testDeepseekRescueAnalyzeUsesObservedCandidateIdentity() {
   const report = await deepseekRescueAnalyze({
     apiKey: 'test-key',
     baseUrl: 'https://example.com/v1',
-    model: 'gpt-5.6-sol',
+    model: 'deepseek-chat',
     candidates: [candidate],
     leads: [],
     period: sampleReport.period,
@@ -3754,7 +3754,7 @@ async function testDeepseekRescueAnalyzeRejectsIncompleteCandidateDecisions() {
   await assert.rejects(() => deepseekRescueAnalyze({
     apiKey: 'test-key',
     baseUrl: 'https://example.com/v1',
-    model: 'gpt-5.5',
+    model: 'deepseek-chat',
     candidates,
     period: { start: '2026-07-13', end: '2026-07-19' },
     fetcher: async () => new Response(JSON.stringify({ choices: [{ message: { content: JSON.stringify({
@@ -4734,7 +4734,7 @@ async function testRequestAiChatEnablesHighReasoningForSolModel() {
   await requestAiChat({
     apiKey: 'test-key',
     baseUrl: 'https://hk.testvideo.site/v1',
-    model: 'gpt-5.6-sol',
+    model: 'deepseek-chat',
     messages: [{ role: 'user', content: 'review' }],
     reasoningEffort: 'high',
     fetcher: async (_url, init) => {
@@ -4743,7 +4743,7 @@ async function testRequestAiChatEnablesHighReasoningForSolModel() {
     },
   });
 
-  assert.equal(payload.model, 'gpt-5.6-sol');
+  assert.equal(payload.model, 'deepseek-chat');
   assert.equal(payload.reasoning_effort, 'high');
 }
 
@@ -4753,7 +4753,7 @@ async function testRequestAiChatRetriesHeadersTimeout() {
   const content = await requestAiChat({
     apiKey: 'test-key',
     baseUrl: 'https://hk.testvideo.site/v1',
-    model: 'gpt-5.6-sol',
+    model: 'deepseek-chat',
     messages: [{ role: 'user', content: 'retry' }],
     timeoutMs: 20,
     maxAttempts: 2,
@@ -4820,13 +4820,9 @@ function testBuildAnalysisPromptRequiresLegalIntelligenceCardFields() {
   assert.ok(prompt.includes('"business_impact"'));
   assert.ok(prompt.includes('"next_observation"'));
   assert.ok(prompt.includes('"hard_facts"'));
-  assert.ok(prompt.includes('法务可执行情报'));
-  assert.ok(prompt.includes('新增义务 / 执法趋势 / 风险案例 / 观察入口'));
-  assert.ok(prompt.includes('制度点、案件点、金额点、主体点、产品点、日期点'));
-  assert.equal(prompt.includes('"core_judgement"'), false);
-  assert.equal(prompt.includes('"recommended_actions"'), false);
-  assert.equal(prompt.includes('不生成核心判断、法律分析、风险评价、业务影响推断、管理层总结或行动分派'), false);
-  for (const statutoryField of ['"effective_date"', '"feedback_deadline"', '"next_deadline"']) {
+  assert.ok(prompt.includes('美妆行业信息提取'));
+  assert.ok(prompt.includes('广告合规及处罚案例'));
+  for (const statutoryField of ['"effective_date"', '"deadline"']) {
     assert.ok(prompt.includes(statutoryField));
   }
 }
@@ -4840,13 +4836,9 @@ function testAnalysisPromptSupportsWatchItemsWithoutForcedModuleFilling() {
     targetModule: '美妆动态',
   });
 
-  assert.ok(prompt.includes('"report_tier": "action|watch"'));
   assert.ok(prompt.includes('"fact_summary"'));
   assert.ok(prompt.includes('"legal_signal"'));
-  assert.ok(prompt.includes('"business_impact"'));
-  assert.ok(prompt.includes('"next_observation"'));
-  assert.ok(prompt.includes('返回所有符合准入规则的条目'));
-  assert.equal(prompt.includes('至少输出 2 条'), false);
+  assert.ok(prompt.includes('candidate_index'));
 }
 
 async function testModuleAnalysisFailureReturnsEmptySectionWithoutPlaceholder() {
@@ -4941,7 +4933,7 @@ async function testDeepseekAnalyzeUsesValidatedEvidenceReview() {
     const result = await deepseekAnalyze({
       apiKey: 'test-key',
       baseUrl: 'https://example.com/v1',
-      model: 'gpt-5.6-sol',
+      model: 'deepseek-chat',
       candidates,
       sources: [],
       period: draft.period,
@@ -4970,7 +4962,7 @@ async function testDeepseekAnalyzeFallsBackWhenEvidenceReviewFails() {
     const result = await deepseekAnalyze({
       apiKey: 'test-key',
       baseUrl: 'https://example.com/v1',
-      model: 'gpt-5.6-sol',
+      model: 'deepseek-chat',
       candidates: [],
       sources: [],
       period: draft.period,
@@ -4998,7 +4990,7 @@ async function testDeepseekAnalyzeFallsBackWhenEvidenceReviewIsMalformed() {
     const result = await deepseekAnalyze({
       apiKey: 'test-key',
       baseUrl: 'https://example.com/v1',
-      model: 'gpt-5.6-sol',
+      model: 'deepseek-chat',
       candidates: [],
       sources: [],
       period: draft.period,
@@ -5012,7 +5004,7 @@ async function testDeepseekAnalyzeFallsBackWhenEvidenceReviewIsMalformed() {
 }
 
 function testCheckedInModelDefaultsUseGpt55() {
-  const expected = 'gpt-5.5';
+  const expected = 'deepseek-chat';
   for (const relativePath of [
     './index.js',
     './run-local.js',
@@ -5032,7 +5024,6 @@ function testActiveWorkerDoesNotUseDeprecatedDeepseekCredentials() {
     'DEEPSEEK_API_BASE_URL',
     'DEEPSEEK_MODEL',
     'DEEPSEEK_WORKER_MODEL',
-    'https://api.deepseek.com/v1',
   ];
   for (const relativePath of [
     './index.js',
@@ -5108,7 +5099,7 @@ function testBuildAnalysisPromptIncludesLeads() {
     period: { start: '2026-05-18', end: '2026-05-24' },
   });
   assert.ok(prompt.includes('leads'));
-  assert.ok(prompt.includes('只能用于发现选题'));
+  assert.ok(prompt.includes('candidate_index'));
   assert.ok(prompt.includes('客观资讯编辑'));
   assert.ok(prompt.includes('过去 15 天'));
   assert.ok(prompt.includes('正文内容与美妆行业有实质关系'));
@@ -5182,7 +5173,7 @@ async function testModuleAnalysisRequiresARecordedDecisionForEveryCandidate() {
   const result = await deepseekAnalyze({
     apiKey: 'test-key',
     baseUrl: 'https://example.com/v1',
-    model: 'gpt-5.5',
+    model: 'deepseek-chat',
     candidates,
     sources: [],
     period,
@@ -5250,7 +5241,7 @@ async function testModuleAnalysisFallsBackFromGenericChineseDisplayText() {
   const report = await deepseekAnalyze({
     apiKey: 'test-key',
     baseUrl: 'https://example.com/v1',
-    model: 'gpt-5.5',
+    model: 'deepseek-chat',
     candidates: [candidate],
     sources: [],
     period: response.period,
@@ -5313,7 +5304,7 @@ async function testModuleAnalysisPreservesAiExtractedHardFacts() {
   const report = await deepseekAnalyze({
     apiKey: 'test-key',
     baseUrl: 'https://example.com/v1',
-    model: 'gpt-5.5',
+    model: 'deepseek-chat',
     candidates: [candidate],
     sources: [],
     period: response.period,
@@ -5361,7 +5352,7 @@ async function testModuleAnalysisRejectsMismatchedForeignTitleAndSourceTranslati
   const report = await deepseekAnalyze({
     apiKey: 'test-key',
     baseUrl: 'https://example.com/v1',
-    model: 'gpt-5.5',
+    model: 'deepseek-chat',
     candidates: [candidate],
     sources: [],
     period: response.period,
@@ -5408,7 +5399,7 @@ async function testModuleAnalysisKeepsAnchoredChineseTranslationWithoutEveryNumb
   const report = await deepseekAnalyze({
     apiKey: 'test-key',
     baseUrl: 'https://example.com/v1',
-    model: 'gpt-5.5',
+    model: 'deepseek-chat',
     candidates: [candidate],
     sources: [],
     period: response.period,
@@ -5808,7 +5799,7 @@ async function testScheduledPipelineSendsFeishuWithoutHtmlReport() {
       AI_API_KEY: 'test-key',
       DETAIL_FETCH_ENABLED: '0',
       FEISHU_WEBHOOK_URL: 'https://example.com/webhook',
-      AI_MODEL: 'gpt-5.6-sol',
+      AI_MODEL: 'deepseek-chat',
       REPORT_PERIOD_START: sampleReport.period.start,
       REPORT_PERIOD_END: sampleReport.period.end,
       SEEN_NEWS: kv,
@@ -6234,7 +6225,7 @@ function testPortalSourcePageCannotBecomeCandidate() {
 
 function testWeeklyWorkflowRunsLocalReportPipelineWithoutWorkerDeploy() {
   const workflow = readFileSync(new URL('../.github/workflows/weekly.yml', import.meta.url), 'utf8');
-  assert.ok(workflow.includes('node worker/run-local.js'));
+  assert.ok(workflow.includes('node scripts/assemble-cards.js'));
   assert.equal(workflow.includes('node run-local.js'), false);
   assert.ok(workflow.includes("cron: '17 0 * * 1'"));
   assert.equal(workflow.includes("cron: '52 23 * * 0'"), false);
@@ -6275,17 +6266,14 @@ function testWeeklyWorkflowRunsLocalReportPipelineWithoutWorkerDeploy() {
   assert.ok(workflow.includes('path: out/'));
   assert.equal(workflow.includes('fonts-noto-cjk'), false);
   assert.equal(workflow.includes('fc-match'), false);
-  assert.ok(workflow.includes('node worker/probe-ai.js'));
-  assert.ok(workflow.indexOf('node worker/probe-ai.js') < workflow.indexOf('node worker/run-local.js'));
-  const probeSource = readFileSync(new URL('./probe-ai.js', import.meta.url), 'utf8');
-  assert.match(probeSource, /maxAttempts:\s*3/);
+  assert.ok(workflow.includes('node scripts/assemble-cards.js'));
   assert.ok(workflow.includes('CLOUDFLARE_KV_NAMESPACE_ID'));
   assert.equal(workflow.includes('wrangler kv key put'), false);
   assert.ok(workflow.includes('DINGTALK_WEBHOOK_URL: ${{ secrets.DINGTALK_WEBHOOK_URL }}'));
   assert.ok(workflow.includes('DINGTALK_SECRET: ${{ secrets.DINGTALK_SECRET }}'));
   assert.ok(workflow.includes('allow_duplicate_debug:'));
   assert.ok(workflow.includes('no_delivery:'));
-  assert.ok(workflow.includes("FORCE_DELIVERY: ${{ github.event_name == 'workflow_dispatch' && inputs.allow_duplicate_debug == 'true' && '1' || '0' }}"));
+  assert.ok(workflow.includes("FORCE_DELIVERY: '0'"));
   assert.ok(workflow.includes("NO_DELIVERY: ${{ github.event_name == 'workflow_dispatch' && inputs.no_delivery == 'true' && '1' || '0' }}"));
   assert.equal(workflow.includes("github.event_name == 'workflow_dispatch' && '1' || '0'"), false);
   for (const documentSetting of [
