@@ -303,15 +303,57 @@ function authorityFromCanonicalSource(candidate = {}) {
 function sourceNameFromCanonicalSource(candidate = {}) {
   const url = text(candidate.source_url || candidate.url);
   const title = text(candidate.title);
+  const sourceText = text(candidate.article_text || candidate.evidence_text || '');
+  // Official government/court sources by domain
   if (/nmpa\.gov\.cn/i.test(url) || /^国家药监局/.test(title)) return '国家药品监督管理局';
   if (/nifdc\.org\.cn/i.test(url) || /^中检院/.test(title)) return '中检院';
-  if (/fda\.gov/i.test(url)) return '美国食品药品监督管理局';
-  if (/ftc\.gov/i.test(url)) return '美国联邦贸易委员会';
-  if (/gov\.uk/i.test(url)) return '英国政府产品安全通报';
+  if (/fda\.gov/i.test(url)) return '美国食品药品监督管理局（FDA）';
+  if (/ftc\.gov/i.test(url)) return '美国联邦贸易委员会（FTC）';
+  if (/gov\.uk/i.test(url)) return '英国产品安全与标准办公室（OPSS）';
   if (/recalls-rappels\.canada\.ca|healthycanadians\.gc\.ca/i.test(url)) return '加拿大卫生部';
-  if (/fda\.gov\.tw/i.test(url)) return '台湾卫福部食药署';
   if (/customs\.gov\.cn/i.test(url) || /^海关/.test(title)) return '海关总署';
+  // Local government — extract authority name from page title or URL
+  if (/\.gov\.cn/i.test(url)) {
+    if (/scjgj|市场监督|市场监管局/i.test(title + url)) {
+      const city = (title.match(/([一-龥]{2,6}(?:市|区|县|省))/)?.[0] || '');
+      return city ? `${city}市场监督管理局` : '地方市场监督管理局';
+    }
+    if (/yjj|药品监督|药监局/i.test(title + url)) return '地方药品监督管理局';
+    if (/人民法院|court/i.test(title + url)) return title.match(/([一-龥]{2,10}(?:市|区|县)人民法院)/)?.[0] || '人民法院';
+    return '政府网站';
+  }
+  // Republisher fallback — try to find original source in article text
+  if (REPUBLISHER_HOST_PATTERN.test(hostOf(url)) || /搜狐|腾讯|网易|新浪|凤凰|头条/i.test(text(candidate.source_name))) {
+    if (/国家药监局|国家药品监督管理局/.test(sourceText)) return '国家药品监督管理局（转载）';
+    if (/中检院|中国食品药品检定研究院/.test(sourceText)) return '中检院（转载）';
+    if (/海关总署|海关发布/.test(sourceText)) return '海关总署（转载）';
+    if (/市场监督管理局/.test(sourceText)) {
+      const m = sourceText.match(/([一-龥]{2,10}(?:市|区|县)市场监督管理局)/);
+      return m ? `${m[1]}（转载）` : '地方市场监管局（转载）';
+    }
+    // Map known republisher names to cleaner labels
+    const name = text(candidate.source_name || candidate.name);
+    if (/搜狐/i.test(name)) return '搜狐财经';
+    if (/腾讯/i.test(name)) return '腾讯新闻';
+    if (/网易/i.test(name)) return '网易新闻';
+    if (/凤凰/i.test(name)) return '凤凰网';
+    if (/新浪/i.test(name)) return '新浪财经';
+  }
   return text(candidate.source_name || candidate.name);
+}
+
+// Clean ugly titles: strip domain prefixes, multi-separator suffixes, etc.
+function cleanDisplayTitle(rawTitle = '') {
+  let t = rawTitle;
+  // Strip leading domain prefixes like "www.haiwaiwai.com"
+  t = t.replace(/^(?:https?:\/\/)?(?:www\.)?[a-z0-9.-]+\.(?:com|cn|org|net)\s*/i, '');
+  // Strip trailing " - 来源名" or "| 来源名" or "_来源名"
+  t = t.replace(/\s*[-|_]\s*(?:搜狐|腾讯|网易|新浪|凤凰|QQ|头条|百度)[^]*$/i, '');
+  // Strip "老字号陨落 |" style multi-title prefixes
+  t = t.replace(/^[^|]{2,20}\s*\|\s*/, '');
+  // Collapse whitespace
+  t = t.replace(/\s+/g, ' ').trim();
+  return t || rawTitle;
 }
 
 function policyProductFromTitle(title = '') {
@@ -1012,7 +1054,7 @@ function concretePartyForTitle(card) {
 }
 
 function displayTitle(card) {
-  const title = translateBriefText(card.title);
+  const title = cleanDisplayTitle(translateBriefText(card.title));
   const party = concretePartyForTitle(card);
   if (!party) return title;
   return title
@@ -1028,7 +1070,7 @@ function premiumCardFromItem(item, sectionModule) {
   const evidenceText = text(item.evidence_excerpt || item.article_text || item.full_text || item.snippet || item.evidence_text);
   const hardFactsInput = normalizeHardFacts(item.hard_facts || item.extraction?.hard_facts || item.extraction?.legal_facts || {});
   const baseCard = {
-    title: text(item.title),
+    title: cleanDisplayTitle(text(item.title)),
     module,
     source_url: text(item.source_url),
     source_name: sourceNameFromCanonicalSource(item),
@@ -1492,7 +1534,7 @@ export function premiumCardFromCandidate(candidate = {}) {
     business_impact: candidate.business_impact || '',
   });
   const baseCard = {
-    title: text(candidate.display_title_zh || candidate.title_zh || candidate.title),
+    title: cleanDisplayTitle(text(candidate.display_title_zh || candidate.title_zh || candidate.title)),
     source_candidate: true,
     module,
     source_url: text(candidate.source_url || candidate.url),
