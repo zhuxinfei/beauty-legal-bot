@@ -130,6 +130,9 @@ jobs:
       - name: Assemble report from hydrated evidence
         run: node scripts/assemble-cards.js "$SOURCE_HYDRATION_FILE" out/assembled-cards.json
 
+      - name: Render PDF report
+        run: node scripts/render-report-pdf.js out/latest-report.md
+
       - name: Deliver to DingTalk
         run: node scripts/deliver-report.js out/latest-report.md
 
