@@ -64,10 +64,14 @@ function splitMarkdown(md, limit) {
 const chunks = splitMarkdown(fullMarkdown, DINGTALK_BYTE_LIMIT);
 console.log(`Split into ${chunks.length} message(s)`);
 
+// Renumber cards sequentially across chunks so numbering doesn't restart
+let cardNumber = 0;
+const today = new Date().toISOString().slice(0, 10);
 for (let i = 0; i < chunks.length; i++) {
-  const chunk = chunks[i];
+  let chunk = chunks[i];
+  chunk = chunk.replace(/^### \d+\./gm, () => { cardNumber++; return `### ${cardNumber}.`; });
   const bytes = encoder.encode(chunk).length;
-  const label = chunks.length > 1 ? `美妆法务资讯（${i + 1}/${chunks.length}）` : '美妆法务资讯';
+  const label = chunks.length > 1 ? `美妆法务资讯｜${today}（${i + 1}/${chunks.length}）` : `美妆法务资讯｜${today}`;
   console.log(`  Chunk ${i + 1}: ${bytes} bytes`);
 
   const body = JSON.stringify({
