@@ -174,6 +174,8 @@ for (const c of pool) {
     continue;
   }
 
+  const titleText = card.title || '';
+
   // Skip academic IP theory articles (not beauty-specific case law)
   if (ACADEMIC_IP_PATTERN.test(titleText) && !/(?:化妆品|美妆|护肤|彩妆|香水|防晒|品牌|商标.*案)/i.test(titleText + (c.evidence_text || ''))) {
     console.log(`  SKIP [academic-ip]: ${card.title.slice(0, 50)}`);
@@ -181,7 +183,6 @@ for (const c of pool) {
   }
 
   // Skip weak cards
-  const titleText = card.title || '';
   if (WEAK_TITLE_PATTERN.test(titleText) && !/(?:处罚|罚款|召回|不合格|通告|公告|标准|法规|办法)/.test(titleText)) {
     console.log(`  SKIP [weak-content]: ${card.title.slice(0, 50)}`);
     continue;
