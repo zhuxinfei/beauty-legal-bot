@@ -97,8 +97,6 @@ if (pdfBytes < 5000) {
 }
 console.log(`PDF: ${(pdfBytes / 1024).toFixed(0)}KB → ${pdfPath}, preview: "${firstPage.slice(0, 80)}..."`);
 
-// Push PDF to gh-pages branch for public hosting
-const date = new Date().toISOString().slice(0, 10);
 // Save both dated and latest copies
 const { copyFileSync } = await import('node:fs');
 copyFileSync(pdfPath, latestPath);
