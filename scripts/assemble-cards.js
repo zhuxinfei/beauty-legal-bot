@@ -188,7 +188,12 @@ async function aiReview(title, text) {
     const resp = await requestAiChat({
       apiKey: aiKey, baseUrl: aiBaseUrl, model: aiModel,
       messages: [
-        { role: 'system', content: '判断文章是否与化妆品/美妆行业法规、处罚、知识产权、产品安全、进出口或行业动态实质相关。同时提取事件唯一标识：文号(如"国药监妆〔2026〕X号")、案号(如"(2026)沪0115民初61781号")、或"主体名+日期"。仅回复JSON：{"relevant":true或false,"event_sig":"文号或案号或主体名+日期，无则空","reason":"一句话"}' },
+        { role: 'system', content: `你是美妆法务情报审核员。阅读文章后回答：
+1. 这篇文章是否与化妆品/美妆行业实质相关（主体是美妆企业/产品/法规，不是附带提及）？
+2. 从正文中找出事件的唯一标识：处罚决定书文号、法院案号、公告编号、或"企业全称+日期"。
+回复纯JSON，不要markdown：
+{"relevant":true或false,"event_sig":"文号或案号或公告编号或企业名+日期，必须从原文提取不能编造","reason":"一句话说明依据"}`
+        },
         { role: 'user', content: `标题：${title}\n正文：${excerpt}` },
       ],
       temperature: 0, maxTokens: 300, timeoutMs: 30000, maxAttempts: 1,
@@ -197,7 +202,8 @@ async function aiReview(title, text) {
     return { relevant: Boolean(j.relevant), eventSig: j.event_sig || '', reason: j.reason || '' };
   } catch (err) {
     console.warn(`[AI] call failed (${(err?.message||String(err)).slice(0,60)}), using regex fallback`);
-    return { relevant: true, reason: 'ai-fallback', eventSig: '' };
+    const fallback = isArticleAboutBeauty(title, text);
+    return { relevant: fallback, reason: fallback ? 'regex-pass' : 'regex-reject', eventSig: '' };
   }
 }
 
