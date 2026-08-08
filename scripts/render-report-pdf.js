@@ -68,6 +68,18 @@ const html = mdToHtml(markdown);
 const browser = await chromium.launch({ headless: true });
 const page = await browser.newPage();
 await page.setContent(html, { waitUntil: 'networkidle' });
+if (markdown.length < 200) {
+  console.error(`Markdown too short (${markdown.length} chars), refusing to generate empty PDF.`);
+  process.exit(1);
+}
+// Verify rendered page has readable text before saving PDF
+const firstPage = await page.evaluate(() => document.body.innerText.slice(0, 200));
+if (!firstPage.trim() || firstPage.includes('Error') || firstPage.includes('404')) {
+  console.error(`Rendered page looks broken: "${firstPage.slice(0, 100)}"`);
+  await browser.close();
+  process.exit(1);
+}
+
 await page.pdf({
   path: pdfPath,
   format: 'A4',
@@ -77,7 +89,11 @@ await page.pdf({
 await browser.close();
 
 const pdfBytes = readFileSync(pdfPath).length;
-console.log(`PDF: ${(pdfBytes / 1024).toFixed(0)}KB → ${pdfPath}`);
+if (pdfBytes < 5000) {
+  console.error(`PDF too small (${pdfBytes}B), likely empty/broken.`);
+  process.exit(1);
+}
+console.log(`PDF: ${(pdfBytes / 1024).toFixed(0)}KB → ${pdfPath}, preview: "${firstPage.slice(0, 80)}..."`);
 
 // Push PDF to gh-pages branch for public hosting
 const date = new Date().toISOString().slice(0, 10);
