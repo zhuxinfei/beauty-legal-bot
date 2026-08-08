@@ -1,0 +1,175 @@
+import assert from 'node:assert/strict';
+import { readFileSync } from 'node:fs';
+import {
+  annotateHydratedRecords,
+  buildPythonScript,
+  hydrationEvidenceStats,
+  prioritizeHydrationDetailTasks,
+  sanitizeDetailHref,
+  selectHydrationSources,
+} from './crawl4ai-hydrate.js';
+
+function testAnnotatesHydratedRecordsWithEvidenceGrades() {
+  const records = annotateHydratedRecords([{
+    source_url: 'https://amr.example.gov.cn/case/pro-xylane-20260724',
+    title: '广州妍瑟化妆品有限公司侵权玻色因商标并刷单，被罚17万元',
+    source_name: '广州市市场监督管理局',
+    country: '中国',
+    module: '知识产权保护或者侵权',
+    article_text: '当事人广州妍瑟化妆品有限公司侵权使用玻色因相关商标，同时存在刷单行为，依据《商标法》《反不正当竞争法》处罚金额17万元。',
+  }, {
+    source_url: 'https://example.org/topic/cosmetics-brand',
+    title: '欢迎访问中华商标网',
+    source_name: '中华商标协会',
+    country: '中国',
+    module: '知识产权保护或者侵权',
+    article_text: '欢迎访问中华商标网。化妆品产业专业委员会拟建立品牌指数和商标品牌价值评估体系。',
+  }]);
+
+  assert.equal(records[0].evidence_grade, 'hard_fact_ready');
+  assert.equal(records[0].hard_facts.involved_party, '广州妍瑟化妆品有限公司');
+  assert.match(records[0].evidence_quotes.penalty_amount, /17万元/);
+  assert.equal(records[1].evidence_grade, 'lead_only');
+}
+
+function testEvidenceStatsExposeChinaHardFactReady() {
+  const stats = hydrationEvidenceStats([
+    { country: '中国', evidence_grade: 'hard_fact_ready' },
+    { country: '中国', evidence_grade: 'lead_only' },
+    { country: '美国', evidence_grade: 'reject' },
+    { country: '中国', evidence_grade: 'attachment_pending' },
+  ]);
+
+  assert.equal(stats.hardFactReady, 1);
+  assert.equal(stats.chinaHardFactReady, 1);
+  assert.equal(stats.leadOnly, 1);
+  assert.equal(stats.attachmentPending, 1);
+  assert.equal(stats.reject, 1);
+}
+
+function testCrawl4AiScriptDiscoversHardDetailLinksFromLeadPages() {
+  const source = readFileSync(new URL('./crawl4ai-hydrate.js', import.meta.url), 'utf8');
+  assert.match(source, /extract_detail_urls/);
+  for (const keyword of ['行政处罚', '处罚决定', '征求意见', '商标', '海关', '进口', 'HS', '化妆品', '功效宣称', '备案', '标签']) {
+    assert.ok(source.includes(keyword), `missing hard detail keyword: ${keyword}`);
+  }
+  assert.match(source, /CRAWL4AI_DETAIL_LINK_LIMIT/);
+}
+
+function testDetailHrefDropsMarkdownTitleAfterShtmlUrl() {
+  const polluted = 'https://www.gippc.com.cn/ippc/tzgg/202607/e03d.shtml "广东省知识产权局专利侵权纠纷行政裁决公告"';
+  assert.equal(sanitizeDetailHref(polluted), 'https://www.gippc.com.cn/ippc/tzgg/202607/e03d.shtml');
+}
+
+function testManualWorkflowHydratesEnoughChinaAuthoritySources() {
+  const hydrateSource = readFileSync(new URL('./crawl4ai-hydrate.js', import.meta.url), 'utf8');
+  const workflow = readFileSync(new URL('../.github/workflows/weekly.yml', import.meta.url), 'utf8');
+
+  assert.match(hydrateSource, /CRAWL4AI_PREVIEW_LIMIT \|\| 72/);
+  assert.match(hydrateSource, /CRAWL4AI_DETAIL_LINK_LIMIT", "12"/);
+  assert.match(workflow, /CRAWL4AI_DETAIL_LINK_LIMIT:\s*12/);
+  assert.match(workflow, /--limit 72/);
+}
+
+function testHydrationPrefersEventEndpointOverAuthorityListPage() {
+  const listPage = {
+    url: 'https://official.example.gov.cn/xxgk/index.html',
+    module: '知识产权动态',
+    source_scope: 'hard_fact_list',
+    country: '中国',
+    authority_type: 'regulator',
+    source_type: 'official_site',
+    priority: 'high',
+  };
+  const eventPage = {
+    url: 'https://official.example.gov.cn/xxgk/penalty-2026.html',
+    module: '知识产权动态',
+    source_scope: 'hard_fact_endpoint',
+    country: '中国',
+    authority_type: 'regulator',
+    source_type: 'official_site',
+    priority: 'medium',
+  };
+  const selected = selectHydrationSources([listPage, eventPage], {
+    limit: 1,
+    minimumPerModule: 1,
+    modules: ['知识产权动态'],
+  });
+  assert.deepEqual(selected, [eventPage]);
+}
+
+function testHydrationUsesBoundedConcurrentRequestBudget() {
+  const runner = buildPythonScript([{ url: 'https://official.example.gov.cn/case/1' }]);
+  const workflow = readFileSync(new URL('../.github/workflows/weekly.yml', import.meta.url), 'utf8');
+
+  assert.match(runner, /asyncio\.Semaphore\(crawl_concurrency\)/);
+  assert.match(runner, /asyncio\.create_task\(crawl_one/);
+  assert.match(runner, /CRAWL4AI_REQUEST_LIMIT/);
+  assert.match(workflow, /CRAWL4AI_CONCURRENCY:\s*6/);
+  assert.match(workflow, /CRAWL4AI_REQUEST_LIMIT:\s*96/);
+}
+
+function testDetailTasksReserveCapacityForEveryModuleBeforeFillingBudget() {
+  const task = (module, url, priority = 'medium') => ({ module, url, priority });
+  const tasks = [
+    task('新规及案例动态', 'https://example.gov.cn/regulation-1'),
+    task('新规及案例动态', 'https://example.gov.cn/regulation-2'),
+    task('新规及案例动态', 'https://example.gov.cn/regulation-3'),
+    task('进出口动态', 'https://example.gov.cn/trade-1'),
+    task('进出口动态', 'https://example.gov.cn/trade-2'),
+    task('知识产权动态', 'https://example.gov.cn/ip-1', 'high'),
+    task('知识产权动态', 'https://example.gov.cn/ip-2', 'high'),
+    task('美妆动态', 'https://example.gov.cn/beauty-1'),
+  ];
+
+  const selected = prioritizeHydrationDetailTasks(tasks, {
+    limit: 6,
+    minimumPerModule: 2,
+    modules: ['新规及案例动态', '进出口动态', '知识产权动态', '美妆动态'],
+  });
+
+  assert.deepEqual(selected.map(item => item.url), [
+    'https://example.gov.cn/regulation-1',
+    'https://example.gov.cn/trade-1',
+    'https://example.gov.cn/ip-1',
+    'https://example.gov.cn/beauty-1',
+    'https://example.gov.cn/regulation-2',
+    'https://example.gov.cn/trade-2',
+  ]);
+}
+
+function testDetailTasksPreferRecentLegalEventOverNavigationLinks() {
+  const selected = prioritizeHydrationDetailTasks([{
+    module: '知识产权动态',
+    title: '专利预审',
+    url: 'https://www.gippc.com.cn/ippc/kszn/fwzl_list.shtml',
+  }, {
+    module: '知识产权动态',
+    title: '广东省知识产权局专利侵权纠纷行政裁决公告',
+    url: 'https://www.gippc.com.cn/ippc/tzgg/202607/e03d.shtml',
+  }], {
+    limit: 1,
+    minimumPerModule: 1,
+    modules: ['知识产权动态'],
+  });
+
+  assert.equal(selected[0].title, '广东省知识产权局专利侵权纠纷行政裁决公告');
+}
+
+function testGeneratedAttachmentExtractionUsesItsTwoArgumentContract() {
+  const source = buildPythonScript([{ url: 'https://example.gov.cn' }]);
+  assert.doesNotMatch(source, /extract_attachment_urls\([\s\S]*?\],\s*detail_record\.get\("final_url"\) or detail_url, module\)/);
+}
+
+testAnnotatesHydratedRecordsWithEvidenceGrades();
+testEvidenceStatsExposeChinaHardFactReady();
+testCrawl4AiScriptDiscoversHardDetailLinksFromLeadPages();
+testDetailHrefDropsMarkdownTitleAfterShtmlUrl();
+testManualWorkflowHydratesEnoughChinaAuthoritySources();
+testHydrationPrefersEventEndpointOverAuthorityListPage();
+testHydrationUsesBoundedConcurrentRequestBudget();
+testDetailTasksReserveCapacityForEveryModuleBeforeFillingBudget();
+testDetailTasksPreferRecentLegalEventOverNavigationLinks();
+testGeneratedAttachmentExtractionUsesItsTwoArgumentContract();
+
+console.log('crawl4ai hydrate tests passed');

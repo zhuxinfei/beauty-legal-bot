@@ -1,7 +1,7 @@
 {
   "period": {
-    "start": "2026-05-18",
-    "end": "2026-05-24"
+    "start": "2026-07-18",
+    "end": "2026-07-24"
   },
   "summary": [
     "印尼 BPOM 化妆品清真认证节点临近，进口 SKU 需要优先排查认证状态。",
@@ -23,9 +23,29 @@
           "region": "亚洲",
           "country": "印尼",
           "title": "BPOM 更新化妆品清真认证要求",
+          "fact_summary": [
+            "化妆品清真认证进入过渡期关键节点。",
+            "进口商需准备认证、标签和供应链证明材料。"
+          ],
+          "legal_signal": "新增义务：印尼化妆品清真认证节点影响进口准入、标签和供应链证明材料。",
+          "business_impact": "影响印尼市场进口化妆品 SKU 的注册备案、标签、跨境清关和供应链证明留存。",
+          "next_observation": [
+            "跟踪2026-10-17生效及配套执行口径。"
+          ],
+          "hard_facts": {
+            "authority": "BPOM",
+            "effective_date": "2026-10-17",
+            "product_or_batch": "印尼市场进口化妆品 SKU",
+            "affected_processes": [
+              "注册备案",
+              "标签",
+              "跨境清关",
+              "供应链证明留存"
+            ]
+          },
           "source_name": "BPOM",
           "source_url": "https://www.pom.go.id/",
-          "published_at": "2026-05-21",
+          "published_at": "2026-07-21",
           "status": "生效提醒",
           "effective_date": "2026-10-17",
           "feedback_deadline": "未知",
@@ -81,9 +101,31 @@
           "region": "亚洲",
           "country": "中国",
           "title": "直播功效宣称与备案资料不一致被处罚",
+          "fact_summary": [
+            "直播间使用功效宣称吸引消费者购买，相关宣称无法由备案资料和功效评价材料支持。",
+            "监管部门责令停止相关宣传并依法处以行政罚款。"
+          ],
+          "legal_signal": "风险案例：直播功效宣称与备案资料、功效评价材料不一致，已形成广告合规处罚入口。",
+          "business_impact": "影响中国电商渠道直播口播、短视频脚本、达人素材、详情页和功效宣称证据留存。",
+          "next_observation": [
+            "跟踪处罚执行及同类化妆品直播宣传案件公开。"
+          ],
+          "hard_facts": {
+            "authority": "上海市监局",
+            "involved_party": "某美妆经营主体",
+            "legal_basis": "广告合规监管要求",
+            "product_or_batch": "直播销售化妆品 SKU",
+            "affected_processes": [
+              "直播口播",
+              "短视频脚本",
+              "达人素材",
+              "详情页",
+              "功效宣称证据留存"
+            ]
+          },
           "source_name": "上海市监局",
           "source_url": "https://scjgj.sh.gov.cn/",
-          "published_at": "2026-05-20",
+          "published_at": "2026-07-20",
           "case_type": "行政处罚",
           "parties": "某美妆经营主体",
           "facts": [
