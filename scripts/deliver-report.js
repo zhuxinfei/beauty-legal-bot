@@ -66,7 +66,7 @@ if (usePdf) {
   const msg = [
     `# 美妆法务资讯周报｜${today}`,
     '',
-    `📄 [下载完整报告（PDF）](${pdfUrl})`,
+    `📄 [查看完整报告（PDF）](${pdfUrl})`,
     ...summaryLines,
     '',
     `---`,
@@ -80,7 +80,7 @@ if (usePdf) {
     const withoutSummary = [
       `# 美妆法务资讯周报｜${today}`,
       '',
-      `📄 [下载完整报告（PDF）](${pdfUrl})`,
+      `📄 [查看完整报告（PDF）](${pdfUrl})`,
       '',
       `> 完整内容请下载 PDF 查看`,
       '',
