@@ -65,9 +65,9 @@ if (usePdf) {
 
   const msg = [
     `# 美妆法务资讯周报｜${today}`,
+    ...summaryLines,
     '',
     `📄 [查看完整报告（PDF）](${pdfUrl})`,
-    ...summaryLines,
     '',
     `---`,
     `*杭州丽知法务部 · 自动生成 · ${today}*`,
@@ -80,9 +80,9 @@ if (usePdf) {
     const withoutSummary = [
       `# 美妆法务资讯周报｜${today}`,
       '',
-      `📄 [查看完整报告（PDF）](${pdfUrl})`,
+      `> 完整内容请查看 PDF`,
       '',
-      `> 完整内容请下载 PDF 查看`,
+      `📄 [查看完整报告（PDF）](${pdfUrl})`,
       '',
       `---`,
       `*杭州丽知法务部 · 自动生成 · ${today}*`,
