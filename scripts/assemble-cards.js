@@ -169,21 +169,21 @@ const aiBaseUrl = process.env.AI_API_BASE_URL || 'https://api.deepseek.com/v1';
 const aiModel = process.env.AI_MODEL || 'deepseek-chat';
 
 async function aiReview(title, text) {
-  if (!aiKey) return { relevant: true, reason: 'no-api-key' };
+  if (!aiKey) return { relevant: true, reason: 'no-api-key', eventSig: '' };
   const excerpt = (text || '').slice(0, 4000);
   try {
     const resp = await requestAiChat({
       apiKey: aiKey, baseUrl: aiBaseUrl, model: aiModel,
       messages: [
-        { role: 'system', content: '判断文章是否与化妆品/美妆行业法规、处罚、知识产权、产品安全、进出口或行业动态实质相关。仅回复JSON：{"relevant":true或false,"reason":"一句话"}' },
+        { role: 'system', content: '判断文章是否与化妆品/美妆行业法规、处罚、知识产权、产品安全、进出口或行业动态实质相关。同时提取事件唯一标识：文号(如"国药监妆〔2026〕X号")、案号(如"(2026)沪0115民初61781号")、或"主体名+日期"。仅回复JSON：{"relevant":true或false,"event_sig":"文号或案号或主体名+日期，无则空","reason":"一句话"}' },
         { role: 'user', content: `标题：${title}\n正文：${excerpt}` },
       ],
-      temperature: 0, maxTokens: 200, timeoutMs: 30000, maxAttempts: 1,
+      temperature: 0, maxTokens: 300, timeoutMs: 30000, maxAttempts: 1,
     });
     const j = JSON.parse(resp.replace(/```json\s*|\s*```/g, '').trim());
-    return { relevant: Boolean(j.relevant), reason: j.reason || '' };
+    return { relevant: Boolean(j.relevant), eventSig: j.event_sig || '', reason: j.reason || '' };
   } catch (_) {
-    return { relevant: true, reason: 'ai-unavailable' };
+    return { relevant: true, reason: 'ai-unavailable', eventSig: '' };
   }
 }
 
@@ -254,31 +254,34 @@ for (const { c, relevant, reason } of reviews) {
     } catch (_) { /* keep original if AI fails */ }
   }
 
-  cards.push({ ...card, score: validation.score, tier: validation.tier });
+    cards.push({ ...card, score: validation.score, tier: validation.tier, eventSig: reason.eventSig || '' });
 }
 
-// Step 6: Event-level dedup — one card per event
-// Map each record URL to its corroboration event_id, then keep only the
-// highest-scoring card per event group.
-const urlToEvent = new Map();
-for (const pkg of (corroboration.packages || [])) {
-  const eventId = pkg.event_id || '';
-  for (const src of (pkg.supporting_sources || [])) {
-    if (src.url) urlToEvent.set(src.url.trim(), eventId);
-  }
-  if (pkg.canonical_record?.url) urlToEvent.set(pkg.canonical_record.url.trim(), eventId);
-}
-const eventCards = new Map();
+// Step 6: Event dedup — one card per event (AI-extracted eventSig)
+// AI extracts document_number/case_number/company+date from each article.
+// Cards with the same non-empty eventSig are about the same event → keep highest score.
+const seenEvents = new Map();
 for (const card of cards) {
-  const cardUrl = (card.source_url || '').trim();
-  const eventId = urlToEvent.get(cardUrl) || cardUrl;
-  const existing = eventCards.get(eventId);
+  const sig = (card.eventSig || '').trim();
+  if (!sig) continue; // no signature, can't dedup
+  const norm = sig.replace(/\s+/g, '').toLowerCase();
+  const existing = seenEvents.get(norm);
   if (!existing || (card.score || 0) > (existing.score || 0)) {
-    eventCards.set(eventId, card);
+    seenEvents.set(norm, card);
   }
 }
-const dedupedCards = [...eventCards.values()];
-console.log(`Event dedup: ${cards.length} → ${dedupedCards.length} cards (${cards.length - dedupedCards.length} same-event removed)`);
+const dedupedCards = [];
+const dupSigSet = new Set();
+for (const card of cards) {
+  const sig = (card.eventSig || '').trim();
+  const norm = sig.replace(/\s+/g, '').toLowerCase();
+  if (sig && seenEvents.has(norm) && seenEvents.get(norm) !== card) {
+    dupSigSet.add(sig.slice(0,30));
+    continue; // duplicate event, keep the higher-score version
+  }
+  dedupedCards.push(card);
+}
+console.log(`Event dedup: ${cards.length} → ${dedupedCards.length} cards (${dupSigSet.size} duplicate events: ${[...dupSigSet].join(', ') || 'none'})`);
 
 // Step 7: Select balanced portfolio
 const sorted = dedupedCards.sort((a, b) => b.score - a.score);
