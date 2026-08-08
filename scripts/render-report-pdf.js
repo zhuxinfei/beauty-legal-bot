@@ -15,7 +15,9 @@ const markdown = readFileSync(mdPath, 'utf8');
 
 // Simple markdown-to-HTML converter (no external dependencies needed)
 function mdToHtml(md) {
-  const lines = md.split('\n');
+  // Convert [text](url) markdown links first, before line processing
+  let processed = md.replace(/\[([^\]]+)\]\(([^)]+)\)/g, '<a href="$2">$1</a>');
+  const lines = processed.split('\n');
   let html = `<!DOCTYPE html><html><head><meta charset="utf-8"><style>
     body { font-family: -apple-system, 'PingFang SC', 'Microsoft YaHei', sans-serif; max-width: 800px; margin: 40px auto; padding: 20px; color: #333; line-height: 1.7; }
     h1 { font-size: 1.8em; border-bottom: 2px solid #c00; padding-bottom: 8px; }
@@ -59,7 +61,8 @@ function mdToHtml(md) {
   }
   if (inList) html += '</ul>\n';
   html += '</body></html>';
-  return html;
+  // Make all links open in new tab
+  return html.replace(/<a /g, '<a target="_blank" rel="noopener" ');
 }
 
 console.log(`Rendering ${markdown.split('\n').length} lines to PDF...`);
