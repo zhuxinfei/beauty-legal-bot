@@ -137,7 +137,7 @@ jobs:
         run: |
           mkdir -p public
           DATE=$(date +%Y-%m-%d)
-          cp out/latest-report.pdf "public/report-${DATE}.pdf"
+          cp out/latest-report.pdf "public/美妆法务资讯周报-${DATE}.pdf"
           cp out/latest-report.pdf public/latest-report.pdf
 
       - name: Publish PDF to GitHub Pages

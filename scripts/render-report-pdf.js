@@ -5,11 +5,10 @@ import { resolve } from 'node:path';
 import { chromium } from 'playwright';
 
 const mdPath = resolve(process.argv[2] || 'out/latest-report.md');
-const pdfPath = resolve('out/latest-report.pdf');
-const workerBaseUrl = process.env.PUBLIC_WORKER_BASE_URL || 'https://beauty-legal-bot.ai-cf.workers.dev';
-const cloudflareToken = process.env.CLOUDFLARE_API_TOKEN;
-const accountId = process.env.CLOUDFLARE_ACCOUNT_ID;
-const kvNamespaceId = process.env.CLOUDFLARE_KV_NAMESPACE_ID;
+const date = new Date().toISOString().slice(0, 10);
+const pdfPath = resolve(`out/美妆法务资讯周报-${date}.pdf`);
+// Also keep latest for gh-pages
+const latestPath = resolve('out/latest-report.pdf');
 
 const markdown = readFileSync(mdPath, 'utf8');
 
@@ -100,8 +99,10 @@ console.log(`PDF: ${(pdfBytes / 1024).toFixed(0)}KB → ${pdfPath}, preview: "${
 
 // Push PDF to gh-pages branch for public hosting
 const date = new Date().toISOString().slice(0, 10);
-const ghPagesUrl = `https://zhuxinfei.github.io/beauty-legal-bot/report-${date}.pdf`;
-const latestUrl = `https://zhuxinfei.github.io/beauty-legal-bot/latest-report.pdf`;
+// Save both dated and latest copies
+const { copyFileSync } = await import('node:fs');
+copyFileSync(pdfPath, latestPath);
 
-console.log(`PDF will be published to: ${latestUrl}`);
-writeFileSync('out/report-url.txt', latestUrl, 'utf8');
+const pdfUrl = `https://zhuxinfei.github.io/beauty-legal-bot/美妆法务资讯周报-${date}.pdf`;
+console.log(`PDF published: ${pdfUrl}`);
+writeFileSync('out/report-url.txt', pdfUrl, 'utf8');

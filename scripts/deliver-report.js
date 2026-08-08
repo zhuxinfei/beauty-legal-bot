@@ -46,17 +46,54 @@ if (pdfUrl) {
 
 // --- Send ---
 if (usePdf) {
-  const artifactUrl = `https://github.com/zhuxinfei/beauty-legal-bot/actions/runs/${process.env.GITHUB_RUN_ID}`;
+  // Read card data for executive summary
+  let summaryLines = [];
+  try {
+    const cardsPath = resolve('out/assembled-cards.json');
+    const { cards } = JSON.parse(readFileSync(cardsPath, 'utf8'));
+    const actionCards = cards.filter(c => c.tier === 'action').slice(0, 3);
+    const topCards = cards.sort((a, b) => (b.score || 0) - (a.score || 0)).slice(0, 5);
+    if (topCards.length) {
+      summaryLines.push('', '> **本期要点**', '> ');
+      for (const c of topCards.slice(0, 5)) {
+        const badge = c.tier === 'action' ? '🔴' : '🔵';
+        const mod = c.module ? c.module.slice(0, 4) : '';
+        summaryLines.push(`> ${badge} ${c.title ? c.title.slice(0, 50) : ''}`);
+      }
+    }
+  } catch (_) { /* no cards data, skip summary */ }
+
   const msg = [
     `# 美妆法务资讯周报｜${today}`,
     '',
-    `📄 [查看完整报告](${pdfUrl})`,
-    '',
-    `> 🔗 [GitHub Actions 运行记录](${artifactUrl})`,
+    `📄 [下载完整报告（PDF）](${pdfUrl})`,
+    ...summaryLines,
     '',
     `---`,
     `*杭州丽知法务部 · 自动生成 · ${today}*`,
   ].join('\n');
+
+  // Truncate if DingTalk byte limit exceeded (short messages shouldn't, but be safe)
+  const msgBytes = encoder.encode(msg).length;
+  if (msgBytes > DINGTALK_BYTE_LIMIT) {
+    // Drop summary lines until it fits
+    const withoutSummary = [
+      `# 美妆法务资讯周报｜${today}`,
+      '',
+      `📄 [下载完整报告（PDF）](${pdfUrl})`,
+      '',
+      `> 完整内容请下载 PDF 查看`,
+      '',
+      `---`,
+      `*杭州丽知法务部 · 自动生成 · ${today}*`,
+    ].join('\n');
+    const body = JSON.stringify({ msgtype: 'markdown', markdown: { title: `美妆法务资讯周报｜${today}`, text: withoutSummary } });
+    const url = secret ? await buildSignedUrl(webhookUrl, secret, Date.now()) : webhookUrl;
+    const resp = await fetch(url, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body });
+    const result = await resp.json();
+    console.log(`DingTalk (summary too long, truncated): ${result.errcode === 0 ? 'OK' : 'FAILED: ' + result.errmsg}`);
+    process.exit(result.errcode === 0 ? 0 : 1);
+  }
 
   const body = JSON.stringify({ msgtype: 'markdown', markdown: { title: `美妆法务资讯周报｜${today}`, text: msg } });
   const url = secret ? await buildSignedUrl(webhookUrl, secret, Date.now()) : webhookUrl;
