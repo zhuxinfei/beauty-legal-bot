@@ -198,8 +198,10 @@ const acceptedSummaries = []; // { title, facts, eventSig }
 async function aiReview(title, text) {
   if (!aiKey) return { relevant: true, reason: 'no-api-key', eventSig: '', isDuplicate: false };
   const excerpt = (text || '').slice(0, 4000);
-  const prevList = acceptedSummaries.length > 0
-    ? `\n\n已采纳的文章列表（判断新文章是否与之重复）：\n${acceptedSummaries.map((s, i) => `${i + 1}. ${s.title} | ${s.facts}`).join('\n')}`
+  // Only send the last 10 accepted articles for comparison (prevents prompt bloat)
+  const recentAccepted = acceptedSummaries.slice(-10);
+  const prevList = recentAccepted.length > 0
+    ? `\n\n已采纳的文章列表（判断新文章是否与之重复）：\n${recentAccepted.map((s, i) => `${i + 1}. ${s.title} | ${s.facts}`).join('\n')}`
     : '';
   try {
     const resp = await requestAiChat({
@@ -213,7 +215,7 @@ async function aiReview(title, text) {
         },
         { role: 'user', content: `标题：${title}\n正文：${excerpt}${prevList}` },
       ],
-      temperature: 0, maxTokens: 400, timeoutMs: 30000, maxAttempts: 1,
+      temperature: 0, maxTokens: 800, timeoutMs: 45000, maxAttempts: 1,
     });
     const j = JSON.parse(resp.replace(/```json\s*|\s*```/g, '').trim());
     return {
