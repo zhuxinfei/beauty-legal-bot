@@ -182,8 +182,9 @@ async function aiReview(title, text) {
     });
     const j = JSON.parse(resp.replace(/```json\s*|\s*```/g, '').trim());
     return { relevant: Boolean(j.relevant), eventSig: j.event_sig || '', reason: j.reason || '' };
-  } catch (_) {
-    return { relevant: true, reason: 'ai-unavailable', eventSig: '' };
+  } catch (err) {
+    console.warn(`[AI] call failed (${(err?.message||String(err)).slice(0,60)}), using regex fallback`);
+    return { relevant: true, reason: 'ai-fallback', eventSig: '' };
   }
 }
 
