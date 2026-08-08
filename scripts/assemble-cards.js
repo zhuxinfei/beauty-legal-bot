@@ -69,20 +69,8 @@ const BEAUTY_PATTERN = /(?:化妆品|美妆|护肤|彩妆|香水|口红|面膜|�
 // Strips known portal/nav text before checking. Returns true if the article's
 // primary subject is beauty/cosmetics — not just incidentally mentioned.
 function isArticleAboutBeauty(title = '', text = '') {
-  // Reject obviously non-beauty business types in title
-  if (/(?:五金|超市|建材|食品|餐饮|药品|医疗器械|汽车|房地产|保险|银行|教育培训|网吧|歌厅|浴池|洗浴|理发店|便利店|创业服务|云平台|市场主体)/i.test(title)) return false;
-  // Reject navigation/index page titles
-  if (/^(?:法规文件|政策解读|通知公告|政府信息公开|首页|网站首页|全文页|信息公示|行政执法结果|工作动态|监管动态|新闻中心|最新动态|栏目页|专题页|信息发布|公示公告|公告通知)$/i.test(title.trim())) return false;
-
-  const excerpt = text.slice(0, 1000)
-    .replace(/政府信息公开|法定主动公开|搜索位置|发布日期|政府网站|站点地图|主办单位|通信地址|网站标识码|无障碍浏览/g, '');
-  const combined = `${title} ${excerpt}`;
-
-  const beautySubject = /(?:化妆品|美妆|护肤|彩妆|香水|防晒|染发|洗护|面膜|口红|精华液|面霜|祛斑|美白|功效宣称|玻色因|配方|着色剂|进口化妆品|出口化妆品|化妆品标准|cosmetic|MoCRA)/i;
-  if (!beautySubject.test(combined)) return false;
-
-  const withoutCitations = combined.replace(/化妆品监督管理条例|化妆品安全技术规范|化妆品标识管理规定|化妆品标签管理办法|化妆品注册备案管理办法/g, '');
-  return beautySubject.test(withoutCitations);
+  const combined = `${title} ${text.slice(0, 1000)}`;
+  return /(?:化妆品|美妆|护肤|彩妆|香水|防晒|染发|洗护|面膜|口红|精华液|面霜|祛斑|美白|功效宣称|玻色因|配方|着色剂|进口化妆品|出口化妆品|化妆品标准|cosmetic|MoCRA)/i.test(combined);
 }
 const ACADEMIC_IP_PATTERN = /(?:损害赔偿请求权|法理探析|制度研究|案例评析|案例聚焦|知识产权律师网)/i;
 const NEWS_CHROME = [
