@@ -226,7 +226,24 @@ async function aiReview(title, text) {
       reason: j.reason || '',
     };
   } catch (err) {
-    console.warn(`[AI] call failed (${(err?.message||String(err)).slice(0,60)}), using regex fallback`);
+    const msg = (err?.message || String(err)).slice(0, 60);
+    // Retry once on JSON truncation
+    if (msg.includes('end of JSON') || msg.includes('Unexpected end')) {
+      try {
+        await new Promise(r => setTimeout(r, 2000));
+        const retryResp = await requestAiChat({
+          apiKey: aiKey, baseUrl: aiBaseUrl, model: aiModel,
+          messages: [
+            { role: 'system', content: '你是美妆法务情报审核员。判断文章是否与美妆行业实质相关，是否与已采纳列表重复。回复JSON：{"relevant":true或false,"event_sig":"","is_duplicate":true或false,"dup_of":"","reason":"一句话"}' },
+            { role: 'user', content: `标题：${title}\n正文：${excerpt.slice(0, 3000)}` },
+          ],
+          temperature: 0, maxTokens: 400, timeoutMs: 30000, maxAttempts: 1,
+        });
+        const j2 = JSON.parse(retryResp.replace(/```json\s*|\s*```/g, '').trim());
+        return { relevant: Boolean(j2.relevant), eventSig: j2.event_sig || '', isDuplicate: Boolean(j2.is_duplicate), dupOf: j2.dup_of || '', reason: j2.reason || '' };
+      } catch (_) {}
+    }
+    console.warn(`[AI] call failed (${msg}), using regex fallback`);
     const fallback = isArticleAboutBeauty(title, text);
     return { relevant: fallback, reason: fallback ? 'regex-pass' : 'regex-reject', eventSig: '', isDuplicate: false };
   }
