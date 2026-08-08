@@ -63,9 +63,10 @@ if (usePdf) {
     }
     if (topCards.length) {
       summaryLines.push('', '> **本期要点**', '> ');
+      let idx = 0;
       for (const c of topCards) {
-        const badge = c.tier === 'action' ? '🔴' : '🔵';
-        summaryLines.push(`> ${badge} ${c.title ? c.title.slice(0, 50) : ''}`);
+        idx++;
+        summaryLines.push(`> ${idx}. ${c.title ? c.title.slice(0, 50) : ''}`);
       }
     }
   } catch (_) { /* no cards data, skip summary */ }
