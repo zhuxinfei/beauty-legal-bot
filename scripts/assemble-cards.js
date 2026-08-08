@@ -258,31 +258,43 @@ for (const { c, relevant, reason } of reviews) {
     cards.push({ ...card, score: validation.score, tier: validation.tier, eventSig: reason.eventSig || '' });
 }
 
-// Step 6: Event dedup — one card per event (AI-extracted eventSig)
-// AI extracts document_number/case_number/company+date from each article.
-// Cards with the same non-empty eventSig are about the same event → keep highest score.
+// Step 6: Event dedup — one card per event
+// Primary: AI-extracted eventSig (文号/案号/主体+日期)
+// Fallback: hard-fact anchor matching (party + doc_number or party + amount + product)
 const seenEvents = new Map();
-for (const card of cards) {
+function eventKey(card) {
+  // AI-extracted signature takes priority
   const sig = (card.eventSig || '').trim();
-  if (!sig) continue; // no signature, can't dedup
-  const norm = sig.replace(/\s+/g, '').toLowerCase();
-  const existing = seenEvents.get(norm);
+  if (sig) return sig.replace(/\s+/g, '').toLowerCase();
+  // Fallback: hard-fact anchors
+  const hf = card.hard_facts || {};
+  const party = (hf.involved_party || '').replace(/\s+/g, '');
+  const doc = (hf.document_number || '').replace(/\s+/g, '');
+  const amount = (hf.penalty_amount || '').replace(/\s+/g, '');
+  if (party && doc) return (party + doc).toLowerCase();
+  if (party && amount) return (party + amount).toLowerCase();
+  // URL as last resort
+  return (card.source_url || '').trim();
+}
+for (const card of cards) {
+  const key = eventKey(card);
+  if (!key) continue;
+  const existing = seenEvents.get(key);
   if (!existing || (card.score || 0) > (existing.score || 0)) {
-    seenEvents.set(norm, card);
+    seenEvents.set(key, card);
   }
 }
 const dedupedCards = [];
-const dupSigSet = new Set();
+const dupEvents = new Set();
 for (const card of cards) {
-  const sig = (card.eventSig || '').trim();
-  const norm = sig.replace(/\s+/g, '').toLowerCase();
-  if (sig && seenEvents.has(norm) && seenEvents.get(norm) !== card) {
-    dupSigSet.add(sig.slice(0,30));
-    continue; // duplicate event, keep the higher-score version
+  const key = eventKey(card);
+  if (key && seenEvents.has(key) && seenEvents.get(key) !== card) {
+    dupEvents.add(key.slice(0, 30));
+    continue;
   }
   dedupedCards.push(card);
 }
-console.log(`Event dedup: ${cards.length} → ${dedupedCards.length} cards (${dupSigSet.size} duplicate events: ${[...dupSigSet].join(', ') || 'none'})`);
+console.log(`Event dedup: ${cards.length} → ${dedupedCards.length} cards (${dupEvents.size} duplicates removed)`);
 
 // Step 7: Select balanced portfolio
 const sorted = dedupedCards.sort((a, b) => b.score - a.score);
