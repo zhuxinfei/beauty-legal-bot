@@ -43,7 +43,9 @@ const period = {
 
 // --- Patterns ---
 const BEAUTY_PATTERN = /(?:化妆品|美妆|护肤|彩妆|香水|口红|面膜|洗护|防晒|染发|美容|祛斑|美白|功效宣称|玻色因|配方|着色剂|色素|进口化妆品|出口化妆品|化妆品标准|cosmetic|cosmetics|MoCRA)/i;
-const NON_BEAUTY_PATTERN = /(?:五金|建材|食品|餐饮|农产品|食用|汽车|电动|机票|酒店|房地产|医疗器械(?!.*化妆品)|药品集采|保险|银行|在线酒店|旅游行业|金融监管|证券|外汇|教育培训|日用五金|超市|便利店|网吧|歌厅|理发店(?!.*化妆品)|浴池|洗浴|执业药师|京彩药检|跨境B2C|珈凯生物|生物科技.*IPO|创业服务|云平台|市场主体营业执照|药品追溯|吊销.*营业执照)/i;
+// Card must have beauty keywords in its own TITLE (not just somewhere in the page).
+// This prevents non-beauty pages that happen to mention "化妆品" in footer/nav from leaking through.
+const BEAUTY_TITLE_PATTERN = /(?:化妆品|美妆|护肤|彩妆|香水|防晒|染发|洗护|面膜|口红|眼影|粉底|睫毛|眉笔|腮红|气垫|精华液|面霜|爽肤水|卸妆|洁面|美容|祛斑|美白|功效宣称|玻色因|配方|着色剂|进口化妆品|出口化妆品|化妆品标准|薇诺娜|珀莱雅|贝泰妮|花西子|完美日记|华熙生物|上海家化|欧莱雅|雅诗兰黛|六神|相宜本草|自然堂|百雀羚|韩束|一叶子|丸美|敷尔佳|可复美|润百颜|玉泽|半亩花田|cosmetic|cosmetics|MoCRA)/i;
 const ACADEMIC_IP_PATTERN = /(?:损害赔偿请求权.*认定|.*实现路径|法理.*探析|.*制度研究)/i;
 const NEWS_CHROME = [
   /要闻\s*北京\s*科技\s*财经\s*AI\s*更多[^。]*/g,
@@ -147,21 +149,11 @@ for (const c of pool) {
   const combined = `${c.title || ''} ${c.article_text || ''}`;
   const host = String(c.final_url || c.url || '');
   if (FORUM_HOSTS.test(host)) { console.log(`  SKIP [forum-host]: ${(c.title||'').slice(0,40)}`); continue; }
-  if (NON_BEAUTY_PATTERN.test(combined) && !BEAUTY_PATTERN.test(combined)) { console.log(`  SKIP [non-beauty]: ${(c.title||'').slice(0,40)}`); continue; }
-  // The business name in the title tells us what the entity actually is.
-  // A hardware store penalized under cosmetics law is not a beauty case.
-  if (NON_BEAUTY_PATTERN.test(c.title || '')) {
-    console.log(`  SKIP [non-beauty-title]: ${(c.title||'').slice(0,40)}`);
+  // Card title itself must contain beauty keywords. Page text alone is not enough —
+  // government portal pages often have "化妆品" in footer/nav but aren't about beauty.
+  if (!BEAUTY_TITLE_PATTERN.test(c.title || '') && !BEAUTY_TITLE_PATTERN.test(c.evidence_text ? c.evidence_text.slice(0, 300) : '')) {
+    console.log(`  SKIP [non-beauty]: ${(c.title||'').slice(0,40)}`);
     continue;
-  }
-  // Stricter check: if business type is clearly non-beauty and beauty keywords
-  // only appear in regulatory citations (not product descriptions), skip it
-  if (NON_BEAUTY_PATTERN.test(combined) && BEAUTY_PATTERN.test(combined)) {
-    const productText = combined.replace(/化妆品监督管理条例|化妆品安全技术规范|化妆品标识管理规定|化妆品标签管理办法|化妆品注册备案/g, '');
-    if (!BEAUTY_PATTERN.test(productText)) {
-      console.log(`  SKIP [non-beauty-biz]: ${(c.title||'').slice(0,40)}`);
-      continue;
-    }
   }
 
   const card = premiumCardFromCandidate({
