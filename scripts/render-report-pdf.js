@@ -79,31 +79,10 @@ await browser.close();
 const pdfBytes = readFileSync(pdfPath).length;
 console.log(`PDF: ${(pdfBytes / 1024).toFixed(0)}KB → ${pdfPath}`);
 
-// Upload to Cloudflare Worker KV
-if (cloudflareToken && accountId && kvNamespaceId) {
-  const date = new Date().toISOString().slice(0, 10);
-  const key = `report-${date}.pdf`;
-  console.log(`Uploading to KV: ${key}...`);
+// Push PDF to gh-pages branch for public hosting
+const date = new Date().toISOString().slice(0, 10);
+const ghPagesUrl = `https://zhuxinfei.github.io/beauty-legal-bot/report-${date}.pdf`;
+const latestUrl = `https://zhuxinfei.github.io/beauty-legal-bot/latest-report.pdf`;
 
-  const formData = new FormData();
-  formData.append('value', new Blob([readFileSync(pdfPath)]), key);
-
-  const resp = await fetch(
-    `https://api.cloudflare.com/client/v4/accounts/${accountId}/storage/kv/namespaces/${kvNamespaceId}/values/${key}`,
-    {
-      method: 'PUT',
-      headers: { Authorization: `Bearer ${cloudflareToken}` },
-      body: readFileSync(pdfPath),
-    }
-  );
-  const result = await resp.json();
-  if (result.success) {
-    const url = `${workerBaseUrl}/reports/${key}`;
-    console.log(`Uploaded: ${url}`);
-    writeFileSync('out/report-url.txt', url, 'utf8');
-  } else {
-    console.error('KV upload failed:', JSON.stringify(result.errors || result));
-  }
-} else {
-  console.log('No CF credentials, skipping upload. PDF saved locally.');
-}
+console.log(`PDF will be published to: ${latestUrl}`);
+writeFileSync('out/report-url.txt', latestUrl, 'utf8');

@@ -133,6 +133,22 @@ jobs:
       - name: Render PDF report
         run: node scripts/render-report-pdf.js out/latest-report.md
 
+      - name: Prepare PDF for publishing
+        run: |
+          mkdir -p public
+          DATE=$(date +%Y-%m-%d)
+          cp out/latest-report.pdf "public/report-${DATE}.pdf"
+          cp out/latest-report.pdf public/latest-report.pdf
+
+      - name: Publish PDF to GitHub Pages
+        uses: peaceiris/actions-gh-pages@v4
+        with:
+          github_token: ${{ secrets.GITHUB_TOKEN }}
+          publish_dir: public
+          publish_branch: gh-pages
+          force_orphan: true
+          keep_files: true
+
       - name: Deliver to DingTalk
         run: node scripts/deliver-report.js out/latest-report.md
 
