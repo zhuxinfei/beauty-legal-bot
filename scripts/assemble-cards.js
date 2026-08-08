@@ -1,7 +1,7 @@
 // Direct card assembly from hydrated records.
 // Code handles selection + fact extraction; templates generate narrative.
 // Usage: node scripts/assemble-cards.js [hydrated-authority.json] [output.json]
-import { readFileSync, writeFileSync } from 'node:fs';
+import { readFileSync, writeFileSync, existsSync } from 'node:fs';
 import { resolve } from 'node:path';
 import { normalizeHydratedRecord } from '../worker/source-hydration.js';
 import { extractHardFacts, gradeEvidence } from '../worker/hard-fact-extractor.js';
@@ -20,6 +20,19 @@ const IS_CLIENT_CITY = new RegExp(CLIENT.cities.join('|'));
 
 const inputPath = resolve(process.argv[2] || 'out/hydrated-authority.json');
 const outputPath = resolve(process.argv[3] || 'out/assembled-cards.json');
+const FINGERPRINTS_PATH = resolve('out/seen-fingerprints.json');
+
+// Load previously-seen fingerprints for cross-week dedup
+let previousFingerprints = new Set();
+try {
+  if (existsSync(FINGERPRINTS_PATH)) {
+    const fpData = JSON.parse(readFileSync(FINGERPRINTS_PATH, 'utf8'));
+    if (fpData && typeof fpData === 'object') {
+      previousFingerprints = new Set(Object.keys(fpData));
+      console.log(`Loaded ${previousFingerprints.size} previous fingerprints`);
+    }
+  }
+} catch (_) { /* first run, no history */ }
 
 console.log(`Loading hydration records from ${inputPath}...`);
 const payload = JSON.parse(readFileSync(inputPath, 'utf8'));
@@ -296,8 +309,29 @@ for (const card of cards) {
 }
 console.log(`Event dedup: ${cards.length} → ${dedupedCards.length} cards (${dupEvents.size} duplicates removed)`);
 
-// Step 7: Select balanced portfolio
-const sorted = dedupedCards.sort((a, b) => b.score - a.score);
+// Step 7: Cross-week dedup — skip cards previously delivered
+function cardFingerprint(card) {
+  const hf = card.hard_facts || {};
+  const party = (hf.involved_party || '').replace(/\s+/g, '').slice(0, 20);
+  const doc = (hf.document_number || '').replace(/\s+/g, '').slice(0, 20);
+  const title = (card.title || '').replace(/\s+/g, '').slice(0, 30);
+  // Stable fingerprint: party+doc_number or title prefix
+  return party + doc || title;
+}
+const freshCards = dedupedCards.filter(card => {
+  const fp = cardFingerprint(card);
+  if (previousFingerprints.has(fp)) {
+    console.log(`  HISTORIC-DUP: ${card.title.slice(0, 40)}`);
+    return false;
+  }
+  return true;
+});
+if (freshCards.length < dedupedCards.length) {
+  console.log(`Cross-week dedup: ${dedupedCards.length} → ${freshCards.length} cards`);
+}
+
+// Step 8: Select balanced portfolio
+const sorted = freshCards.sort((a, b) => b.score - a.score);
 const selected = [];
 const moduleCounts = new Map();
 const seen = new Set();
@@ -413,6 +447,15 @@ const sections = MODULES.map(mod => ({
 const report = { period, sections };
 const audit = auditPremiumEvidenceCards(selected);
 const markdown = buildPremiumDingTalkMarkdown({ period, cards: selected });
+
+// Persist fingerprints for cross-week dedup
+const newFingerprints = {};
+for (const card of selected) {
+  const fp = cardFingerprint(card);
+  newFingerprints[fp] = new Date().toISOString().slice(0, 10);
+}
+writeFileSync(FINGERPRINTS_PATH, JSON.stringify(newFingerprints), 'utf8');
+console.log(`Saved ${Object.keys(newFingerprints).length} fingerprints to ${FINGERPRINTS_PATH}`);
 
 writeFileSync(outputPath, JSON.stringify({ report, audit, cards: selected }, null, 2) + '\n');
 writeFileSync(outputPath.replace('.json', '.md'), markdown, 'utf8');
