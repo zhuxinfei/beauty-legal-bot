@@ -60,7 +60,7 @@ function isArticleAboutBeauty(title = '', text = '') {
   const withoutCitations = combined.replace(/化妆品监督管理条例|化妆品安全技术规范|化妆品标识管理规定|化妆品标签管理办法|化妆品注册备案管理办法/g, '');
   return /(?:化妆品|美妆|护肤|彩妆|香水|防晒|染发|洗护|面膜|口红|精华液|面霜|祛斑|美白)/i.test(withoutCitations);
 }
-const ACADEMIC_IP_PATTERN = /(?:损害赔偿请求权.*认定|.*实现路径|法理.*探析|.*制度研究)/i;
+const ACADEMIC_IP_PATTERN = /(?:损害赔偿请求权|法理探析|制度研究|案例评析|案例聚焦|知识产权律师网)/i;
 const NEWS_CHROME = [
   /要闻\s*北京\s*科技\s*财经\s*AI\s*更多[^。]*/g,
   /正在浏览：[^。]*/g,
@@ -95,6 +95,11 @@ const PORTAL_CHROME = [
   /阳光采购平台[^。]*/g,
   /补充检验方法管理系统[^。]*/g,
   /业务咨询\s*区[^。]*/g,
+  /用户空间\s*海关电邮[^。]*/g,
+  /守国门\s*促发展[^。]*/g,
+  /当好让党放心[^。]*/g,
+  /能力验证\s*进口药品[^。]*/g,
+  /仪器设备管理系统[^。]*/g,
 ];
 
 // Step 1: Normalize records with substantive text
@@ -215,9 +220,13 @@ for (const { c, relevant, reason } of reviews) {
   const titleText = card.title || '';
 
   // Skip academic IP theory articles (not beauty-specific case law)
-  if (ACADEMIC_IP_PATTERN.test(titleText) && !/(?:化妆品|美妆|护肤|彩妆|香水|防晒|欧莱雅|雅诗兰黛|珀莱雅|贝泰妮|花西子|完美日记|薇诺娜|华熙生物|上海家化|六神|相宜本草)/i.test(titleText + (c.evidence_text || ''))) {
-    console.log(`  SKIP [academic-ip]: ${card.title.slice(0, 50)}`);
-    continue;
+  if (ACADEMIC_IP_PATTERN.test(titleText)) {
+    // Academic IP articles are only valid if they discuss specific beauty brands or products
+    const beautyEvidence = (c.evidence_text || '') + ' ' + titleText;
+    if (!/(?:化妆品|美妆|护肤|彩妆|香水|防晒|面膜|口红|精华液|欧莱雅|雅诗兰黛|珀莱雅|贝泰妮|花西子|完美日记|薇诺娜|华熙|上海家化|六神|相宜本草|自然堂|百雀羚|韩束)/i.test(beautyEvidence)) {
+      console.log(`  SKIP [academic-ip]: ${card.title.slice(0, 50)}`);
+      continue;
+    }
   }
 
   // Skip weak cards
