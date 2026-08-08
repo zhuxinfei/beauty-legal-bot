@@ -80,8 +80,9 @@ jobs:
       - name: Restore dedupe fingerprints from previous run
         run: |
           mkdir -p out
-          PREV_RUN=$(gh run list --workflow weekly.yml --status completed --limit 2 --json databaseId --jq '.[1].databaseId' 2>/dev/null || echo "")
+          PREV_RUN=$(gh run list --workflow weekly.yml --status completed --limit 2 --json databaseId --jq '.[0].databaseId' 2>/dev/null || echo "")
           if [ -n "$PREV_RUN" ]; then
+            rm -rf out/prev
             gh run download "$PREV_RUN" --name "pipeline-evidence-$PREV_RUN" --dir out/prev 2>/dev/null || true
             if [ -f out/prev/seen-fingerprints.json ]; then
               cp out/prev/seen-fingerprints.json out/seen-fingerprints.json
