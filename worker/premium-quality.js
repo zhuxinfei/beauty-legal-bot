@@ -353,7 +353,7 @@ function cleanDisplayTitle(rawTitle = '') {
   // Strip leading domain prefixes like "www.haiwaiwai.com"
   t = t.replace(/^(?:https?:\/\/)?(?:www\.)?[a-z0-9.-]+\.(?:com|cn|org|net)\s*/i, '');
   // Strip trailing " - 来源名" or "| 来源名" or "_来源名"
-  t = t.replace(/\s*[-|_]\s*(?:搜狐|腾讯|网易|新浪|凤凰|QQ|头条|百度)[^]*$/i, '');
+  t = t.replace(/\s*[-|_→]\s*(?:搜狐|腾讯|网易|新浪|凤凰|QQ|头条|百度|南方\+|南方plus|财富号|东方财富|界面新闻|36氪|澎湃新闻|新京报|每日经济新闻|第一财经)[^]*$/i, '');
   // Strip "老字号陨落 |" style multi-title prefixes
   t = t.replace(/^[^|]{2,20}\s*\|\s*/, '');
   // Collapse whitespace
