@@ -22,15 +22,24 @@ const inputPath = resolve(process.argv[2] || 'out/hydrated-authority.json');
 const outputPath = resolve(process.argv[3] || 'out/assembled-cards.json');
 const FINGERPRINTS_PATH = resolve('out/seen-fingerprints.json');
 
-// Load previously-seen fingerprints for cross-week dedup
+// Load previously-seen fingerprints for cross-week dedup.
+// The file may contain old-format KV entries (e.g. "seen_v3_report_items")
+// from the legacy pipeline — skip those, only use card-level fingerprints.
 let previousFingerprints = new Set();
 try {
   if (existsSync(FINGERPRINTS_PATH)) {
-    const fpData = JSON.parse(readFileSync(FINGERPRINTS_PATH, 'utf8'));
-    if (fpData && typeof fpData === 'object') {
-      previousFingerprints = new Set(Object.keys(fpData));
-      console.log(`Loaded ${previousFingerprints.size} previous fingerprints`);
+    const raw = JSON.parse(readFileSync(FINGERPRINTS_PATH, 'utf8'));
+    if (raw && typeof raw === 'object') {
+      for (const [key, val] of Object.entries(raw)) {
+        // Old-format entries are single keys with array values; skip them
+        if (Array.isArray(val) || typeof val === 'object') continue;
+        // Card fingerprints: key is the fingerprint, value is the date
+        if (key.length > 5 && typeof val === 'string') {
+          previousFingerprints.add(key);
+        }
+      }
     }
+    console.log(`Loaded ${previousFingerprints.size} previous card fingerprints`);
   }
 } catch (_) { /* first run, no history */ }
 
@@ -478,14 +487,19 @@ const report = { period, sections };
 const audit = auditPremiumEvidenceCards(selected);
 const markdown = buildPremiumDingTalkMarkdown({ period, cards: selected });
 
-// Persist fingerprints for cross-week dedup
-const newFingerprints = {};
+// Persist fingerprints for cross-week dedup — merge with existing
+const mergedFingerprints = {};
+// Keep existing card-level fingerprints
+for (const fp of previousFingerprints) {
+  mergedFingerprints[fp] = new Date().toISOString().slice(0, 10);
+}
+// Add this week's cards
 for (const card of selected) {
   const fp = cardFingerprint(card);
-  newFingerprints[fp] = new Date().toISOString().slice(0, 10);
+  mergedFingerprints[fp] = new Date().toISOString().slice(0, 10);
 }
-writeFileSync(FINGERPRINTS_PATH, JSON.stringify(newFingerprints), 'utf8');
-console.log(`Saved ${Object.keys(newFingerprints).length} fingerprints to ${FINGERPRINTS_PATH}`);
+writeFileSync(FINGERPRINTS_PATH, JSON.stringify(mergedFingerprints), 'utf8');
+console.log(`Saved ${Object.keys(mergedFingerprints).length} fingerprints (${previousFingerprints.size} old + ${selected.length} new) to ${FINGERPRINTS_PATH}`);
 
 writeFileSync(outputPath, JSON.stringify({ report, audit, cards: selected }, null, 2) + '\n');
 writeFileSync(outputPath.replace('.json', '.md'), markdown, 'utf8');
