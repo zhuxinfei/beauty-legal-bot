@@ -227,6 +227,24 @@ for (const { c, relevant, reason } of reviews) {
   }
 
   console.log(`  OK  ${card.module.slice(0, 8)} | score=${validation.score} | ${card.title.slice(0, 40)}`);
+
+  // AI polish: refine legal_signal and business_impact for action-tier cards
+  if (validation.score >= 100 && aiKey) {
+    try {
+      const polishResp = await requestAiChat({
+        apiKey: aiKey, baseUrl: aiBaseUrl, model: aiModel,
+        messages: [
+          { role: 'system', content: '润色以下法务情报卡片的两段文字，使其更自然专业。只润色表达，不改动任何事实、数据、主体名称、法律条款。输出纯JSON：{"legal_signal":"...","business_impact":"..."}' },
+          { role: 'user', content: `模块：${card.module}\n原标题：${card.title}\n事实：${(card.facts||[]).join('；')}\n法务观察：${card.legal_signal}\n业务影响：${card.business_impact}` },
+        ],
+        temperature: 0.2, maxTokens: 500, timeoutMs: 30000, maxAttempts: 1,
+      });
+      const polished = JSON.parse(polishResp.replace(/```json\s*|\s*```/g, '').trim());
+      if (polished.legal_signal && polished.legal_signal.length > 20) card.legal_signal = polished.legal_signal;
+      if (polished.business_impact && polished.business_impact.length > 15) card.business_impact = polished.business_impact;
+    } catch (_) { /* keep original if AI fails */ }
+  }
+
   cards.push({ ...card, score: validation.score, tier: validation.tier });
 }
 
