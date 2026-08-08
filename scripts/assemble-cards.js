@@ -156,19 +156,51 @@ pool = pool.filter(c => {
 });
 console.log(`Candidate pool: ${pool.length} records`);
 
-// Step 5: Build and validate cards
+// --- AI content review ---
+const indexModule = await import('../worker/index.js');
+const { requestAiChat } = indexModule;
+const aiKey = process.env.AI_API_KEY;
+const aiBaseUrl = process.env.AI_API_BASE_URL || 'https://api.deepseek.com/v1';
+const aiModel = process.env.AI_MODEL || 'deepseek-chat';
+
+async function aiReview(title, text) {
+  if (!aiKey) return { relevant: true, reason: 'no-api-key' };
+  const excerpt = (text || '').slice(0, 4000);
+  try {
+    const resp = await requestAiChat({
+      apiKey: aiKey, baseUrl: aiBaseUrl, model: aiModel,
+      messages: [
+        { role: 'system', content: '判断文章是否与化妆品/美妆行业法规、处罚、知识产权、产品安全、进出口或行业动态实质相关。仅回复JSON：{"relevant":true或false,"reason":"一句话"}' },
+        { role: 'user', content: `标题：${title}\n正文：${excerpt}` },
+      ],
+      temperature: 0, maxTokens: 200, timeoutMs: 30000, maxAttempts: 1,
+    });
+    const j = JSON.parse(resp.replace(/```json\s*|\s*```/g, '').trim());
+    return { relevant: Boolean(j.relevant), reason: j.reason || '' };
+  } catch (_) {
+    return { relevant: true, reason: 'ai-unavailable' };
+  }
+}
+
+// Step 5: AI review + build cards (4 concurrent calls)
 const cards = [];
-for (const c of pool) {
-  // Skip non-beauty upfront
-  const combined = `${c.title || ''} ${c.article_text || ''}`;
-  const host = String(c.final_url || c.url || '');
-  if (FORUM_HOSTS.test(host)) { console.log(`  SKIP [forum-host]: ${(c.title||'').slice(0,40)}`); continue; }
-  // Content-based beauty relevance: check the article body, not just the title.
-  // Strips portal chrome and regulatory citations before checking.
-  if (!isArticleAboutBeauty(c.title || '', c.article_text || '')) {
-    console.log(`  SKIP [non-beauty]: ${(c.title||'').slice(0,40)}`);
+const reviews = [];
+for (let i = 0; i < pool.length; i += 4) {
+  const batch = pool.slice(i, i + 4);
+  const results = await Promise.all(batch.map(async c => {
+    const r = await aiReview(c.title || '', c.article_text || '');
+    return { c, ...r };
+  }));
+  reviews.push(...results);
+}
+
+for (const { c, relevant, reason } of reviews) {
+  if (!relevant) {
+    console.log(`  SKIP [ai]: ${(reason||'').slice(0,50)} | ${(c.title||'').slice(0,30)}`);
     continue;
   }
+  const host = String(c.final_url || c.url || '');
+  if (FORUM_HOSTS.test(host)) { console.log(`  SKIP [forum]: ${(c.title||'').slice(0,40)}`); continue; }
 
   const card = premiumCardFromCandidate({
     ...c, detail_status: 'hydrated',
