@@ -181,29 +181,41 @@ const aiKey = process.env.AI_API_KEY;
 const aiBaseUrl = process.env.AI_API_BASE_URL || 'https://api.deepseek.com/v1';
 const aiModel = process.env.AI_MODEL || 'deepseek-chat';
 
+// AI reads the full article and judges (a) beauty relevance (b) if it's a duplicate
+// of any previously accepted article. Maintains a running list of accepted summaries.
+const acceptedSummaries = []; // { title, facts, eventSig }
 async function aiReview(title, text) {
-  if (!aiKey) return { relevant: true, reason: 'no-api-key', eventSig: '' };
+  if (!aiKey) return { relevant: true, reason: 'no-api-key', eventSig: '', isDuplicate: false };
   const excerpt = (text || '').slice(0, 4000);
+  const prevList = acceptedSummaries.length > 0
+    ? `\n\n已采纳的文章列表（判断新文章是否与之重复）：\n${acceptedSummaries.map((s, i) => `${i + 1}. ${s.title} | ${s.facts}`).join('\n')}`
+    : '';
   try {
     const resp = await requestAiChat({
       apiKey: aiKey, baseUrl: aiBaseUrl, model: aiModel,
       messages: [
         { role: 'system', content: `你是美妆法务情报审核员。阅读文章后回答：
-1. 这篇文章是否与化妆品/美妆行业实质相关（主体是美妆企业/产品/法规，不是附带提及）？
-2. 从正文中找出事件的唯一标识：处罚决定书文号、法院案号、公告编号、或"企业全称+日期"。
-回复纯JSON，不要markdown：
-{"relevant":true或false,"event_sig":"文号或案号或公告编号或企业名+日期，必须从原文提取不能编造","reason":"一句话说明依据"}`
+1. 是否与化妆品/美妆行业实质相关？
+2. 事件唯一标识：文号、案号、公告编号或"企业全称+日期"。
+3. 是否与"已采纳的文章列表"中任何一篇是同一事件（不同媒体对同一事件的报道算重复）？
+回复纯JSON：{"relevant":true或false,"event_sig":"文号或案号或企业名+日期","is_duplicate":true或false,"dup_of":"如果是重复，写出列表中哪一篇","reason":"一句话"}`
         },
-        { role: 'user', content: `标题：${title}\n正文：${excerpt}` },
+        { role: 'user', content: `标题：${title}\n正文：${excerpt}${prevList}` },
       ],
-      temperature: 0, maxTokens: 300, timeoutMs: 30000, maxAttempts: 1,
+      temperature: 0, maxTokens: 400, timeoutMs: 30000, maxAttempts: 1,
     });
     const j = JSON.parse(resp.replace(/```json\s*|\s*```/g, '').trim());
-    return { relevant: Boolean(j.relevant), eventSig: j.event_sig || '', reason: j.reason || '' };
+    return {
+      relevant: Boolean(j.relevant),
+      eventSig: j.event_sig || '',
+      isDuplicate: Boolean(j.is_duplicate),
+      dupOf: j.dup_of || '',
+      reason: j.reason || '',
+    };
   } catch (err) {
     console.warn(`[AI] call failed (${(err?.message||String(err)).slice(0,60)}), using regex fallback`);
     const fallback = isArticleAboutBeauty(title, text);
-    return { relevant: fallback, reason: fallback ? 'regex-pass' : 'regex-reject', eventSig: '' };
+    return { relevant: fallback, reason: fallback ? 'regex-pass' : 'regex-reject', eventSig: '', isDuplicate: false };
   }
 }
 
@@ -219,9 +231,13 @@ for (let i = 0; i < pool.length; i += 4) {
   reviews.push(...results);
 }
 
-for (const { c, relevant, reason } of reviews) {
+for (const { c, relevant, reason, isDuplicate, dupOf } of reviews) {
   if (!relevant) {
-    console.log(`  SKIP [ai]: ${(reason||'').slice(0,50)} | ${(c.title||'').slice(0,30)}`);
+    console.log(`  SKIP [ai-not-beauty]: ${(reason||'').slice(0,50)} | ${(c.title||'').slice(0,30)}`);
+    continue;
+  }
+  if (isDuplicate) {
+    console.log(`  SKIP [ai-dup]: same as "${(dupOf||'').slice(0,40)}" | ${(c.title||'').slice(0,30)}`);
     continue;
   }
   const host = String(c.final_url || c.url || '');
@@ -274,7 +290,13 @@ for (const { c, relevant, reason } of reviews) {
     } catch (_) { /* keep original if AI fails */ }
   }
 
-    cards.push({ ...card, score: validation.score, tier: validation.tier, eventSig: reason.eventSig || '' });
+    // Record in accepted list so subsequent AI calls can detect duplicates
+  acceptedSummaries.push({
+    title: card.title.slice(0, 60),
+    facts: (card.facts || []).join('；').slice(0, 150),
+    eventSig: reason.eventSig || '',
+  });
+  cards.push({ ...card, score: validation.score, tier: validation.tier, eventSig: reason.eventSig || '' });
 }
 
 // Step 6: Event dedup — one card per event
