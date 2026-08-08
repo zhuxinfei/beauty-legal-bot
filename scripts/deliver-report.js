@@ -26,6 +26,21 @@ const urlPath = resolve('out/report-url.txt');
 const pdfUrl = existsSync(urlPath) ? readFileSync(urlPath, 'utf8').trim() : '';
 
 if (pdfUrl) {
+  // Wait for PDF to be accessible (GitHub Pages may take a few seconds)
+  console.log(`Waiting for PDF to be accessible: ${pdfUrl}`);
+  let pdfReady = false;
+  for (let attempt = 0; attempt < 12; attempt++) {
+    try {
+      const r = await fetch(pdfUrl, { method: 'HEAD', signal: AbortSignal.timeout(8000) });
+      if (r.ok) { pdfReady = true; break; }
+      console.log(`  attempt ${attempt + 1}: HTTP ${r.status}, retrying...`);
+    } catch { console.log(`  attempt ${attempt + 1}: unreachable, retrying...`); }
+    await new Promise(r => setTimeout(r, 5000));
+  }
+  if (!pdfReady) {
+    console.error('PDF still not accessible after 60s, sending message anyway');
+  }
+
   // Short message with PDF download link
   const artifactUrl = `https://github.com/zhuxinfei/beauty-legal-bot/actions/runs/${process.env.GITHUB_RUN_ID}`;
   const msg = [
