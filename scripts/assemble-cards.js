@@ -43,9 +43,23 @@ const period = {
 
 // --- Patterns ---
 const BEAUTY_PATTERN = /(?:化妆品|美妆|护肤|彩妆|香水|口红|面膜|洗护|防晒|染发|美容|祛斑|美白|功效宣称|玻色因|配方|着色剂|色素|进口化妆品|出口化妆品|化妆品标准|cosmetic|cosmetics|MoCRA)/i;
-// Card must have beauty keywords in its own TITLE (not just somewhere in the page).
-// This prevents non-beauty pages that happen to mention "化妆品" in footer/nav from leaking through.
-const BEAUTY_TITLE_PATTERN = /(?:化妆品|美妆|护肤|彩妆|香水|防晒|染发|洗护|面膜|口红|眼影|粉底|睫毛|眉笔|腮红|气垫|精华液|面霜|爽肤水|卸妆|洁面|美容|祛斑|美白|功效宣称|玻色因|配方|着色剂|进口化妆品|出口化妆品|化妆品标准|薇诺娜|珀莱雅|贝泰妮|花西子|完美日记|华熙生物|上海家化|欧莱雅|雅诗兰黛|六神|相宜本草|自然堂|百雀羚|韩束|一叶子|丸美|敷尔佳|可复美|润百颜|玉泽|半亩花田|cosmetic|cosmetics|MoCRA)/i;
+// Judge beauty relevance from article body (first 1000 chars), not page chrome.
+// Strips known portal/nav text before checking. Returns true if the article's
+// primary subject is beauty/cosmetics — not just incidentally mentioned.
+function isArticleAboutBeauty(title = '', text = '') {
+  // Strip portal chrome and footer text that often contains "化妆品" in
+  // site-navigation contexts but is not about cosmetics
+  const cleaned = text.slice(0, 1000)
+    .replace(/政府信息公开|法定主动公开|搜索位置|匹配度|发布日期|政府网站|站点地图|主办单位|通信地址|网站标识码|无障碍浏览/g, '')
+    .replace(/当前位置|首页.*?(?=行政处罚|处罚决定|通告|公告)/g, '');
+  const combined = `${title} ${cleaned}`;
+  // Must have a beauty subject: specific product type, brand, or regulatory domain
+  const hasBeautySubject = /(?:化妆品|美妆|护肤|彩妆|香水|防晒|染发|洗护|面膜|口红|眼影|粉底|睫毛|精华液|面霜|爽肤水|卸妆|洁面|美容|祛斑|美白|功效宣称|玻色因|配方|着色剂|进口化妆品|出口化妆品|化妆品标准|cosmetic|cosmetics|MoCRA)/i.test(combined);
+  if (!hasBeautySubject) return false;
+  // Exclude: the beauty keyword is only in a regulatory citation footer
+  const withoutCitations = combined.replace(/化妆品监督管理条例|化妆品安全技术规范|化妆品标识管理规定|化妆品标签管理办法|化妆品注册备案管理办法/g, '');
+  return /(?:化妆品|美妆|护肤|彩妆|香水|防晒|染发|洗护|面膜|口红|精华液|面霜|祛斑|美白)/i.test(withoutCitations);
+}
 const ACADEMIC_IP_PATTERN = /(?:损害赔偿请求权.*认定|.*实现路径|法理.*探析|.*制度研究)/i;
 const NEWS_CHROME = [
   /要闻\s*北京\s*科技\s*财经\s*AI\s*更多[^。]*/g,
@@ -149,9 +163,9 @@ for (const c of pool) {
   const combined = `${c.title || ''} ${c.article_text || ''}`;
   const host = String(c.final_url || c.url || '');
   if (FORUM_HOSTS.test(host)) { console.log(`  SKIP [forum-host]: ${(c.title||'').slice(0,40)}`); continue; }
-  // Card title itself must contain beauty keywords. Page text alone is not enough —
-  // government portal pages often have "化妆品" in footer/nav but aren't about beauty.
-  if (!BEAUTY_TITLE_PATTERN.test(c.title || '') && !BEAUTY_TITLE_PATTERN.test(c.evidence_text ? c.evidence_text.slice(0, 300) : '')) {
+  // Content-based beauty relevance: check the article body, not just the title.
+  // Strips portal chrome and regulatory citations before checking.
+  if (!isArticleAboutBeauty(c.title || '', c.article_text || '')) {
     console.log(`  SKIP [non-beauty]: ${(c.title||'').slice(0,40)}`);
     continue;
   }
