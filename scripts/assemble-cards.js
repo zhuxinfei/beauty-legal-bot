@@ -267,8 +267,14 @@ for (const { c, relevant, reason, isDuplicate, dupOf } of reviews) {
   });
   const validation = validatePremiumEvidenceCard(card);
   if (!validation.accepted) {
-    console.log(`  SKIP [${validation.reason}]: ${card.title.slice(0, 50)}`);
-    continue;
+    // When AI confirms beauty relevance, don't reject for page structure or source type
+    if ((validation.reason === 'navigation-or-generic-page' || validation.reason === 'non-authoritative-source') && reason.relevant) {
+      console.log(`  AI-OVERRIDE [${validation.reason}]: ${card.title.slice(0, 15)}... — AI confirmed relevance`);
+      // fall through — accept the card
+    } else {
+      console.log(`  SKIP [${validation.reason}]: ${card.title.slice(0, 50)}`);
+      continue;
+    }
   }
 
   const titleText = card.title || '';
