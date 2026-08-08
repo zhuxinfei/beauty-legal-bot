@@ -51,13 +51,20 @@ if (usePdf) {
   try {
     const cardsPath = resolve('out/assembled-cards.json');
     const { cards } = JSON.parse(readFileSync(cardsPath, 'utf8'));
-    const actionCards = cards.filter(c => c.tier === 'action').slice(0, 3);
-    const topCards = cards.sort((a, b) => (b.score || 0) - (a.score || 0)).slice(0, 5);
+    // One card per module, highest score first
+    const seen = new Set();
+    const topCards = [];
+    for (const c of cards.sort((a, b) => (b.score || 0) - (a.score || 0))) {
+      const mod = c.module || '';
+      if (seen.has(mod)) continue;
+      seen.add(mod);
+      topCards.push(c);
+      if (topCards.length >= 6) break;
+    }
     if (topCards.length) {
       summaryLines.push('', '> **本期要点**', '> ');
-      for (const c of topCards.slice(0, 5)) {
+      for (const c of topCards) {
         const badge = c.tier === 'action' ? '🔴' : '🔵';
-        const mod = c.module ? c.module.slice(0, 4) : '';
         summaryLines.push(`> ${badge} ${c.title ? c.title.slice(0, 50) : ''}`);
       }
     }
