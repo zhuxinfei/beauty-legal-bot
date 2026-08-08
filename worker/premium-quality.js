@@ -1144,10 +1144,9 @@ export function buildPremiumDingTalkMarkdown({ period = {}, cards = [], preselec
     lines.push('', `## ${module}`);
     for (const card of items) {
       number += 1;
-      const badge = card.tier === 'action' || card.score >= 95 ? '🔴' : '🔵';
       lines.push(
         '',
-        `### ${number}. ${badge} ${esc(displayTitle(card))}`,
+        `### ${number}. ${esc(displayTitle(card))}`,
         `- **来源**：${esc(card.source_name)} / ${esc(card.country)} / ${esc(card.published_at)} / [原文](${card.source_url})`,
         ...renderFieldBlock('事实依据', renderFactLines(card)),
         ...renderFieldBlock('法务观察', renderJudgementLines(card)),
