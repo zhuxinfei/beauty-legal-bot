@@ -318,11 +318,13 @@ console.log(`Event dedup: ${cards.length} → ${dedupedCards.length} cards (${du
 // Step 7: Cross-week dedup — skip cards previously delivered
 function cardFingerprint(card) {
   const hf = card.hard_facts || {};
-  const party = (hf.involved_party || '').replace(/\s+/g, '').slice(0, 20);
-  const doc = (hf.document_number || '').replace(/\s+/g, '').slice(0, 20);
-  const title = (card.title || '').replace(/\s+/g, '').slice(0, 30);
-  // Stable fingerprint: party+doc_number or title prefix
-  return party + doc || title;
+  const party = (hf.involved_party || '').replace(/\s+/g, '').slice(0, 30);
+  const doc = (hf.document_number || '').replace(/\s+/g, '').slice(0, 30);
+  const title = (card.title || '').replace(/\s+/g, '').slice(0, 50);
+  // Primary: party + document_number (most stable)
+  if (party && doc) return (party + doc).toLowerCase();
+  // Secondary: title prefix (catches cards with same content but different sources)
+  return title.toLowerCase();
 }
 const freshCards = dedupedCards.filter(card => {
   const fp = cardFingerprint(card);
