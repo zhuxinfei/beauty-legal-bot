@@ -272,10 +272,17 @@ const TARGET = 24;
 const MIN_PER_MODULE = 2;
 const MAX_PER_MODULE = 5;
 
+// Normalize title for dedup: strip punctuation, common suffixes, whitespace
+function dedupKey(card) {
+  const url = (card.source_url || '').trim();
+  const title = (card.title || '').replace(/[\s，,。；;：:｜|_\-\\/]/g, '').replace(/(?:搜狐|腾讯|网易|新浪|凤凰|QQ|头条|百度).*$/i, '').slice(0, 40).toLowerCase();
+  return `${url}|${title}`;
+}
+
 for (const card of sorted) {
   const mod = MODULE_MAP[card.module] || card.module;
-  const key = `${card.source_url || ''}|${card.title}`.replace(/\s+/g, '');
-  if (seen.has(key)) continue;
+  const key = dedupKey(card);
+  if (seen.has(key)) { console.log(`  DEDUP ${card.title.slice(0, 40)}`); continue; }
   if ((moduleCounts.get(mod) || 0) >= MAX_PER_MODULE) continue;
   if (selected.length >= TARGET) break;
   seen.add(key);
