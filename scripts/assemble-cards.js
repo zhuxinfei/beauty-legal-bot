@@ -257,8 +257,31 @@ for (const { c, relevant, reason } of reviews) {
   cards.push({ ...card, score: validation.score, tier: validation.tier });
 }
 
-// Step 6: Select balanced portfolio
-const sorted = cards.sort((a, b) => b.score - a.score);
+// Step 6: Event-level dedup — one card per event
+// Map each record URL to its corroboration event_id, then keep only the
+// highest-scoring card per event group.
+const urlToEvent = new Map();
+for (const pkg of (corroboration.packages || [])) {
+  const eventId = pkg.event_id || '';
+  for (const src of (pkg.supporting_sources || [])) {
+    if (src.url) urlToEvent.set(src.url.trim(), eventId);
+  }
+  if (pkg.canonical_record?.url) urlToEvent.set(pkg.canonical_record.url.trim(), eventId);
+}
+const eventCards = new Map();
+for (const card of cards) {
+  const cardUrl = (card.source_url || '').trim();
+  const eventId = urlToEvent.get(cardUrl) || cardUrl;
+  const existing = eventCards.get(eventId);
+  if (!existing || (card.score || 0) > (existing.score || 0)) {
+    eventCards.set(eventId, card);
+  }
+}
+const dedupedCards = [...eventCards.values()];
+console.log(`Event dedup: ${cards.length} → ${dedupedCards.length} cards (${cards.length - dedupedCards.length} same-event removed)`);
+
+// Step 7: Select balanced portfolio
+const sorted = dedupedCards.sort((a, b) => b.score - a.score);
 const selected = [];
 const moduleCounts = new Map();
 const seen = new Set();
