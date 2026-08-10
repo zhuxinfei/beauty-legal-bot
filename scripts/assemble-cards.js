@@ -9,14 +9,9 @@ import { corroborateEvidenceCandidates } from '../worker/evidence-corroboration.
 import {
   premiumCardFromCandidate,
   validatePremiumEvidenceCard,
-  auditPremiumEvidenceCards,
   buildPremiumDingTalkMarkdown,
 } from '../worker/premium-quality.js';
 import { cleanArticleEvidence } from '../worker/article-evidence.js';
-
-// Client context — used to prioritize geographically relevant content
-const CLIENT = { name: '杭州丽知', cities: ['杭州', '上海', '郑州'], province: '浙江' };
-const IS_CLIENT_CITY = new RegExp(CLIENT.cities.join('|'));
 
 const inputPath = resolve(process.argv[2] || 'out/hydrated-authority.json');
 const outputPath = resolve(process.argv[3] || 'out/assembled-cards.json');
@@ -142,19 +137,13 @@ const corroboration = corroborateEvidenceCandidates(candidates);
 console.log(`Corroboration: ${corroboration.audit.records} → ${corroboration.audit.events} events (${corroboration.audit.corroborated} corrob, ${corroboration.audit.primaryVerified} primary)`);
 
 // Step 4: Build cards — accept all grades that have substantive text, let premium gate filter
+const corrobUrls = new Set(corroboration.candidates.map(c => c.url));
 let pool = [
   ...corroboration.candidates,
   ...candidates.filter(c =>
-    !corroboration.candidates.some(cc => cc.url === c.url)
+    !corrobUrls.has(c.url)
     && c.evidence_grade !== 'reject'
     && (c.article_text || '').length > 200
-  ),
-  // Lead-only candidates with substantive body text can still produce useful cards
-  ...candidates.filter(c =>
-    !corroboration.candidates.some(cc => cc.url === c.url)
-    && c.evidence_grade === 'lead_only'
-    && (c.article_text || '').length > 300
-    && BEAUTY_PATTERN.test(c.title + ' ' + c.article_text)
   ),
 ];
 // Deduplicate by URL
@@ -174,8 +163,8 @@ const aiKey = process.env.AI_API_KEY;
 const aiBaseUrl = process.env.AI_API_BASE_URL || 'https://api.deepseek.com/v1';
 const aiModel = process.env.AI_MODEL || 'deepseek-chat';
 
-// AI reads the full article and judges (a) beauty relevance (b) if it's a duplicate
-// of any previously accepted article. Maintains a running list of accepted summaries.
+// Running list of accepted articles for AI duplicate detection.
+// Must be declared before fingerprint loading (which seeds it with previous week's entries).
 const acceptedSummaries = []; // { title, facts, eventSig }
 async function aiReview(title, text) {
   if (!aiKey) return { relevant: true, reason: 'no-api-key', eventSig: '', isDuplicate: false };
@@ -243,7 +232,7 @@ for (let i = 0; i < pool.length; i += 4) {
   reviews.push(...results);
 }
 
-for (const { c, relevant, reason, isDuplicate, dupOf } of reviews) {
+for (const { c, relevant, reason, eventSig, isDuplicate, dupOf } of reviews) {
   if (!relevant) {
     console.log(`  SKIP [ai-not-beauty]: ${(reason||'').slice(0,50)} | ${(c.title||'').slice(0,30)}`);
     continue;
@@ -319,9 +308,9 @@ for (const { c, relevant, reason, isDuplicate, dupOf } of reviews) {
   acceptedSummaries.push({
     title: card.title.slice(0, 60),
     facts: (card.facts || []).join('；').slice(0, 150),
-    eventSig: reason.eventSig || '',
+    eventSig: eventSig || '',
   });
-  cards.push({ ...card, score: validation.score, tier: validation.tier, eventSig: reason.eventSig || '' });
+  cards.push({ ...card, score: validation.score, tier: validation.tier, eventSig: eventSig || '' });
 }
 
 // Step 6: Event dedup — one card per event
@@ -477,19 +466,19 @@ const sections = MODULES.map(mod => ({
 }));
 
 const report = { period, sections };
-const audit = auditPremiumEvidenceCards(selected);
-const markdown = buildPremiumDingTalkMarkdown({ period, cards: selected });
+// preselecteded: true avoids re-validating every card inside the markdown builder
+const markdown = buildPremiumDingTalkMarkdown({ period, cards: selected, preselected: true });
 
 // Save this week's accepted articles for next week's AI dedup
 writeFileSync(FINGERPRINTS_PATH, JSON.stringify(acceptedSummaries), 'utf8');
 console.log(`Saved ${acceptedSummaries.length} articles to ${FINGERPRINTS_PATH} for cross-week dedup`);
 
-writeFileSync(outputPath, JSON.stringify({ report, audit, cards: selected }, null, 2) + '\n');
+const serialized = JSON.stringify({ report, cards: selected }, null, 2) + '\n';
+writeFileSync(outputPath, serialized);
 writeFileSync(outputPath.replace('.json', '.md'), markdown, 'utf8');
 // Overwrite the pipeline report so CI produces a single consolidated output
-const mainMd = resolve('out', 'latest-report.md');
-writeFileSync(mainMd, markdown, 'utf8');
-writeFileSync(resolve('out', 'latest-report.json'), JSON.stringify({ report, audit, cards: selected }, null, 2) + '\n');
+writeFileSync(resolve('out', 'latest-report.md'), markdown, 'utf8');
+writeFileSync(resolve('out', 'latest-report.json'), serialized);
 
 console.log(`\n=== FINAL ===`);
 console.log(`Period: ${period.start} → ${period.end}`);
