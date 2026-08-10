@@ -484,4 +484,4 @@ console.log(`\n=== FINAL ===`);
 console.log(`Period: ${period.start} → ${period.end}`);
 console.log(`Cards: ${selected.length}`);
 sections.forEach(s => console.log(`  ${s.module}: ${s.items.length}`));
-console.log(`Wrote: ${outputPath.replace('.json', '.md')} → also ${mainMd}`);
+console.log(`Wrote: ${outputPath.replace('.json', '.md')}`);
