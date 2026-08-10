@@ -22,15 +22,19 @@ const inputPath = resolve(process.argv[2] || 'out/hydrated-authority.json');
 const outputPath = resolve(process.argv[3] || 'out/assembled-cards.json');
 const FINGERPRINTS_PATH = resolve('out/seen-fingerprints.json');
 
-// Load previously-seen cards for cross-week dedup — simple title-based matching.
-let previousTitles = new Set();
+// Load previously-seen cards for cross-week dedup.
+// Each entry: { sig: AI eventSig or title, title: original title }
+let previousSignatures = new Map(); // normalized sig → original title
 try {
   if (existsSync(FINGERPRINTS_PATH)) {
     const raw = JSON.parse(readFileSync(FINGERPRINTS_PATH, 'utf8'));
     if (Array.isArray(raw)) {
-      previousTitles = new Set(raw.map(t => t.replace(/\s+/g, '').slice(0, 40).toLowerCase()));
-      console.log(`Loaded ${raw.length} previous titles for dedup`);
+      for (const entry of raw) {
+        const norm = (typeof entry === 'string' ? entry : (entry.sig || entry.title || '')).replace(/\s+/g, '').slice(0, 50).toLowerCase();
+        if (norm) previousSignatures.set(norm, entry.title || entry);
+      }
     }
+    console.log(`Loaded ${previousSignatures.size} previous signatures for dedup`);
   }
 } catch (_) { /* first run */ }
 
@@ -352,10 +356,11 @@ for (const card of cards) {
 }
 console.log(`Event dedup: ${cards.length} → ${dedupedCards.length} cards (${dupEvents.size} duplicates removed)`);
 
-// Step 7: Cross-week dedup — simple title matching
+// Step 7: Cross-week dedup — eventSig primary, title fallback
 const freshCards = dedupedCards.filter(card => {
-  const norm = (card.title || '').replace(/\s+/g, '').slice(0, 40).toLowerCase();
-  if (previousTitles.has(norm)) {
+  const sig = (card.eventSig || card.title || '').replace(/\s+/g, '').slice(0, 50).toLowerCase();
+  const titleNorm = (card.title || '').replace(/\s+/g, '').slice(0, 40).toLowerCase();
+  if (previousSignatures.has(sig) || (sig !== titleNorm && previousSignatures.has(titleNorm))) {
     console.log(`  HISTORIC-DUP: ${card.title.slice(0, 40)}`);
     return false;
   }
@@ -483,14 +488,17 @@ const report = { period, sections };
 const audit = auditPremiumEvidenceCards(selected);
 const markdown = buildPremiumDingTalkMarkdown({ period, cards: selected });
 
-// Save titles for cross-week dedup (simple array, no merges, no formats)
-const allTitles = [...previousTitles];
+// Save signatures for cross-week dedup
+const allSigs = [];
+for (const [sig] of previousSignatures) allSigs.push({ sig });
 for (const card of selected) {
-  const norm = (card.title || '').replace(/\s+/g, '').slice(0, 40).toLowerCase();
-  if (!allTitles.includes(norm)) allTitles.push(norm);
+  const sig = (card.eventSig || card.title || '').replace(/\s+/g, '').slice(0, 50).toLowerCase();
+  if (!allSigs.find(s => s.sig === sig)) {
+    allSigs.push({ sig, title: card.title.slice(0, 60) });
+  }
 }
-writeFileSync(FINGERPRINTS_PATH, JSON.stringify(allTitles), 'utf8');
-console.log(`Saved ${allTitles.length} card titles to ${FINGERPRINTS_PATH}`);
+writeFileSync(FINGERPRINTS_PATH, JSON.stringify(allSigs), 'utf8');
+console.log(`Saved ${allSigs.length} signatures to ${FINGERPRINTS_PATH}`);
 
 writeFileSync(outputPath, JSON.stringify({ report, audit, cards: selected }, null, 2) + '\n');
 writeFileSync(outputPath.replace('.json', '.md'), markdown, 'utf8');
