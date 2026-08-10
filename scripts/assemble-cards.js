@@ -261,9 +261,10 @@ for (const { c, relevant, reason, isDuplicate, dupOf } of reviews) {
   });
   const validation = validatePremiumEvidenceCard(card);
   if (!validation.accepted) {
-    // When AI confirms beauty relevance, don't reject for page structure or source type
-    if ((validation.reason === 'navigation-or-generic-page' || validation.reason === 'non-authoritative-source') && reason.relevant) {
-      console.log(`  AI-OVERRIDE [${validation.reason}]: ${card.title.slice(0, 15)}... — AI confirmed relevance`);
+    // When AI confirms beauty relevance, bypass structural/source/title gates
+    const bypassReasons = ['navigation-or-generic-page', 'non-authoritative-source', 'missing-chinese-display-title'];
+    if (bypassReasons.includes(validation.reason) && relevant) {
+      console.log(`  AI-OVERRIDE [${validation.reason}]: ${card.title.slice(0, 30)}...`);
       // fall through — accept the card
     } else {
       console.log(`  SKIP [${validation.reason}]: ${card.title.slice(0, 50)}`);
