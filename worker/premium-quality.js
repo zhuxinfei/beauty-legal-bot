@@ -950,16 +950,32 @@ function esc(value) {
 function translateBriefText(value) {
   return text(value)
     .replace(/Product Safety Alerts, Reports and Recalls/gi, '英国化妆品产品安全通报')
+    .replace(/Product Safety Report:/gi, '产品安全报告：')
+    .replace(/Product Recall:/gi, '产品召回：')
     .replace(/The product has been withdrawn from the market\./gi, '该产品已被采取撤出市场措施。')
     .replace(/withdrawn from the market/gi, '已撤出市场')
     .replace(/Risk case/gi, '风险案例')
+    .replace(/Risk level:?\s*Serious/gi, '风险等级：严重')
+    .replace(/Risk type:?\s*Chemical/gi, '风险类型：化学')
+    .replace(/Risk type:?\s*Microbiological/gi, '风险类型：微生物')
+    .replace(/present a serious chemical risk/gi, '构成严重化学风险')
     .replace(/Impacts market sales/gi, '影响市场销售')
     .replace(/Quality team should/gi, '质量团队应')
     .replace(/market sales/gi, '市场销售')
     .replace(/monitor follow-up defect and batch information/gi, '跟踪后续缺陷和批次信息')
     .replace(/UK product safety service/gi, '英国产品安全服务')
     .replace(/official recall/gi, '正式召回')
-    .replace(/withdrawal/gi, '撤出市场');
+    .replace(/withdrawal/gi, '撤出市场')
+    .replace(/The product presents a serious chemical risk/gi, '该产品构成严重化学风险')
+    .replace(/The product has been recalled from end users/gi, '该产品已从终端用户召回')
+    .replace(/recalled from end users/gi, '已从终端用户召回')
+    .replace(/alert number:?\s*/gi, '通报编号：')
+    .replace(/notifying country:?\s*/gi, '通报国家：')
+    .replace(/Product category:?\s*Cosmetics/gi, '产品类别：化妆品')
+    .replace(/Corrective measures:?\s*/gi, '整改措施：')
+    .replace(/Recall of the product from end users/gi, '从终端用户召回产品')
+    .replace(/Withdrawal of the product from the market/gi, '产品撤出市场')
+    .replace(/Removal of the product listings/gi, '下架产品链接');
 }
 
 function cleanBriefPart(value) {

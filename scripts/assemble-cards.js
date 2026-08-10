@@ -402,7 +402,13 @@ if (ipSelected.length < MIN_PER_MODULE && ipSeedCases.length) {
   for (const seed of ipSeedCases) {
     const seedDate = new Date(seed.published_at + 'T00:00:00Z');
     const daysAgo = (now - seedDate) / 86400000;
-    if (daysAgo > 90) continue; // only recent-enough seed cases
+    if (daysAgo > 90) continue;
+    // Check cross-week dedup: skip if this seed was already delivered
+    const seedNorm = (seed.title || '').replace(/\s+/g, '').slice(0, 40).toLowerCase();
+    if (acceptedSummaries.some(s => (s.title || '').replace(/\s+/g, '').slice(0, 40).toLowerCase() === seedNorm)) {
+      console.log(`  IP SEED SKIP [historic-dup]: ${seed.title.slice(0, 40)}`);
+      continue;
+    }
     const card = premiumCardFromCandidate({
       ...seed, url: seed.source_url, final_url: seed.source_url,
       article_text: seed.evidence_text,
