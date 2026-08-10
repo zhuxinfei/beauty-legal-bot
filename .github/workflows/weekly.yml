@@ -81,12 +81,16 @@ jobs:
         run: |
           mkdir -p out
           PREV_RUN=$(gh run list --workflow weekly.yml --status completed --limit 2 --json databaseId --jq '.[0].databaseId' 2>/dev/null || echo "")
+          echo "[dedupe] PREV_RUN=$PREV_RUN"
           if [ -n "$PREV_RUN" ]; then
             rm -rf out/prev
-            gh run download "$PREV_RUN" --name "pipeline-evidence-$PREV_RUN" --dir out/prev 2>/dev/null || true
+            echo "[dedupe] downloading artifact from run $PREV_RUN..."
+            gh run download "$PREV_RUN" --name "pipeline-evidence-$PREV_RUN" --dir out/prev 2>/dev/null || echo "[dedupe] download failed"
             if [ -f out/prev/seen-fingerprints.json ]; then
               cp out/prev/seen-fingerprints.json out/seen-fingerprints.json
               echo "[dedupe] restored fingerprints from run $PREV_RUN"
+            else
+              echo "[dedupe] no fingerprint file in artifact"
             fi
           fi
         env:
