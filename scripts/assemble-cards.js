@@ -428,6 +428,7 @@ if (ipSelected.length < MIN_PER_MODULE && ipSeedCases.length) {
     moduleCounts.set(mod, (moduleCounts.get(mod) || 0) + 1);
     selected.push({ ...card, module: mod, score: validation.score, tier: validation.tier });
     console.log(`  IP SEED + ${card.title.slice(0, 40)}`);
+    acceptedSummaries.push({ title: card.title.slice(0, 60), facts: (card.facts || []).join('；').slice(0, 150), eventSig: card.eventSig || '' });
     if (ipSelected.length + 1 >= MIN_PER_MODULE) break;
   }
 }
