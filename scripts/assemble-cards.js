@@ -15,7 +15,7 @@ import { cleanArticleEvidence } from '../worker/article-evidence.js';
 
 const inputPath = resolve(process.argv[2] || 'out/hydrated-authority.json');
 const outputPath = resolve(process.argv[3] || 'out/assembled-cards.json');
-const FINGERPRINTS_PATH = resolve('out/seen-fingerprints.json');
+const FINGERPRINTS_PATH = resolve('docs', 'quality', 'seen-cards.json');
 
 // Load previous week's accepted articles so AI can detect cross-week duplicates.
 // AI's aiReview() already compares each article against acceptedSummaries —

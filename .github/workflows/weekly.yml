@@ -77,26 +77,6 @@ jobs:
     steps:
       - uses: actions/checkout@v5
 
-      - name: Restore dedupe fingerprints from previous run
-        run: |
-          mkdir -p out
-          PREV_RUN=$(gh run list --workflow weekly.yml --status completed --limit 2 --json databaseId --jq '.[0].databaseId' 2>/dev/null || echo "")
-          echo "[dedupe] PREV_RUN=$PREV_RUN"
-          if [ -n "$PREV_RUN" ]; then
-            rm -rf out/prev
-            echo "[dedupe] downloading artifact from run $PREV_RUN..."
-            gh run download "$PREV_RUN" --name "pipeline-evidence-$PREV_RUN" --dir out/prev 2>/dev/null || echo "[dedupe] download failed"
-            if [ -f out/prev/seen-fingerprints.json ]; then
-              cp out/prev/seen-fingerprints.json out/seen-fingerprints.json
-              echo "[dedupe] restored fingerprints from run $PREV_RUN"
-            else
-              echo "[dedupe] no fingerprint file in artifact"
-            fi
-          fi
-        env:
-          GH_TOKEN: ${{ github.token }}
-        continue-on-error: true
-
       - uses: actions/setup-node@v5
         with:
           node-version: '22'
@@ -134,6 +114,16 @@ jobs:
 
       - name: Assemble report from hydrated evidence
         run: node scripts/assemble-cards.js "$SOURCE_HYDRATION_FILE" out/assembled-cards.json
+
+      - name: Commit cross-week dedup fingerprints
+        run: |
+          if [ -f docs/quality/seen-cards.json ]; then
+            git config user.name "github-actions[bot]"
+            git config user.email "github-actions[bot]@users.noreply.github.com"
+            git add docs/quality/seen-cards.json
+            git commit -m "update dedup fingerprints $(date +%Y-%m-%d)" || echo "no changes"
+            git push origin HEAD || echo "push skipped"
+          fi
 
       - name: Render PDF report
         run: node scripts/render-report-pdf.js out/latest-report.md
