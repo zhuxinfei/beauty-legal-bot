@@ -290,6 +290,12 @@ for (const { c, relevant, reason, isDuplicate, dupOf } of reviews) {
     continue;
   }
 
+  // Reject clearly non-beauty businesses regardless of what regulations they violated
+  if (/(?:五金|建材|食品|餐饮|药品|医疗器械|汽车|房地产|保险|银行|教育培训|网吧|歌厅|浴池|洗浴|理发店|便利店)/i.test(titleText) && !/(?:化妆品|美妆|护肤|彩妆|香水|防晒|面膜|口红|品牌)/i.test(titleText)) {
+    console.log(`  SKIP [non-beauty-biz]: ${card.title.slice(0, 50)}`);
+    continue;
+  }
+
   console.log(`  OK  ${card.module.slice(0, 8)} | score=${validation.score} | ${card.title.slice(0, 40)}`);
 
   // AI polish: refine legal_signal and business_impact for action-tier cards
