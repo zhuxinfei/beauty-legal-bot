@@ -469,9 +469,10 @@ const report = { period, sections };
 // preselecteded: true avoids re-validating every card inside the markdown builder
 const markdown = buildPremiumDingTalkMarkdown({ period, cards: selected, preselected: true });
 
-// Save this week's accepted articles for next week's AI dedup
-writeFileSync(FINGERPRINTS_PATH, JSON.stringify(acceptedSummaries), 'utf8');
-console.log(`Saved ${acceptedSummaries.length} articles to ${FINGERPRINTS_PATH} for cross-week dedup`);
+// Save this week's accepted articles for next week's AI dedup.
+// Keep only the most recent 120 entries to prevent unlimited growth.
+writeFileSync(FINGERPRINTS_PATH, JSON.stringify(acceptedSummaries.slice(-120)), 'utf8');
+console.log(`Saved ${Math.min(acceptedSummaries.length, 120)} articles to ${FINGERPRINTS_PATH} for cross-week dedup`);
 
 const serialized = JSON.stringify({ report, cards: selected }, null, 2) + '\n';
 writeFileSync(outputPath, serialized);
