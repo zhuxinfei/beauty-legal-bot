@@ -22,19 +22,18 @@ const inputPath = resolve(process.argv[2] || 'out/hydrated-authority.json');
 const outputPath = resolve(process.argv[3] || 'out/assembled-cards.json');
 const FINGERPRINTS_PATH = resolve('out/seen-fingerprints.json');
 
-// Load previously-seen cards for cross-week dedup.
-// Each entry: { sig: AI eventSig or title, title: original title }
-let previousSignatures = new Map(); // normalized sig → original title
+// Load previous week's accepted articles so AI can detect cross-week duplicates.
+// AI's aiReview() already compares each article against acceptedSummaries —
+// we just need to seed the list with last week's entries.
 try {
   if (existsSync(FINGERPRINTS_PATH)) {
     const raw = JSON.parse(readFileSync(FINGERPRINTS_PATH, 'utf8'));
     if (Array.isArray(raw)) {
       for (const entry of raw) {
-        const norm = (typeof entry === 'string' ? entry : (entry.sig || entry.title || '')).replace(/\s+/g, '').slice(0, 50).toLowerCase();
-        if (norm) previousSignatures.set(norm, entry.title || entry);
+        if (entry.title) acceptedSummaries.push({ title: entry.title, facts: entry.facts || '', eventSig: entry.eventSig || '' });
       }
+      console.log(`Loaded ${raw.length} articles from previous week for cross-week dedup`);
     }
-    console.log(`Loaded ${previousSignatures.size} previous signatures for dedup`);
   }
 } catch (_) { /* first run */ }
 
@@ -356,22 +355,8 @@ for (const card of cards) {
 }
 console.log(`Event dedup: ${cards.length} → ${dedupedCards.length} cards (${dupEvents.size} duplicates removed)`);
 
-// Step 7: Cross-week dedup — eventSig primary, title fallback
-const freshCards = dedupedCards.filter(card => {
-  const sig = (card.eventSig || card.title || '').replace(/\s+/g, '').slice(0, 50).toLowerCase();
-  const titleNorm = (card.title || '').replace(/\s+/g, '').slice(0, 40).toLowerCase();
-  if (previousSignatures.has(sig) || (sig !== titleNorm && previousSignatures.has(titleNorm))) {
-    console.log(`  HISTORIC-DUP: ${card.title.slice(0, 40)}`);
-    return false;
-  }
-  return true;
-});
-if (freshCards.length < dedupedCards.length) {
-  console.log(`Cross-week dedup: ${dedupedCards.length} → ${freshCards.length} cards`);
-}
-
-// Step 8: Select balanced portfolio
-const sorted = freshCards.sort((a, b) => b.score - a.score);
+// Step 7: Select balanced portfolio
+const sorted = dedupedCards.sort((a, b) => b.score - a.score);
 const selected = [];
 const moduleCounts = new Map();
 const seen = new Set();
@@ -488,17 +473,9 @@ const report = { period, sections };
 const audit = auditPremiumEvidenceCards(selected);
 const markdown = buildPremiumDingTalkMarkdown({ period, cards: selected });
 
-// Save signatures for cross-week dedup
-const allSigs = [];
-for (const [sig] of previousSignatures) allSigs.push({ sig });
-for (const card of selected) {
-  const sig = (card.eventSig || card.title || '').replace(/\s+/g, '').slice(0, 50).toLowerCase();
-  if (!allSigs.find(s => s.sig === sig)) {
-    allSigs.push({ sig, title: card.title.slice(0, 60) });
-  }
-}
-writeFileSync(FINGERPRINTS_PATH, JSON.stringify(allSigs), 'utf8');
-console.log(`Saved ${allSigs.length} signatures to ${FINGERPRINTS_PATH}`);
+// Save this week's accepted articles for next week's AI dedup
+writeFileSync(FINGERPRINTS_PATH, JSON.stringify(acceptedSummaries), 'utf8');
+console.log(`Saved ${acceptedSummaries.length} articles to ${FINGERPRINTS_PATH} for cross-week dedup`);
 
 writeFileSync(outputPath, JSON.stringify({ report, audit, cards: selected }, null, 2) + '\n');
 writeFileSync(outputPath.replace('.json', '.md'), markdown, 'utf8');
