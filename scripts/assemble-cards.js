@@ -18,19 +18,24 @@ const outputPath = resolve(process.argv[3] || 'out/assembled-cards.json');
 const FINGERPRINTS_PATH = resolve('docs', 'quality', 'seen-cards.json');
 
 // Load previous week's accepted articles so AI can detect cross-week duplicates.
-// AI's aiReview() already compares each article against acceptedSummaries —
-// we just need to seed the list with last week's entries.
 try {
-  if (existsSync(FINGERPRINTS_PATH)) {
+  const exists = existsSync(FINGERPRINTS_PATH);
+  console.log(`[dedup] fingerprint file ${FINGERPRINTS_PATH}: ${exists ? 'EXISTS' : 'MISSING'}`);
+  if (exists) {
     const raw = JSON.parse(readFileSync(FINGERPRINTS_PATH, 'utf8'));
-    if (Array.isArray(raw)) {
+    console.log(`[dedup] fingerprint file type: ${typeof raw}, isArray: ${Array.isArray(raw)}, length: ${Array.isArray(raw) ? raw.length : 'N/A'}`);
+    if (Array.isArray(raw) && raw.length > 0) {
       for (const entry of raw) {
-        if (entry.title) acceptedSummaries.push({ title: entry.title, facts: entry.facts || '', eventSig: entry.eventSig || '' });
+        if (entry && entry.title) {
+          acceptedSummaries.push({ title: entry.title, facts: entry.facts || '', eventSig: entry.eventSig || '' });
+        }
       }
-      console.log(`Loaded ${raw.length} articles from previous week for cross-week dedup`);
+      console.log(`[dedup] loaded ${acceptedSummaries.length} articles from previous weeks`);
     }
   }
-} catch (_) { /* first run */ }
+} catch (err) {
+  console.warn(`[dedup] load failed: ${(err?.message || String(err)).slice(0, 100)}`);
+}
 
 console.log(`Loading hydration records from ${inputPath}...`);
 const payload = JSON.parse(readFileSync(inputPath, 'utf8'));
