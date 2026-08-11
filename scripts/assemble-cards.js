@@ -17,24 +17,15 @@ const inputPath = resolve(process.argv[2] || 'out/hydrated-authority.json');
 const outputPath = resolve(process.argv[3] || 'out/assembled-cards.json');
 const FINGERPRINTS_PATH = resolve('docs', 'quality', 'seen-cards.json');
 
-// Running list of accepted articles for AI duplicate detection.
-// Declared BEFORE fingerprint loading to avoid TDZ error.
-const acceptedSummaries = [];
-
-// Load previous week's accepted articles so AI can detect cross-week duplicates.
+// Cross-week dedup: URL-based. The source URL is the most stable
+// identifier — no title matching, eventSig, or AI comparison needed.
+let seenUrls = new Set();
 try {
-  const exists = existsSync(FINGERPRINTS_PATH);
-  console.log(`[dedup] fingerprint file ${FINGERPRINTS_PATH}: ${exists ? 'EXISTS' : 'MISSING'}`);
-  if (exists) {
+  if (existsSync(FINGERPRINTS_PATH)) {
     const raw = JSON.parse(readFileSync(FINGERPRINTS_PATH, 'utf8'));
-    console.log(`[dedup] fingerprint file type: ${typeof raw}, isArray: ${Array.isArray(raw)}, length: ${Array.isArray(raw) ? raw.length : 'N/A'}`);
-    if (Array.isArray(raw) && raw.length > 0) {
-      for (const entry of raw) {
-        if (entry && entry.title) {
-          acceptedSummaries.push({ title: entry.title, facts: entry.facts || '', eventSig: entry.eventSig || '' });
-        }
-      }
-      console.log(`[dedup] loaded ${acceptedSummaries.length} articles from previous weeks`);
+    if (Array.isArray(raw)) {
+      seenUrls = new Set(raw);
+      console.log(`[dedup] loaded ${seenUrls.size} previously delivered URLs`);
     }
   }
 } catch (err) {
@@ -173,56 +164,22 @@ const aiBaseUrl = process.env.AI_API_BASE_URL || 'https://api.deepseek.com/v1';
 const aiModel = process.env.AI_MODEL || 'deepseek-chat';
 
 async function aiReview(title, text) {
-  if (!aiKey) return { relevant: true, reason: 'no-api-key', eventSig: '', isDuplicate: false };
+  if (!aiKey) return { relevant: true, reason: 'no-api-key' };
   const excerpt = (text || '').slice(0, 4000);
-  // Only send the last 10 accepted articles for comparison (prevents prompt bloat)
-  const recentAccepted = acceptedSummaries.slice(-10);
-  const prevList = recentAccepted.length > 0
-    ? `\n\n已采纳的文章列表（判断新文章是否与之重复）：\n${recentAccepted.map((s, i) => `${i + 1}. ${s.title} | ${s.facts}`).join('\n')}`
-    : '';
   try {
     const resp = await requestAiChat({
       apiKey: aiKey, baseUrl: aiBaseUrl, model: aiModel,
       messages: [
-        { role: 'system', content: `你是美妆法务情报审核员。阅读文章后回答：
-1. 是否与化妆品/美妆行业实质相关？
-2. 事件唯一标识：文号、案号、公告编号或"企业全称+日期"。
-3. 是否与"已采纳的文章列表"中任何一篇是同一事件（不同媒体对同一事件的报道算重复）？
-回复纯JSON：{"relevant":true或false,"event_sig":"文号或案号或企业名+日期","is_duplicate":true或false,"dup_of":"如果是重复，写出列表中哪一篇","reason":"一句话"}`
-        },
-        { role: 'user', content: `标题：${title}\n正文：${excerpt}${prevList}` },
+        { role: 'system', content: '判断文章是否与化妆品/美妆行业法规、处罚、知识产权、产品安全、进出口或行业动态实质相关。仅回复JSON：{"relevant":true或false,"reason":"一句话"}' },
+        { role: 'user', content: `标题：${title}\n正文：${excerpt}` },
       ],
-      temperature: 0, maxTokens: 800, timeoutMs: 45000, maxAttempts: 1,
+      temperature: 0, maxTokens: 200, timeoutMs: 30000, maxAttempts: 1,
     });
     const j = JSON.parse(resp.replace(/```json\s*|\s*```/g, '').trim());
-    return {
-      relevant: Boolean(j.relevant),
-      eventSig: j.event_sig || '',
-      isDuplicate: Boolean(j.is_duplicate),
-      dupOf: j.dup_of || '',
-      reason: j.reason || '',
-    };
-  } catch (err) {
-    const msg = (err?.message || String(err)).slice(0, 60);
-    // Retry once on JSON truncation
-    if (msg.includes('end of JSON') || msg.includes('Unexpected end')) {
-      try {
-        await new Promise(r => setTimeout(r, 2000));
-        const retryResp = await requestAiChat({
-          apiKey: aiKey, baseUrl: aiBaseUrl, model: aiModel,
-          messages: [
-            { role: 'system', content: '你是美妆法务情报审核员。判断文章是否与美妆行业实质相关，是否与已采纳列表重复。回复JSON：{"relevant":true或false,"event_sig":"","is_duplicate":true或false,"dup_of":"","reason":"一句话"}' },
-            { role: 'user', content: `标题：${title}\n正文：${excerpt.slice(0, 3000)}` },
-          ],
-          temperature: 0, maxTokens: 400, timeoutMs: 30000, maxAttempts: 1,
-        });
-        const j2 = JSON.parse(retryResp.replace(/```json\s*|\s*```/g, '').trim());
-        return { relevant: Boolean(j2.relevant), eventSig: j2.event_sig || '', isDuplicate: Boolean(j2.is_duplicate), dupOf: j2.dup_of || '', reason: j2.reason || '' };
-      } catch (_) {}
-    }
-    console.warn(`[AI] call failed (${msg}), using regex fallback`);
+    return { relevant: Boolean(j.relevant), reason: j.reason || '' };
+  } catch (_) {
     const fallback = isArticleAboutBeauty(title, text);
-    return { relevant: fallback, reason: fallback ? 'regex-pass' : 'regex-reject', eventSig: '', isDuplicate: false };
+    return { relevant: fallback, reason: fallback ? 'regex-pass' : 'regex-reject' };
   }
 }
 
@@ -238,13 +195,15 @@ for (let i = 0; i < pool.length; i += 4) {
   reviews.push(...results);
 }
 
-for (const { c, relevant, reason, eventSig, isDuplicate, dupOf } of reviews) {
+for (const { c, relevant, reason } of reviews) {
   if (!relevant) {
     console.log(`  SKIP [ai-not-beauty]: ${(reason||'').slice(0,50)} | ${(c.title||'').slice(0,30)}`);
     continue;
   }
-  if (isDuplicate) {
-    console.log(`  SKIP [ai-dup]: same as "${(dupOf||'').slice(0,40)}" | ${(c.title||'').slice(0,30)}`);
+  // URL-based cross-week dedup
+  const cardUrl = (c.source_url || c.final_url || c.url || '').trim();
+  if (cardUrl && seenUrls.has(cardUrl)) {
+    console.log(`  SKIP [url-dup]: ${(c.title||'').slice(0,40)}`);
     continue;
   }
   const host = String(c.final_url || c.url || '');
@@ -310,55 +269,11 @@ for (const { c, relevant, reason, eventSig, isDuplicate, dupOf } of reviews) {
     } catch (_) { /* keep original if AI fails */ }
   }
 
-    // Record in accepted list so subsequent AI calls can detect duplicates
-  acceptedSummaries.push({
-    title: card.title.slice(0, 60),
-    facts: (card.facts || []).join('；').slice(0, 150),
-    eventSig: eventSig || '',
-  });
-  cards.push({ ...card, score: validation.score, tier: validation.tier, eventSig: eventSig || '' });
+    cards.push({ ...card, score: validation.score, tier: validation.tier });
 }
 
-// Step 6: Event dedup — one card per event
-// Primary: AI-extracted eventSig (文号/案号/主体+日期)
-// Fallback: hard-fact anchor matching (party + doc_number or party + amount + product)
-const seenEvents = new Map();
-function eventKey(card) {
-  // AI-extracted signature takes priority
-  const sig = (card.eventSig || '').trim();
-  if (sig) return sig.replace(/\s+/g, '').toLowerCase();
-  // Fallback: hard-fact anchors
-  const hf = card.hard_facts || {};
-  const party = (hf.involved_party || '').replace(/\s+/g, '');
-  const doc = (hf.document_number || '').replace(/\s+/g, '');
-  const amount = (hf.penalty_amount || '').replace(/\s+/g, '');
-  if (party && doc) return (party + doc).toLowerCase();
-  if (party && amount) return (party + amount).toLowerCase();
-  // URL as last resort
-  return (card.source_url || '').trim();
-}
-for (const card of cards) {
-  const key = eventKey(card);
-  if (!key) continue;
-  const existing = seenEvents.get(key);
-  if (!existing || (card.score || 0) > (existing.score || 0)) {
-    seenEvents.set(key, card);
-  }
-}
-const dedupedCards = [];
-const dupEvents = new Set();
-for (const card of cards) {
-  const key = eventKey(card);
-  if (key && seenEvents.has(key) && seenEvents.get(key) !== card) {
-    dupEvents.add(key.slice(0, 30));
-    continue;
-  }
-  dedupedCards.push(card);
-}
-console.log(`Event dedup: ${cards.length} → ${dedupedCards.length} cards (${dupEvents.size} duplicates removed)`);
-
-// Step 7: Select balanced portfolio
-const sorted = dedupedCards.sort((a, b) => b.score - a.score);
+// Step 6: Select balanced portfolio
+const sorted = cards.sort((a, b) => b.score - a.score);
 const selected = [];
 const moduleCounts = new Map();
 const seen = new Set();
@@ -372,16 +287,9 @@ const TARGET = 24;
 const MIN_PER_MODULE = 2;
 const MAX_PER_MODULE = 5;
 
-// Normalize title for dedup: strip punctuation, common suffixes, whitespace
-function dedupKey(card) {
-  const url = (card.source_url || '').trim();
-  const title = (card.title || '').replace(/[\s，,。；;：:｜|_\-\\/]/g, '').replace(/(?:搜狐|腾讯|网易|新浪|凤凰|QQ|头条|百度).*$/i, '').slice(0, 40).toLowerCase();
-  return `${url}|${title}`;
-}
-
 for (const card of sorted) {
   const mod = MODULE_MAP[card.module] || card.module;
-  const key = dedupKey(card);
+  const key = (card.source_url || '').trim();
   if (seen.has(key)) { console.log(`  DEDUP ${card.title.slice(0, 40)}`); continue; }
   if ((moduleCounts.get(mod) || 0) >= MAX_PER_MODULE) continue;
   if (selected.length >= TARGET) break;
@@ -409,10 +317,10 @@ if (ipSelected.length < MIN_PER_MODULE && ipSeedCases.length) {
     const seedDate = new Date(seed.published_at + 'T00:00:00Z');
     const daysAgo = (now - seedDate) / 86400000;
     if (daysAgo > 90) continue;
-    // Check cross-week dedup: skip if this seed was already delivered
-    const seedNorm = (seed.title || '').replace(/\s+/g, '').slice(0, 40).toLowerCase();
-    if (acceptedSummaries.some(s => (s.title || '').replace(/\s+/g, '').slice(0, 40).toLowerCase() === seedNorm)) {
-      console.log(`  IP SEED SKIP [historic-dup]: ${seed.title.slice(0, 40)}`);
+    // Check cross-week dedup: skip if this seed URL was already delivered
+    const seedUrl = (seed.source_url || seed.url || '').trim();
+    if (seedUrl && seenUrls.has(seedUrl)) {
+      console.log(`  IP SEED SKIP [url-dup]: ${seed.title.slice(0, 40)}`);
       continue;
     }
     const card = premiumCardFromCandidate({
@@ -434,7 +342,6 @@ if (ipSelected.length < MIN_PER_MODULE && ipSeedCases.length) {
     moduleCounts.set(mod, (moduleCounts.get(mod) || 0) + 1);
     selected.push({ ...card, module: mod, score: validation.score, tier: validation.tier });
     console.log(`  IP SEED + ${card.title.slice(0, 40)}`);
-    acceptedSummaries.push({ title: card.title.slice(0, 60), facts: (card.facts || []).join('；').slice(0, 150), eventSig: card.eventSig || '' });
     if (ipSelected.length + 1 >= MIN_PER_MODULE) break;
   }
 }
@@ -482,10 +389,10 @@ const report = { period, sections };
 // preselecteded: true avoids re-validating every card inside the markdown builder
 const markdown = buildPremiumDingTalkMarkdown({ period, cards: selected, preselected: true });
 
-// Save this week's accepted articles for next week's AI dedup.
-// Keep only the most recent 120 entries to prevent unlimited growth.
-writeFileSync(FINGERPRINTS_PATH, JSON.stringify(acceptedSummaries.slice(-120)), 'utf8');
-console.log(`Saved ${Math.min(acceptedSummaries.length, 120)} articles to ${FINGERPRINTS_PATH} for cross-week dedup`);
+// Save seen URLs for cross-week dedup.
+const allUrls = [...seenUrls, ...selected.map(c => c.source_url || '').filter(Boolean)];
+writeFileSync(FINGERPRINTS_PATH, JSON.stringify([...new Set(allUrls)].slice(-200)), 'utf8');
+console.log(`Saved ${Math.min(allUrls.length, 200)} URLs to ${FINGERPRINTS_PATH}`);
 
 const serialized = JSON.stringify({ report, cards: selected }, null, 2) + '\n';
 writeFileSync(outputPath, serialized);
