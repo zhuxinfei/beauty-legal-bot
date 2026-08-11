@@ -24,7 +24,9 @@ try {
   if (existsSync(FINGERPRINTS_PATH)) {
     const raw = JSON.parse(readFileSync(FINGERPRINTS_PATH, 'utf8'));
     if (Array.isArray(raw)) {
-      seenUrls = new Set(raw);
+      // Support both new format (URL strings) and old format ({title,facts,eventSig} objects)
+      const urls = raw.map(e => typeof e === 'string' ? e : (e.source_url || e.url || '')).filter(Boolean);
+      seenUrls = new Set(urls);
       console.log(`[dedup] loaded ${seenUrls.size} previously delivered URLs`);
     }
   }
