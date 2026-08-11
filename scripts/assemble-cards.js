@@ -17,6 +17,10 @@ const inputPath = resolve(process.argv[2] || 'out/hydrated-authority.json');
 const outputPath = resolve(process.argv[3] || 'out/assembled-cards.json');
 const FINGERPRINTS_PATH = resolve('docs', 'quality', 'seen-cards.json');
 
+// Running list of accepted articles for AI duplicate detection.
+// Declared BEFORE fingerprint loading to avoid TDZ error.
+const acceptedSummaries = [];
+
 // Load previous week's accepted articles so AI can detect cross-week duplicates.
 try {
   const exists = existsSync(FINGERPRINTS_PATH);
@@ -168,9 +172,6 @@ const aiKey = process.env.AI_API_KEY;
 const aiBaseUrl = process.env.AI_API_BASE_URL || 'https://api.deepseek.com/v1';
 const aiModel = process.env.AI_MODEL || 'deepseek-chat';
 
-// Running list of accepted articles for AI duplicate detection.
-// Must be declared before fingerprint loading (which seeds it with previous week's entries).
-const acceptedSummaries = []; // { title, facts, eventSig }
 async function aiReview(title, text) {
   if (!aiKey) return { relevant: true, reason: 'no-api-key', eventSig: '', isDuplicate: false };
   const excerpt = (text || '').slice(0, 4000);
