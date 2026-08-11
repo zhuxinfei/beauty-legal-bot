@@ -113,7 +113,10 @@ jobs:
           node -e "const fs=require('fs'); const p=JSON.parse(fs.readFileSync(process.env.SOURCE_HYDRATION_FILE,'utf8')); const rows=(p.records||[]); console.log('hydrated records=' + rows.length + ', withText=' + rows.filter(r => (r.article_text||r.raw_markdown||r.fit_markdown||'').length > 0).length + ', attachments=' + rows.reduce((s,r)=>s+(r.attachment_urls||[]).length,0));"
 
       - name: Assemble report from hydrated evidence
-        run: node scripts/assemble-cards.js "$SOURCE_HYDRATION_FILE" out/assembled-cards.json
+        run: |
+          echo "[dedup] CWD=$(pwd)"
+          echo "[dedup] fingerprint file exists: $([ -f docs/quality/seen-cards.json ] && echo YES || echo NO)"
+          node scripts/assemble-cards.js "$SOURCE_HYDRATION_FILE" out/assembled-cards.json
 
       - name: Commit cross-week dedup fingerprints
         run: |
