@@ -145,7 +145,13 @@ let pool = [
   ...candidates.filter(c =>
     !corrobUrls.has(c.url)
     && c.evidence_grade !== 'reject'
-    && (c.article_text || '').length > 200
+    && (c.article_text || '').length > 150
+  ),
+  // Include lead_only records with good body text (AI will filter relevance)
+  ...candidates.filter(c =>
+    !corrobUrls.has(c.url)
+    && c.evidence_grade === 'lead_only'
+    && (c.article_text || '').length > 300
   ),
 ];
 // Deduplicate by URL
