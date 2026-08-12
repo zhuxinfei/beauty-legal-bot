@@ -401,10 +401,15 @@ const report = { period, sections };
 // preselecteded: true avoids re-validating every card inside the markdown builder
 const markdown = buildPremiumDingTalkMarkdown({ period, cards: selected, preselected: true });
 
-// Save seen URLs for cross-week dedup.
-const allUrls = [...seenUrls, ...selected.map(c => c.source_url || '').filter(Boolean)];
-writeFileSync(FINGERPRINTS_PATH, JSON.stringify([...new Set(allUrls)].slice(-200)), 'utf8');
-console.log(`Saved ${Math.min(allUrls.length, 200)} URLs to ${FINGERPRINTS_PATH}`);
+// Only write cross-week dedup on actual delivery (not debug runs)
+const isDelivery = process.env.NO_DELIVERY !== '1';
+if (isDelivery) {
+  const allUrls = [...seenUrls, ...selected.map(c => c.source_url || '').filter(Boolean)];
+  writeFileSync(FINGERPRINTS_PATH, JSON.stringify([...new Set(allUrls)].slice(-200)), 'utf8');
+  console.log(`[dedup] saved ${Math.min(allUrls.length, 200)} URLs for cross-week dedup`);
+} else {
+  console.log(`[dedup] no_delivery mode — skipping URL save`);
+}
 
 const serialized = JSON.stringify({ report, cards: selected }, null, 2) + '\n';
 writeFileSync(outputPath, serialized);
