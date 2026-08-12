@@ -61,7 +61,11 @@ const BEAUTY_PATTERN = /(?:化妆品|美妆|护肤|彩妆|香水|口红|面膜|�
 // primary subject is beauty/cosmetics — not just incidentally mentioned.
 function isArticleAboutBeauty(title = '', text = '') {
   const combined = `${title} ${text.slice(0, 1000)}`;
-  return /(?:化妆品|美妆|护肤|彩妆|香水|防晒|染发|洗护|面膜|口红|精华液|面霜|祛斑|美白|功效宣称|玻色因|配方|着色剂|进口化妆品|出口化妆品|化妆品标准|cosmetic|MoCRA)/i.test(combined);
+  // Must have a beauty subject AND a legal/regulatory signal
+  const hasBeauty = /(?:化妆品|美妆|护肤|彩妆|香水|防晒|染发|洗护|面膜|口红|精华液|面霜|祛斑|美白|功效宣称|玻色因|配方|着色剂|进口化妆品|出口化妆品|化妆品标准|cosmetic|MoCRA)/i.test(combined);
+  if (!hasBeauty) return false;
+  const hasLegal = /(?:处罚|罚款|召回|判决|裁定|公告|通告|通报|征求意见|备案|注册|标准|法规|办法|条例|监管|执法|诉讼|侵权|假冒|不合格|禁用|限用|抽检|海关|进口|出口|IPO|上市|破产|清算|收购|并购|安全|警示|召回)/i.test(combined);
+  return hasLegal;
 }
 const ACADEMIC_IP_PATTERN = /(?:损害赔偿请求权|法理探析|制度研究|案例评析|案例聚焦|知识产权律师网)/i;
 const NEWS_CHROME = [
@@ -172,13 +176,16 @@ const aiBaseUrl = process.env.AI_API_BASE_URL || 'https://api.deepseek.com/v1';
 const aiModel = process.env.AI_MODEL || 'deepseek-chat';
 
 async function aiReview(title, text) {
-  if (!aiKey) return { relevant: true, reason: 'no-api-key' };
+  if (!aiKey) {
+    const ok = isArticleAboutBeauty(title, text);
+    return { relevant: ok, reason: ok ? 'regex-pass' : 'regex-reject' };
+  }
   const excerpt = (text || '').slice(0, 4000);
   try {
     const resp = await requestAiChat({
       apiKey: aiKey, baseUrl: aiBaseUrl, model: aiModel,
       messages: [
-        { role: 'system', content: '判断文章是否与化妆品/美妆行业法规、处罚、知识产权、产品安全、进出口或行业动态实质相关。仅回复JSON：{"relevant":true或false,"reason":"一句话"}' },
+        { role: 'system', content: '判断文章是否与化妆品/美妆行业法规、处罚、知识产权、产品安全、进出口或行业动态实质相关。必须包含具体的法规变化、执法案例、判决、召回、标准更新或行业重大事件，不能只是泛泛提及化妆品。仅回复JSON：{"relevant":true或false,"reason":"一句话"}' },
         { role: 'user', content: `标题：${title}\n正文：${excerpt}` },
       ],
       temperature: 0, maxTokens: 200, timeoutMs: 30000, maxAttempts: 1,
@@ -186,8 +193,7 @@ async function aiReview(title, text) {
     const j = JSON.parse(resp.replace(/```json\s*|\s*```/g, '').trim());
     return { relevant: Boolean(j.relevant), reason: j.reason || '' };
   } catch (_) {
-    const fallback = isArticleAboutBeauty(title, text);
-    return { relevant: fallback, reason: fallback ? 'regex-pass' : 'regex-reject' };
+    return { relevant: isArticleAboutBeauty(title, text), reason: 'regex-fallback' };
   }
 }
 
