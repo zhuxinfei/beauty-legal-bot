@@ -281,7 +281,8 @@ for (const { c, relevant, reason } of reviews) {
     } catch (_) { /* keep original if AI fails */ }
   }
 
-    cards.push({ ...card, score: validation.score, tier: validation.tier });
+    seenUrls.add(card.source_url || '');
+  cards.push({ ...card, score: validation.score, tier: validation.tier });
 }
 
 // Step 6: Select balanced portfolio
