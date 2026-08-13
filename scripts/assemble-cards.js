@@ -281,7 +281,9 @@ for (const { c, relevant, reason } of reviews) {
     } catch (_) { /* keep original if AI fails */ }
   }
 
-    seenUrls.add(card.source_url || '');
+    // Add the SAME url used by the dedup check (with fallback chain)
+  const acceptedUrl = (c.source_url || c.final_url || c.url || '').trim();
+  seenUrls.add(acceptedUrl);
   cards.push({ ...card, score: validation.score, tier: validation.tier });
 }
 
