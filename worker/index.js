@@ -40,7 +40,9 @@ import {
   assertPremiumChinaDelivery,
   assertPremiumPortfolioDelivery,
   buildPremiumDingTalkDelivery,
+  buildPremiumDingTalkMessageChunks,
 } from './premium-quality.js';
+import { normalizeDedupUrl } from './dedup-state.js';
 import {
   filterHardFactAcquisitionSources,
   isFormalAcquisitionMode,
@@ -200,7 +202,7 @@ export async function requestAiChat({
 }
 
 // ---------------------------------------------------------------------------
-// KV 去重：基于摘要内容 hash，30 天内不重复
+// KV 去重：基于归一化 URL 指纹，30 天内不重复
 // ---------------------------------------------------------------------------
 function hashStr(str) {
   let h = 0;
@@ -210,17 +212,18 @@ function hashStr(str) {
   return (h >>> 0).toString(16);
 }
 
-// 从报告中提取关键短语作为去重指纹（取 ## 标题行）
+// 从报告中提取去重指纹：归一化 URL 是稳定主键。
+// 不再拼接 AI 生成的标题——每次生成措辞不同会让 hash 永不匹配、去重失效。
 export function extractReportFingerprints(report) {
   return (report.sections || [])
     .flatMap(section => section.items || [])
-    .map(item => [item.type, item.region, item.country, item.title, item.source_url].map(value => String(value || '').trim()).join('|'))
+    .map(item => normalizeDedupUrl(item.source_url || item.url || ''))
     .filter(Boolean);
 }
 
 export function extractPremiumDeliveryFingerprints(cards = []) {
   return (cards || [])
-    .map(card => [card.module, card.country, card.title, card.source_url || card.url].map(value => String(value || '').trim()).join('|'))
+    .map(card => normalizeDedupUrl(card.source_url || card.url || ''))
     .filter(Boolean);
 }
 
@@ -243,25 +246,29 @@ export function dedupeReport(report) {
 }
 
 async function isDuplicateFingerprints(fingerprints, kv) {
-  if (!kv) return { isDup: false, seen: [], fps: fingerprints || [] };
+  if (!kv) return { isDup: false, seen: [], fps: fingerprints || [], dupFps: new Set() };
   const fps = fingerprints || [];
-  if (!fps.length) return { isDup: false, seen: [], fps };
+  if (!fps.length) return { isDup: false, seen: [], fps, dupFps: new Set() };
 
   try {
     const seenKey = "seen_v3_report_items";
     const raw = await kv.get(seenKey);
     let seen = raw ? JSON.parse(raw) : [];
 
-    // 清理 7 天前的
+    // 清理 30 天前的记录
     const now = Date.now();
     seen = seen.filter(e => now - e.ts < 30 * 24 * 60 * 60 * 1000);
 
     const seenSet = new Set(seen.map(e => e.h));
-    const newFps = fps.filter(f => !seenSet.has(hashStr(f)));
+    // dupFps：本轮指纹中已推送过的子集，供调用方过滤掉重复项只推新卡
+    const dupFps = new Set(fps.filter(f => seenSet.has(hashStr(f))));
+    // 全部指纹均已推送过才算整份重复（对去重后的集合判断，避免同 URL 多卡误判）
+    const uniqueFps = new Set(fps);
+    const isDup = uniqueFps.size > 0 && [...uniqueFps].every(f => seenSet.has(hashStr(f)));
 
-    return { isDup: newFps.length === 0, seen, fps };
+    return { isDup, seen, fps, dupFps };
   } catch (e) {
-    return { isDup: false, seen: [], fps };
+    return { isDup: false, seen: [], fps, dupFps: new Set() };
   }
 }
 
@@ -276,7 +283,7 @@ async function markSeen(fps, seen, kv) {
     for (const fp of fps) {
       seen.push({ h: hashStr(fp), ts: now });
     }
-    // 只保留最近 7 天
+    // 只保留最近 30 天
     seen = seen.filter(e => now - e.ts < 30 * 24 * 60 * 60 * 1000);
     await kv.put("seen_v3_report_items", JSON.stringify(seen));
   } catch (e) {
@@ -1370,10 +1377,23 @@ export async function runPipeline(env, requestUrl = 'https://beauty-legal-bot.wo
         }
 
         console.log('[stage 4/5] 内容去重检查...');
-        const { isDup, seen, fps } = await isDuplicateFingerprints(extractPremiumDeliveryFingerprints(directDelivery.cards), kv);
+        const { isDup, seen, dupFps } = await isDuplicateFingerprints(extractPremiumDeliveryFingerprints(directDelivery.cards), kv);
         if (shouldSkipDuplicateReport(isDup, env.FORCE_DELIVERY === '1')) {
           console.log('[stage 4/5] 硬事实卡片 30 天内已全部推送过，跳过摘要推送');
           return { stage: 'dedupe', status: 'skipped', message: 'all hard-fact cards were already pushed in 30 days' };
+        }
+
+        // 部分重复时只推未推送过的卡，避免重复内容进入消息
+        let deliveryCards = directDelivery.cards;
+        let deliveryMessages = directDelivery.messages;
+        if (dupFps.size) {
+          deliveryCards = directDelivery.cards.filter(c => !dupFps.has(normalizeDedupUrl(c.source_url || c.url || '')));
+          if (!deliveryCards.length) {
+            console.log('[stage 4/5] 硬事实卡片 30 天内已全部推送过，跳过摘要推送');
+            return { stage: 'dedupe', status: 'skipped', message: 'all hard-fact cards were already pushed in 30 days' };
+          }
+          deliveryMessages = buildPremiumDingTalkMessageChunks(directReport, deliveryCards, env.DINGTALK_MAX_BYTES);
+          console.log(`[stage 4/5] 过滤重复卡：${directDelivery.cards.length} → ${deliveryCards.length}`);
         }
 
         console.log('[stage 5/5] 推送协作平台摘要...');
@@ -1381,10 +1401,10 @@ export async function runPipeline(env, requestUrl = 'https://beauty-legal-bot.wo
           report: directReport,
           reportUrl: '',
           env: { ...env, SOURCE_COVERAGE: coverage },
-          messages: directDelivery.messages,
+          messages: deliveryMessages,
         });
         const ok = notification.ok;
-        if (ok) await markSeen(fps, seen, kv);
+        if (ok) await markSeen(deliveryCards.map(c => normalizeDedupUrl(c.source_url || c.url || '')).filter(Boolean), seen, kv);
         console.log(ok ? '=== 周报管道完成 ===' : '=== 周报管道失败 ===');
         return {
           stage: notification.channel,
@@ -1527,10 +1547,23 @@ export async function runPipeline(env, requestUrl = 'https://beauty-legal-bot.wo
       };
     }
     console.log("[stage 4/5] 内容去重检查...");
-    const { isDup, seen, fps } = await isDuplicateFingerprints(extractReportFingerprints(report), kv);
+    const { isDup, seen, dupFps } = await isDuplicateFingerprints(extractReportFingerprints(report), kv);
     if (shouldSkipDuplicateReport(isDup, env.FORCE_DELIVERY === '1')) {
       console.log("[stage 4/5] 报告条目 30 天内已全部推送过，跳过摘要推送");
       return { stage: 'dedupe', status: 'skipped', message: 'all report items were already pushed in 30 days' };
+    }
+
+    // 部分重复时只推未推送过的卡，避免重复内容进入消息
+    let deliveryCards = premiumDelivery.cards;
+    let deliveryMessages = previewMessages;
+    if (dupFps.size) {
+      deliveryCards = premiumDelivery.cards.filter(c => !dupFps.has(normalizeDedupUrl(c.source_url || c.url || '')));
+      if (!deliveryCards.length) {
+        console.log("[stage 4/5] 报告条目 30 天内已全部推送过，跳过摘要推送");
+        return { stage: 'dedupe', status: 'skipped', message: 'all report items were already pushed in 30 days' };
+      }
+      deliveryMessages = buildPremiumDingTalkMessageChunks(report, deliveryCards, env.DINGTALK_MAX_BYTES);
+      console.log(`[stage 4/5] 过滤重复卡：${premiumDelivery.cards.length} → ${deliveryCards.length}`);
     }
 
     console.log("[stage 5/5] 推送协作平台摘要...");
@@ -1538,10 +1571,10 @@ export async function runPipeline(env, requestUrl = 'https://beauty-legal-bot.wo
       report,
       reportUrl: '',
       env: { ...env, SOURCE_COVERAGE: coverage },
-      messages: previewMessages,
+      messages: deliveryMessages,
     });
     const ok = notification.ok;
-    if (ok) await markSeen(fps, seen, kv);
+    if (ok) await markSeen(deliveryCards.map(c => normalizeDedupUrl(c.source_url || c.url || '')).filter(Boolean), seen, kv);
     console.log(ok ? "=== 周报管道完成 ===" : "=== 周报管道失败 ===");
     return {
       stage: notification.channel,
@@ -3762,7 +3795,7 @@ async function runFinalizePhase(date, env, requestUrl) {
   });
   validateReport(report);
 
-  const { isDup, seen, fps } = await isDuplicateFingerprints(extractReportFingerprints(report), kv);
+  const { isDup, seen, dupFps } = await isDuplicateFingerprints(extractReportFingerprints(report), kv);
   if (shouldSkipDuplicateReport(isDup, env.FORCE_DELIVERY === '1')) {
     return { stage: 'dedupe', status: 'skipped', message: '30-day duplicate' };
   }
@@ -3787,14 +3820,26 @@ async function runFinalizePhase(date, env, requestUrl) {
   }
   assertFinalDingTalkMarkdownQuality(markdown, premiumDelivery.audit);
 
+  // 部分重复时只推未推送过的卡，避免重复内容进入消息
+  let deliveryCards = premiumDelivery.cards;
+  let deliveryMessages = premiumDelivery.messages;
+  if (dupFps.size) {
+    deliveryCards = premiumDelivery.cards.filter(c => !dupFps.has(normalizeDedupUrl(c.source_url || c.url || '')));
+    if (!deliveryCards.length) {
+      return { stage: 'dedupe', status: 'skipped', message: '30-day duplicate' };
+    }
+    deliveryMessages = buildPremiumDingTalkMessageChunks(report, deliveryCards, env.DINGTALK_MAX_BYTES);
+    console.log(`[finalize] 过滤重复卡：${premiumDelivery.cards.length} → ${deliveryCards.length}`);
+  }
+
   const notification = await notifyReport({
     report,
     reportUrl: '',
     env: { ...env, SOURCE_COVERAGE: candidatesMeta.coverage },
-    messages: premiumDelivery.messages,
+    messages: deliveryMessages,
   });
   const ok = notification.ok;
-  if (ok) await markSeen(fps, seen, kv);
+  if (ok) await markSeen(deliveryCards.map(c => normalizeDedupUrl(c.source_url || c.url || '')).filter(Boolean), seen, kv);
   return {
     stage: notification.channel,
     status: ok ? 'done' : 'failed',

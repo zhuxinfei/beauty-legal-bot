@@ -7,14 +7,6 @@ on:
     - cron: '17 0 * * 1'
   workflow_dispatch:
     inputs:
-      allow_duplicate_debug:
-        description: '调试阶段允许重复推送'
-        required: false
-        default: 'false'
-        type: choice
-        options:
-          - 'false'
-          - 'true'
       no_delivery:
         description: '只跑正式采集和质量验收，不推送钉钉/飞书'
         required: false
@@ -65,6 +57,7 @@ jobs:
       CRAWL4AI_MIN_PER_MODULE: 6
       CRAWL4AI_CONCURRENCY: 6
       CRAWL4AI_REQUEST_LIMIT: 96
+      # 仅 worker 链路（/test 手动触发）读取；Actions 链路由 seen-cards.json 状态去重
       FORCE_DELIVERY: '0'
       NO_DELIVERY: ${{ github.event_name == 'workflow_dispatch' && inputs.no_delivery == 'true' && '1' || '0' }}
       DINGTALK_WEBHOOK_URL: ${{ secrets.DINGTALK_WEBHOOK_URL }}
@@ -118,16 +111,6 @@ jobs:
           echo "[dedup] fingerprint file exists: $([ -f docs/quality/seen-cards.json ] && echo YES || echo NO)"
           node scripts/assemble-cards.js "$SOURCE_HYDRATION_FILE" out/assembled-cards.json
 
-      - name: Commit cross-week dedup fingerprints
-        run: |
-          if [ -f docs/quality/seen-cards.json ]; then
-            git config user.name "github-actions[bot]"
-            git config user.email "github-actions[bot]@users.noreply.github.com"
-            git add docs/quality/seen-cards.json
-            git commit -m "update dedup fingerprints $(date +%Y-%m-%d)" || echo "no changes"
-            git push origin HEAD || echo "push skipped"
-          fi
-
       - name: Render PDF report
         run: node scripts/render-report-pdf.js out/latest-report.md
 
@@ -148,7 +131,19 @@ jobs:
           keep_files: true
 
       - name: Deliver to DingTalk
+        # deliver-report.js 仅在推送成功后把本轮 URL 写入 seen-cards.json，
+        # 因此指纹提交必须排在投递之后（投递失败则文件不变，不污染去重状态）。
         run: node scripts/deliver-report.js out/latest-report.md
+
+      - name: Commit cross-week dedup fingerprints
+        run: |
+          if [ -f docs/quality/seen-cards.json ]; then
+            git config user.name "github-actions[bot]"
+            git config user.email "github-actions[bot]@users.noreply.github.com"
+            git add docs/quality/seen-cards.json
+            git commit -m "update dedup fingerprints $(date +%Y-%m-%d)" || echo "no changes"
+            git push origin HEAD || echo "push skipped"
+          fi
 
       - name: Upload pipeline evidence
         if: always()

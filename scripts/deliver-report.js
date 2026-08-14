@@ -1,7 +1,10 @@
 // Send weekly report to DingTalk — short message with PDF link if available,
 // otherwise full markdown in chunks.
-import { readFileSync, existsSync } from 'node:fs';
+// Dedup state (docs/quality/seen-cards.json) is updated ONLY after the push
+// succeeds, so failed deliveries never mark content as delivered.
+import { readFileSync, writeFileSync, existsSync } from 'node:fs';
 import { resolve } from 'node:path';
+import { mergeAndSaveSeen } from '../worker/dedup-state.js';
 
 const mdPath = resolve(process.argv[2] || 'out/latest-report.md');
 const webhookUrl = process.env.DINGTALK_WEBHOOK_URL;
@@ -12,6 +15,27 @@ const encoder = new TextEncoder();
 
 if (noDelivery) { console.log('NO_DELIVERY=1, skipping'); process.exit(0); }
 if (!webhookUrl) { console.error('DINGTALK_WEBHOOK_URL not set'); process.exit(1); }
+
+// Record this run's delivered URLs into the cross-week dedup state.
+// Called only after the push reports success. Failures are logged, not fatal.
+function recordDelivered() {
+  try {
+    const deliveredPath = resolve('out', 'delivered-urls.json');
+    if (!existsSync(deliveredPath)) {
+      console.log('[dedup] no out/delivered-urls.json — nothing to record');
+      return;
+    }
+    const delivered = JSON.parse(readFileSync(deliveredPath, 'utf8'));
+    const urls = (Array.isArray(delivered) ? delivered : [])
+      .map(e => (typeof e === 'string' ? e : e.u || ''))
+      .filter(Boolean);
+    if (!urls.length) return;
+    const entries = mergeAndSaveSeen(resolve('docs', 'quality', 'seen-cards.json'), urls);
+    console.log(`[dedup] recorded ${urls.length} delivered URLs (state now ${entries.length} entries)`);
+  } catch (err) {
+    console.warn(`[dedup] record failed: ${(err?.message || String(err)).slice(0, 100)}`);
+  }
+}
 
 const today = new Date().toISOString().slice(0, 10);
 
@@ -100,6 +124,7 @@ if (usePdf) {
     const resp = await fetch(url, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body });
     const result = await resp.json();
     console.log(`DingTalk (summary too long, truncated): ${result.errcode === 0 ? 'OK' : 'FAILED: ' + result.errmsg}`);
+    if (result.errcode === 0) recordDelivered();
     process.exit(result.errcode === 0 ? 0 : 1);
   }
 
@@ -108,6 +133,7 @@ if (usePdf) {
   const resp = await fetch(url, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body });
   const result = await resp.json();
   console.log(`DingTalk: ${result.errcode === 0 ? 'OK' : 'FAILED: ' + result.errmsg}`);
+  if (result.errcode === 0) recordDelivered();
   process.exit(result.errcode === 0 ? 0 : 1);
 }
 
@@ -149,6 +175,7 @@ for (let i = 0; i < chunks.length; i++) {
   console.log(`Chunk ${i + 1}/${chunks.length}: OK (${bytes}B)`);
 }
 console.log('Delivery complete');
+recordDelivered();
 
 async function buildSignedUrl(webhook, sec, ts) {
   const { createHmac } = await import('node:crypto');

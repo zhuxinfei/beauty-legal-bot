@@ -1187,7 +1187,7 @@ function orderCardsForPremiumMarkdown(cards = []) {
   return modules.flatMap(module => cards.filter(card => card.module === module).sort(comparePremiumCards));
 }
 
-function buildPremiumDingTalkMessageChunks(report, cards = [], maxBytes = 18000) {
+export function buildPremiumDingTalkMessageChunks(report, cards = [], maxBytes = 18000) {
   const byteLimit = Math.max(1200, Number(maxBytes || 18000));
   const orderedCards = orderCardsForPremiumMarkdown(cards);
   const chunks = [];

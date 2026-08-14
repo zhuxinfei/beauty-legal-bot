@@ -5,6 +5,7 @@ import { dirname, resolve } from 'node:path';
 import { buildDiscoveryQueries, discoverOpenWeb, discoverOpenWebWithRecovery } from '../worker/open-web-discovery.js';
 import { parseGoogleNewsRss, resolveGoogleNewsCandidates } from '../worker/google-rss-discovery.js';
 import { attachAuthorityResolutionProvenance, buildAuthoritySearchRows } from '../worker/authority-resolver.js';
+import { loadSeenEntries, normalizeDedupUrl } from '../worker/dedup-state.js';
 
 const execFileAsync = promisify(execFile);
 
@@ -67,7 +68,7 @@ const fetchSecondaryForDays = days => async (query, module) => {
 function mergeCandidates(...groups) {
   const seen = new Set();
   return groups.flat().filter(item => {
-    const key = String(item.url || item.source_url || '').trim();
+    const key = normalizeDedupUrl(item.url || item.source_url || '');
     if (!key || seen.has(key)) return false;
     seen.add(key);
     return true;
@@ -160,9 +161,19 @@ try {
   console.warn(`Open-web discovery unavailable: ${error.message}`);
   result = { candidates: [], audit: { queries: 0, raw: 0, resolved: 0, unique: 0, error: error.message } };
 }
+// Cross-week pre-filter: skip discovery candidates already delivered in the
+// dedup window. Static catalog sources are kept — they are manually curated
+// endpoints whose content changes, not repeatable news items.
+const seenUrls = new Set(loadSeenEntries(resolve('docs', 'quality', 'seen-cards.json')).keys());
+const freshCandidates = (result.candidates || []).filter(c => {
+  const key = normalizeDedupUrl(c.url || c.source_url || '');
+  return !(key && seenUrls.has(key));
+});
+const filteredSeen = (result.candidates || []).length - freshCandidates.length;
+if (filteredSeen > 0) console.log(`[dedup] filtered ${filteredSeen} already-delivered discovery candidates`);
 await mkdir(dirname(output), { recursive: true });
 await writeFile(output, `${JSON.stringify({ period: period(), ...result }, null, 2)}\n`);
-await writeFile(manifestOutput, `${JSON.stringify({ sources: [...(catalog.sources || []), ...result.candidates] }, null, 2)}\n`);
+await writeFile(manifestOutput, `${JSON.stringify({ sources: [...(catalog.sources || []), ...freshCandidates] }, null, 2)}\n`);
 console.log(`Discovery queries=${result.audit.queries}, raw=${result.audit.raw}, resolved=${result.audit.resolved}, unique=${result.audit.unique}`);
 console.log(`Discovery modules=${JSON.stringify(result.audit.acceptedByModule || {})}, recovery=${JSON.stringify(result.audit.recoveryModules || [])}`);
 console.log(`Authority resolution queries=${result.audit.authorityQueries || 0}, raw=${result.audit.authorityRaw || 0}, resolved=${result.audit.authorityResolved || 0}`);

@@ -1,8 +1,9 @@
 // Direct card assembly from hydrated records.
 // Code handles selection + fact extraction; templates generate narrative.
 // Usage: node scripts/assemble-cards.js [hydrated-authority.json] [output.json]
-import { readFileSync, writeFileSync, existsSync } from 'node:fs';
+import { readFileSync, writeFileSync } from 'node:fs';
 import { resolve } from 'node:path';
+import { loadSeenEntries, normalizeDedupUrl } from '../worker/dedup-state.js';
 import { normalizeHydratedRecord } from '../worker/source-hydration.js';
 import { extractHardFacts, gradeEvidence } from '../worker/hard-fact-extractor.js';
 import { corroborateEvidenceCandidates } from '../worker/evidence-corroboration.js';
@@ -19,20 +20,9 @@ const FINGERPRINTS_PATH = resolve('docs', 'quality', 'seen-cards.json');
 
 // Cross-week dedup: URL-based. The source URL is the most stable
 // identifier — no title matching, eventSig, or AI comparison needed.
-let seenUrls = new Set();
-try {
-  if (existsSync(FINGERPRINTS_PATH)) {
-    const raw = JSON.parse(readFileSync(FINGERPRINTS_PATH, 'utf8'));
-    if (Array.isArray(raw)) {
-      // Support both new format (URL strings) and old format ({title,facts,eventSig} objects)
-      const urls = raw.map(e => typeof e === 'string' ? e : (e.source_url || e.url || '')).filter(Boolean);
-      seenUrls = new Set(urls);
-      console.log(`[dedup] loaded ${seenUrls.size} previously delivered URLs`);
-    }
-  }
-} catch (err) {
-  console.warn(`[dedup] load failed: ${(err?.message || String(err)).slice(0, 100)}`);
-}
+// loadSeenEntries tolerates all historical formats and normalizes keys.
+const seenUrls = new Set(loadSeenEntries(FINGERPRINTS_PATH).keys());
+console.log(`[dedup] loaded ${seenUrls.size} previously delivered URLs`);
 
 console.log(`Loading hydration records from ${inputPath}...`);
 const payload = JSON.parse(readFileSync(inputPath, 'utf8'));
@@ -166,6 +156,19 @@ pool = pool.filter(c => {
 });
 console.log(`Candidate pool: ${pool.length} records`);
 
+// Cross-week dedup BEFORE spending AI calls: drop already-delivered URLs.
+// Same normalized key used at selection time, so variants of the same
+// article (tracking params, hash, trailing slash) map to one key.
+const preDedupPool = pool.filter(c => {
+  const key = normalizeDedupUrl(c.source_url || c.final_url || c.url || '');
+  if (key && seenUrls.has(key)) {
+    console.log(`  SKIP [url-dup]: ${(c.title || '').slice(0, 40)}`);
+    return false;
+  }
+  return true;
+});
+console.log(`After cross-week dedup: ${preDedupPool.length} records`);
+
 // --- AI content review ---
 const indexModule = await import('../worker/index.js');
 const { requestAiChat } = indexModule;
@@ -198,8 +201,8 @@ async function aiReview(title, text) {
 // Step 5: AI review + build cards (4 concurrent calls)
 const cards = [];
 const reviews = [];
-for (let i = 0; i < pool.length; i += 4) {
-  const batch = pool.slice(i, i + 4);
+for (let i = 0; i < preDedupPool.length; i += 4) {
+  const batch = preDedupPool.slice(i, i + 4);
   const results = await Promise.all(batch.map(async c => {
     const r = await aiReview(c.title || '', c.article_text || '');
     return { c, ...r };
@@ -212,9 +215,9 @@ for (const { c, relevant, reason } of reviews) {
     console.log(`  SKIP [ai-not-beauty]: ${(reason||'').slice(0,50)} | ${(c.title||'').slice(0,30)}`);
     continue;
   }
-  // URL-based cross-week dedup
-  const cardUrl = (c.source_url || c.final_url || c.url || '').trim();
-  if (cardUrl && seenUrls.has(cardUrl)) {
+  // URL-based cross-week dedup (pool is pre-filtered; keep as defense)
+  const dedupKey = normalizeDedupUrl(c.source_url || c.final_url || c.url || '');
+  if (dedupKey && seenUrls.has(dedupKey)) {
     console.log(`  SKIP [url-dup]: ${(c.title||'').slice(0,40)}`);
     continue;
   }
@@ -281,9 +284,6 @@ for (const { c, relevant, reason } of reviews) {
     } catch (_) { /* keep original if AI fails */ }
   }
 
-    // Add the SAME url used by the dedup check (with fallback chain)
-  const acceptedUrl = (c.source_url || c.final_url || c.url || '').trim();
-  seenUrls.add(acceptedUrl);
   cards.push({ ...card, score: validation.score, tier: validation.tier });
 }
 
@@ -302,9 +302,13 @@ const TARGET = 24;
 const MIN_PER_MODULE = 2;
 const MAX_PER_MODULE = 5;
 
+// 组合选择统一去重键：归一化 URL 优先，无 URL 时退回标题（去空白）。
+// 主循环、IP seed、min 补位、cross-module 补位共用同一把锁，防止同一张卡被选入两次。
+const selectionKey = c => normalizeDedupUrl(c.source_url || c.url || '') || (c.title || '').replace(/\s+/g, '');
+
 for (const card of sorted) {
   const mod = MODULE_MAP[card.module] || card.module;
-  const key = (card.source_url || '').trim();
+  const key = selectionKey(card);
   if (seen.has(key)) { console.log(`  DEDUP ${card.title.slice(0, 40)}`); continue; }
   if ((moduleCounts.get(mod) || 0) >= MAX_PER_MODULE) continue;
   if (selected.length >= TARGET) break;
@@ -333,8 +337,8 @@ if (ipSelected.length < MIN_PER_MODULE && ipSeedCases.length) {
     const daysAgo = (now - seedDate) / 86400000;
     if (daysAgo > 90) continue;
     // Check cross-week dedup: skip if this seed URL was already delivered
-    const seedUrl = (seed.source_url || seed.url || '').trim();
-    if (seedUrl && seenUrls.has(seedUrl)) {
+    const seedKey = normalizeDedupUrl(seed.source_url || seed.url || '');
+    if (seedKey && seenUrls.has(seedKey)) {
       console.log(`  IP SEED SKIP [url-dup]: ${seed.title.slice(0, 40)}`);
       continue;
     }
@@ -349,7 +353,7 @@ if (ipSelected.length < MIN_PER_MODULE && ipSeedCases.length) {
       console.log(`  IP SEED SKIP [${validation.reason}]: ${seed.title.slice(0, 50)}`);
       continue;
     }
-    const key = `${card.source_url}|${card.title}`.replace(/\s+/g, '');
+    const key = selectionKey(card);
     if (seen.has(key)) continue;
     seen.add(key);
     const mod = '知识产权保护或者侵权';
@@ -366,10 +370,10 @@ for (const mod of MODULES) {
   while ((moduleCounts.get(mod) || 0) < MIN_PER_MODULE && selected.length < TARGET) {
     const fallback = sorted.find(c => {
       const m = MODULE_MAP[c.module] || c.module;
-      return m === mod && !seen.has(`${c.source_url}|${c.title}`.replace(/\s+/g, ''));
+      return m === mod && !seen.has(selectionKey(c));
     });
     if (fallback) {
-      seen.add(`${fallback.source_url}|${fallback.title}`.replace(/\s+/g, ''));
+      seen.add(selectionKey(fallback));
       moduleCounts.set(mod, (moduleCounts.get(mod) || 0) + 1);
       selected.push({ ...fallback, module: mod });
       continue;
@@ -381,10 +385,10 @@ for (const mod of MODULES) {
         if (m !== '广告处罚案例') return false;
         const combined = `${c.title} ${c.legal_signal} ${c.evidence_text}`;
         if (!/商标|专利|著作权|冒用|假冒|仿冒|包装装潢/i.test(combined)) return false;
-        return !seen.has(`${c.source_url}|${c.title}`.replace(/\s+/g, ''));
+        return !seen.has(selectionKey(c));
       });
       if (crossCard) {
-        seen.add(`${crossCard.source_url}|${crossCard.title}`.replace(/\s+/g, ''));
+        seen.add(selectionKey(crossCard));
         moduleCounts.set(mod, (moduleCounts.get(mod) || 0) + 1);
         selected.push({ ...crossCard, module: mod });
         continue;
@@ -404,15 +408,21 @@ const report = { period, sections };
 // preselecteded: true avoids re-validating every card inside the markdown builder
 const markdown = buildPremiumDingTalkMarkdown({ period, cards: selected, preselected: true });
 
-// Only write cross-week dedup on actual delivery (not debug runs)
-const isDelivery = process.env.NO_DELIVERY !== '1';
-if (isDelivery) {
-  const allUrls = [...seenUrls, ...selected.map(c => c.source_url || '').filter(Boolean)];
-  writeFileSync(FINGERPRINTS_PATH, JSON.stringify([...new Set(allUrls)].slice(-200)), 'utf8');
-  console.log(`[dedup] saved ${Math.min(allUrls.length, 200)} URLs for cross-week dedup`);
-} else {
-  console.log(`[dedup] no_delivery mode — skipping URL save`);
-}
+// Emit the URLs actually selected for delivery. The dedup state file
+// (docs/quality/seen-cards.json) is only updated after the DingTalk push
+// succeeds — see deliver-report.js. Failed or no-delivery runs therefore
+// never pollute the fingerprint state.
+const deliveredPath = resolve('out', 'delivered-urls.json');
+const deliveredUrls = selected
+  .map(c => ({
+    u: normalizeDedupUrl(c.source_url || c.url || ''),
+    t: now.toISOString().slice(0, 10),
+    module: c.module,
+    title: (c.title || '').slice(0, 80),
+  }))
+  .filter(e => e.u);
+writeFileSync(deliveredPath, `${JSON.stringify(deliveredUrls, null, 2)}\n`);
+console.log(`[dedup] wrote ${deliveredUrls.length} delivered URLs to ${deliveredPath} (state file updated only after real delivery)`);
 
 const serialized = JSON.stringify({ report, cards: selected }, null, 2) + '\n';
 writeFileSync(outputPath, serialized);
