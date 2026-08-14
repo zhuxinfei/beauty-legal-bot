@@ -245,7 +245,7 @@ export function dedupeReport(report) {
   };
 }
 
-async function isDuplicateFingerprints(fingerprints, kv) {
+export async function isDuplicateFingerprints(fingerprints, kv) {
   if (!kv) return { isDup: false, seen: [], fps: fingerprints || [], dupFps: new Set() };
   const fps = fingerprints || [];
   if (!fps.length) return { isDup: false, seen: [], fps, dupFps: new Set() };
