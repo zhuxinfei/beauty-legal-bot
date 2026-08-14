@@ -171,9 +171,31 @@ const freshCandidates = (result.candidates || []).filter(c => {
 });
 const filteredSeen = (result.candidates || []).length - freshCandidates.length;
 if (filteredSeen > 0) console.log(`[dedup] filtered ${filteredSeen} already-delivered discovery candidates`);
+
+// Portal-cap per module: official/government sources are the primary supply;
+// low-quality portal/self-media hosts only fill gaps. Cap them per module so
+// they cannot crowd out official sources in the hydration budget.
+const PORTAL_HOST = /^(www\.)?(sohu|qq|163|sina|ifeng|36kr|eastmoney|21jingji|zhihu|gelonghui|xueqiu|yidianzixun|toutiao|ucnews|huxiu|tmtpost|ebrun|jiemian|dsb|cnstock|stcn|bjnews|shobserver|zaker|wandou|womenofchina|ajudaily|reach24h|fangchan|pcauto|autohome|mgtv|douban|weibo)\.(com|cn|net|cc|org|info|top|vip|com\.cn)$/i;
+const MAX_PORTAL_PER_MODULE = 6;
+const portalCounts = new Map();
+const rankedCandidates = (freshCandidates || []).filter(c => {
+  let host = '';
+  try { host = new URL(String(c.url || c.source_url || '')).hostname.replace(/^www\./, ''); } catch { host = ''; }
+  if (!host || !PORTAL_HOST.test(host)) return true; // official/authority hosts unrestricted
+  const mod = c.discovery_module || c.module || '';
+  const used = portalCounts.get(mod) || 0;
+  if (used >= MAX_PORTAL_PER_MODULE) {
+    console.log(`[dedup] portal-capped (${mod}): ${(c.title || '').slice(0, 40)}`);
+    return false;
+  }
+  portalCounts.set(mod, used + 1);
+  return true;
+});
+const portalFiltered = (freshCandidates || []).length - rankedCandidates.length;
+if (portalFiltered > 0) console.log(`[dedup] portal-capped ${portalFiltered} candidates across modules (≤${MAX_PORTAL_PER_MODULE}/module)`);
 await mkdir(dirname(output), { recursive: true });
 await writeFile(output, `${JSON.stringify({ period: period(), ...result }, null, 2)}\n`);
-await writeFile(manifestOutput, `${JSON.stringify({ sources: [...(catalog.sources || []), ...freshCandidates] }, null, 2)}\n`);
+await writeFile(manifestOutput, `${JSON.stringify({ sources: [...(catalog.sources || []), ...rankedCandidates] }, null, 2)}\n`);
 console.log(`Discovery queries=${result.audit.queries}, raw=${result.audit.raw}, resolved=${result.audit.resolved}, unique=${result.audit.unique}`);
 console.log(`Discovery modules=${JSON.stringify(result.audit.acceptedByModule || {})}, recovery=${JSON.stringify(result.audit.recoveryModules || [])}`);
 console.log(`Authority resolution queries=${result.audit.authorityQueries || 0}, raw=${result.audit.authorityRaw || 0}, resolved=${result.audit.authorityResolved || 0}`);

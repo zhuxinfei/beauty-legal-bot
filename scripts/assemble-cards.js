@@ -325,7 +325,21 @@ for (const card of cards) {
 }
 
 // Step 6: Select balanced portfolio
-const sorted = titleDeduped.sort((a, b) => b.score - a.score);
+// Official/authority sources fill slots first; portal/self-media cards only
+// backfill module gaps. Same scoring within each tier.
+const isAuthorityCard = card => {
+  const st = String(card.source_type || '');
+  const at = String(card.authority_type || '');
+  if (['official_site', 'regulator', 'court', 'official_database'].includes(st)) return true;
+  if (['official', 'regulator', 'court'].includes(at)) return true;
+  return /(^|\.)gov\.(cn|uk|au|ca|sg|jp|kr|tw|hk)|\.gov$|europa\.eu|pom\.go\.id|moph\.go\.th|dav\.gov/i.test(String(card.source_url || card.url || ''));
+};
+const sorted = titleDeduped.sort((a, b) => {
+  const aa = isAuthorityCard(a) ? 1 : 0;
+  const bb = isAuthorityCard(b) ? 1 : 0;
+  if (aa !== bb) return bb - aa;
+  return (b.score || 0) - (a.score || 0);
+});
 const selected = [];
 const moduleCounts = new Map();
 const seen = new Set();
