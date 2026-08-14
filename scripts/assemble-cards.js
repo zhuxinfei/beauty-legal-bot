@@ -156,10 +156,17 @@ pool = pool.filter(c => {
 });
 console.log(`Candidate pool: ${pool.length} records`);
 
+// Known noise: gov column pages, hotlines, 404s — skip before AI calls.
+const NOISE_TITLE = /今日海关|12360|通关服务热线|海关热线|服务热线|栏目|首页|平台简介|服务指南|运营公共服务平台|页面不存在|出错了|404|网站导航/i;
+
 // Cross-week dedup BEFORE spending AI calls: drop already-delivered URLs.
 // Same normalized key used at selection time, so variants of the same
 // article (tracking params, hash, trailing slash) map to one key.
 const preDedupPool = pool.filter(c => {
+  if (NOISE_TITLE.test(c.title || '')) {
+    console.log(`  SKIP [noise-title]: ${(c.title || '').slice(0, 40)}`);
+    return false;
+  }
   const key = normalizeDedupUrl(c.source_url || c.final_url || c.url || '');
   if (key && seenUrls.has(key)) {
     console.log(`  SKIP [url-dup]: ${(c.title || '').slice(0, 40)}`);
@@ -186,7 +193,7 @@ async function aiReview(title, text) {
     const resp = await requestAiChat({
       apiKey: aiKey, baseUrl: aiBaseUrl, model: aiModel,
       messages: [
-        { role: 'system', content: '判断文章是否与化妆品/美妆行业法规、处罚、知识产权、产品安全、进出口或行业动态实质相关。主体必须是美妆企业、产品、法规或监管事件，附带提及不算。仅回复JSON：{"relevant":true或false,"reason":"一句话"}' },
+        { role: 'system', content: '判断文章是否与美妆/化妆品行业的法律合规事务实质相关。仅接受：法规标准与监管新规、行政处罚与虚假宣传、质量抽检不合格与召回、商标/专利/著作权侵权与诉讼、进出口与跨境电商监管执法、电商/直播/网售渠道合规处罚与平台治理、许可证注销与整改处罚。明确拒绝：企业IPO/上市/融资/并购/破产清算等财经新闻、营销新品代言与业绩类报道、行业趋势分析、非化妆品主体（美发/美容院/综合商超）的法律事件、仅附带提及化妆品的综合新闻。主体必须是化妆品/美妆企业、产品或监管事件，附带提及不算。仅回复JSON：{"relevant":true或false,"reason":"一句话"}' },
         { role: 'user', content: `标题：${title}\n正文：${excerpt}` },
       ],
       temperature: 0, maxTokens: 200, timeoutMs: 30000, maxAttempts: 1,
@@ -287,8 +294,38 @@ for (const { c, relevant, reason } of reviews) {
   cards.push({ ...card, score: validation.score, tier: validation.tier });
 }
 
+// --- Event-level dedup: the same story syndicated across media (different
+// URLs, near-identical titles) must not occupy multiple slots. Keep only the
+// highest-scored card per normalized title, before portfolio selection.
+const MEDIA_SUFFIX = /[-_|·\s]*(搜狐|腾讯|网易|新浪|凤凰|界面|澎湃|36氪|36kr|21财经|21世纪经济报道|虎嗅|钛媒体|每日经济新闻|证券时报|第一财经|中国网|人民网|新华网|央视|今日头条|东方财富|快科技|雷峰网|亿邦动力|雨果跨境|盖世汽车|站长之家)(网)?[^一-龥A-Za-z0-9]*$/;
+const NOISE_PREFIX = /^(冲上热搜[!！]?|曾风靡全国[，,]?|重磅[!！]?|突发[!！]?|速看|注意[!！]?|快讯[|：:]|刚刚)/;
+function normalizeTitleKey(title = '') {
+  return String(title)
+    .replace(MEDIA_SUFFIX, '')
+    .replace(NOISE_PREFIX, '')
+    .replace(/[^一-龥A-Za-z0-9]/g, '');
+}
+const seenTitles = new Map();
+const titleDeduped = [];
+for (const card of cards) {
+  const tk = normalizeTitleKey(card.title || '');
+  if (!tk) { titleDeduped.push(card); continue; }
+  const existing = seenTitles.get(tk);
+  if (!existing) {
+    seenTitles.set(tk, card);
+    titleDeduped.push(card);
+  } else if ((card.score || 0) > (existing.score || 0)) {
+    const idx = titleDeduped.indexOf(existing);
+    titleDeduped[idx] = card;
+    seenTitles.set(tk, card);
+    console.log(`  DEDUP-TITLE keep-higher: ${existing.title.slice(0, 40)} → ${card.title.slice(0, 40)}`);
+  } else {
+    console.log(`  DEDUP-TITLE: ${card.title.slice(0, 40)}`);
+  }
+}
+
 // Step 6: Select balanced portfolio
-const sorted = cards.sort((a, b) => b.score - a.score);
+const sorted = titleDeduped.sort((a, b) => b.score - a.score);
 const selected = [];
 const moduleCounts = new Map();
 const seen = new Set();

@@ -45,13 +45,15 @@ const QUERY_GROUPS = Object.freeze({
     '进口化妆品 海关 公告 清关 退运',
   ],
   '美妆动态': [
-    '化妆品 企业 IPO 问询', '化妆品 企业 破产 清算 诉讼 公告',
-    '美妆 品牌 数据 合规 调查 平台治理', 'beauty company IPO merger regulatory filing',
-    '化妆品 企业 重大事项 公告 监管',
-    '美妆 平台 商家治理 功效宣称 违规商品',
-    '华熙生物 公告', '贝泰妮 公告', '珀莱雅 公告',
-    '化妆品 企业 收购 并购 重组',
-    '美妆 品牌 上市 招股 2026',
+    // 电商/平台渠道的法律合规动态（非财经新闻：IPO/破产/并购 一律不采）
+    '化妆品 电商 平台 处罚 下架',
+    '美妆 直播 带货 违规 处罚',
+    '化妆品 网店 虚假宣传 处罚',
+    '化妆品 网络销售 质量 抽检 通告',
+    '美妆 电商 价格 欺诈 处罚',
+    '化妆品 跨境电商 监管 政策',
+    '美妆 平台 商家 治理 合规',
+    '化妆品 电商 监管 市监局 公告',
     '杭州 美妆 化妆品 监管 政策 浙江',
     '上海 化妆品 电商 合规 监管',
   ],
@@ -65,7 +67,7 @@ const MODULE_EVENT = Object.freeze({
   '新规及案例动态': /法规|办法|条例|标准|征求意见|备案|注册|指导原则|公告|实施|policy|regulation|standard|guidance/i,
   '产品质量/召回与安全风险': /召回|不合格|抽检|检出|禁用|批次|质量安全|风险通报|污染|recall|contamination|safety alert/i,
   '进出口动态': /海关|进口|出口|清关|扣留|退运|通关|跨境|进口预警|customs|import|export|seizure|import alert/i,
-  '美妆动态': /平台规则|平台治理|公告|通知|合规|下架|禁售|调整|新规|执法|IPO|上市|招股|问询|并购|收购|重组|破产|清算|注销|股权|融资|投资|调查|诉讼|仲裁|和解|数据泄露|停产|停业|整改|许可证|policy|rule|enforcement|filing|merger|acquisition|bankruptcy|lawsuit|investigation/i,
+  '美妆动态': /平台规则|平台治理|公告|通知|合规|下架|禁售|调整|新规|执法|调查|整改|数据泄露|停产|停业|许可证|电商|网售|网络销售|直播|店铺|商家|质量抽检|不合格|policy|rule|enforcement|investigation|compliance|ecommerce/i,
 });
 
 function increment(map, key, amount = 1) {
