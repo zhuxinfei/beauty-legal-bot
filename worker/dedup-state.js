@@ -11,7 +11,7 @@ export const SEEN_WINDOW_DAYS = 60;
 const TRACKING_QUERY_KEYS = new Set([
   'utm_source', 'utm_medium', 'utm_campaign', 'utm_term', 'utm_content',
   'scm', 'spm', 'from', 'source', 'ref', 'refer', 'referer', 'scroll',
-  'cid', 'clicktime', 'clickid', 'wt', 'at', 's', 'n', 'r', 'k',
+  'cid', 'clicktime', 'clickid', 'wt', 'at',
 ]);
 
 export function normalizeDedupUrl(raw = '') {
