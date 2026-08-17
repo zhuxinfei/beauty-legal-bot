@@ -159,12 +159,30 @@ console.log(`Candidate pool: ${pool.length} records`);
 // Known noise: gov column pages, hotlines, 404s — skip before AI calls.
 const NOISE_TITLE = /今日海关|12360|通关服务热线|海关热线|服务热线|栏目|首页|平台简介|服务指南|运营公共服务平台|页面不存在|出错了|404|网站导航/i;
 
+// Official/authority sources (regulator sites, courts, gov domains) are
+// exempt from the regex pre-screen — fixed-format pages like gov.uk
+// "Product Safety Report" titles carry no beauty keyword but are valid.
+const isAuthoritySource = c => {
+  const st = String(c.source_type || '');
+  const at = String(c.authority_type || '');
+  if (['official_site', 'regulator', 'court', 'official_database'].includes(st)) return true;
+  if (['official', 'regulator', 'court'].includes(at)) return true;
+  return /(^|\.)gov\.(cn|uk|au|ca|sg|jp|kr|tw|hk)|\.gov$|europa\.eu|pom\.go\.id|moph\.go\.th|dav\.gov/i.test(String(c.url || c.source_url || c.final_url || ''));
+};
+
 // Cross-week dedup BEFORE spending AI calls: drop already-delivered URLs.
 // Same normalized key used at selection time, so variants of the same
 // article (tracking params, hash, trailing slash) map to one key.
 const preDedupPool = pool.filter(c => {
   if (NOISE_TITLE.test(c.title || '')) {
     console.log(`  SKIP [noise-title]: ${(c.title || '').slice(0, 40)}`);
+    return false;
+  }
+  // Cheap regex pre-screen before spending AI calls: for non-authority
+  // candidates, no beauty signal in title or first 1000 chars → not worth
+  // an AI judgment.
+  if (!isAuthoritySource(c) && !isBeautyArticle(c.title || '', c.article_text || '')) {
+    console.log(`  SKIP [regex-not-beauty]: ${(c.title || '').slice(0, 40)}`);
     return false;
   }
   const key = normalizeDedupUrl(c.source_url || c.final_url || c.url || '');
@@ -193,7 +211,7 @@ async function aiReview(title, text) {
     const resp = await requestAiChat({
       apiKey: aiKey, baseUrl: aiBaseUrl, model: aiModel,
       messages: [
-        { role: 'system', content: '判断文章是否与美妆/化妆品行业的法律合规事务实质相关。仅接受：法规标准与监管新规、行政处罚与虚假宣传、质量抽检不合格与召回、商标/专利/著作权侵权与诉讼、进出口与跨境电商监管执法、电商/直播/网售渠道合规处罚与平台治理、许可证注销与整改处罚。明确拒绝：企业IPO/上市/融资/并购/破产清算等财经新闻、营销新品代言与业绩类报道、行业趋势分析、非化妆品主体（美发/美容院/综合商超）的法律事件、仅附带提及化妆品的综合新闻。主体必须是化妆品/美妆企业、产品或监管事件，附带提及不算。仅回复JSON：{"relevant":true或false,"reason":"一句话"}' },
+        { role: 'system', content: '判断文章是否与美妆/化妆品行业的法律合规事务实质相关。仅接受：法规标准与监管新规、行政处罚与虚假宣传、质量抽检不合格与召回、商标/专利/著作权侵权与诉讼、进出口与跨境电商监管执法、电商/直播/网售渠道合规处罚与平台治理、许可证注销与整改处罚、化妆品行业协会的合规治理/标准制定/国际合作动态、明确聚焦美妆品类的平台治理或电商乱象专项报道。明确拒绝：企业IPO/上市/融资/并购/破产清算等财经新闻、营销新品代言与业绩类报道、行业趋势分析、非化妆品主体（美发/美容院/综合商超/药品/医疗器械/综合电商平台）的法律事件、仅附带提及化妆品的综合新闻与泛行业盘点。主体必须是化妆品/美妆企业、产品或监管事件，附带提及不算。仅回复JSON：{"relevant":true或false,"reason":"一句话"}' },
         { role: 'user', content: `标题：${title}\n正文：${excerpt}` },
       ],
       temperature: 0, maxTokens: 200, timeoutMs: 30000, maxAttempts: 1,
@@ -327,16 +345,9 @@ for (const card of cards) {
 // Step 6: Select balanced portfolio
 // Official/authority sources fill slots first; portal/self-media cards only
 // backfill module gaps. Same scoring within each tier.
-const isAuthorityCard = card => {
-  const st = String(card.source_type || '');
-  const at = String(card.authority_type || '');
-  if (['official_site', 'regulator', 'court', 'official_database'].includes(st)) return true;
-  if (['official', 'regulator', 'court'].includes(at)) return true;
-  return /(^|\.)gov\.(cn|uk|au|ca|sg|jp|kr|tw|hk)|\.gov$|europa\.eu|pom\.go\.id|moph\.go\.th|dav\.gov/i.test(String(card.source_url || card.url || ''));
-};
 const sorted = titleDeduped.sort((a, b) => {
-  const aa = isAuthorityCard(a) ? 1 : 0;
-  const bb = isAuthorityCard(b) ? 1 : 0;
+  const aa = isAuthoritySource(a) ? 1 : 0;
+  const bb = isAuthoritySource(b) ? 1 : 0;
   if (aa !== bb) return bb - aa;
   return (b.score || 0) - (a.score || 0);
 });
