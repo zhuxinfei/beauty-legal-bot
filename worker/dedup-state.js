@@ -11,8 +11,13 @@ export const SEEN_WINDOW_DAYS = 60;
 const TRACKING_QUERY_KEYS = new Set([
   'utm_source', 'utm_medium', 'utm_campaign', 'utm_term', 'utm_content',
   'scm', 'spm', 'from', 'source', 'ref', 'refer', 'referer', 'scroll',
-  'cid', 'clicktime', 'clickid', 'wt', 'at',
+  'cid', 'clicktime', 'clickid', 'wt', 'at', 'pvid', 'tok',
 ]);
+
+// 内容平台的等价移动子域：同一文章在 m./mt./wap. 等子域与 www./裸域之间
+// 互为变体（如 mt.sohu.com vs m.sohu.com 的同一篇搜狐文章），
+// 归一化到主域后映射到同一去重键。
+const MOBILE_SUBDOMAINS = new Set(['m', 'mobile', 'wap', '3g', 'www', 'mt', 'it', 'i', '3w', 'app', 'touch']);
 
 export function normalizeDedupUrl(raw = '') {
   const value = String(raw).trim();
@@ -34,6 +39,11 @@ export function normalizeDedupUrl(raw = '') {
     // 去除默认端口，hostname 已由 URL 构造归一化为小写
     if ((url.protocol === 'http:' && url.port === '80') || (url.protocol === 'https:' && url.port === '443')) {
       url.port = '';
+    }
+    // 等价移动子域归一化：m./mt./wap. 等 → 主域（如 mt.sohu.com → sohu.com）。
+    const hostLabels = url.hostname.split('.');
+    if (hostLabels.length > 2 && MOBILE_SUBDOMAINS.has(hostLabels[0])) {
+      url.hostname = hostLabels.slice(1).join('.');
     }
     return `${url.origin}${url.pathname.replace(/\/+$/, '')}${url.search}`;
   } catch {
