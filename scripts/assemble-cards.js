@@ -4,6 +4,7 @@
 import { readFileSync, writeFileSync } from 'node:fs';
 import { resolve } from 'node:path';
 import { loadSeenEntries, normalizeDedupUrl } from '../worker/dedup-state.js';
+import { inferCandidateModule } from '../worker/content-quality.js';
 import { normalizeHydratedRecord } from '../worker/source-hydration.js';
 import { extractHardFacts, gradeEvidence } from '../worker/hard-fact-extractor.js';
 import { corroborateEvidenceCandidates } from '../worker/evidence-corroboration.js';
@@ -158,6 +159,9 @@ console.log(`Candidate pool: ${pool.length} records`);
 
 // Known noise: gov column pages, hotlines, 404s — skip before AI calls.
 const NOISE_TITLE = /今日海关|12360|通关服务热线|海关热线|服务热线|栏目|首页|平台简介|服务指南|运营公共服务平台|页面不存在|出错了|404|网站导航/i;
+// Column/nav pages surfaced as "articles" (e.g. list-page titles like
+// 化妆品政策法规 / 政策法规及标准 / 通知公告) — no concrete event.
+const COLUMN_TITLE = /^(?:政策法规|法规文件|化妆品政策法规|政策法规及标准|标准|通知公告|监管动态|化妆品监管动态|综合要闻|局要闻|信息公开|法定主动公开内容|公告|通告|动态|法规|规章制度)[\s_-]*$/;
 
 // Non-beauty-entity penalties (drugs/food/medical-device) that mention
 // cosmetics incidentally must never reach the report — guards the AI
@@ -181,6 +185,10 @@ const isAuthoritySource = c => {
 const preDedupPool = pool.filter(c => {
   if (NOISE_TITLE.test(c.title || '')) {
     console.log(`  SKIP [noise-title]: ${(c.title || '').slice(0, 40)}`);
+    return false;
+  }
+  if (COLUMN_TITLE.test(String(c.title || '').trim())) {
+    console.log(`  SKIP [column-title]: ${(c.title || '').slice(0, 40)}`);
     return false;
   }
   if (NON_BEAUTY_ENTITY.test(c.title || '') && !/(?:化妆品|美妆|护肤|彩妆|香水|口红)/.test(c.title || '')) {
@@ -318,6 +326,14 @@ for (const { c, relevant, reason } of reviews) {
     } catch (_) { /* keep original if AI fails */ }
   }
 
+  // Module re-inference: list-page-derived cards inherit the list's module
+  // (e.g. all NMPA announcements land in 美妆动态). Re-classify by title so
+  // 征求意见/标准 → 新规, 抽检/不合格 → 产品安全, 处罚 → 广告合规 etc.
+  const inferredModule = inferCandidateModule(card);
+  if (inferredModule && inferredModule !== card.module) {
+    console.log(`  RE-MODULE ${card.module.slice(0, 8)} → ${inferredModule.slice(0, 8)}: ${card.title.slice(0, 30)}`);
+    card.module = inferredModule;
+  }
   cards.push({ ...card, score: validation.score, tier: validation.tier });
 }
 

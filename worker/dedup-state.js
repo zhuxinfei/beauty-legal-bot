@@ -19,6 +19,13 @@ const TRACKING_QUERY_KEYS = new Set([
 // 归一化到主域后映射到同一去重键。
 const MOBILE_SUBDOMAINS = new Set(['m', 'mobile', 'wap', '3g', 'www', 'mt', 'it', 'i', '3w', 'app', 'touch']);
 
+// 已知站点的等价路径前缀：同一文章在旧/新路径下各有一份
+// （如 nifdc.org.cn/directory/web/nifdc/... 与 nifdc.org.cn/nifdc/... 同页）。
+// 剥离后映射到同一去重键。
+const PATH_ALIAS_PREFIXES = [
+  { host: /nifdc\.org\.cn$/i, strip: ['/directory/web/'] },
+];
+
 export function normalizeDedupUrl(raw = '') {
   const value = String(raw).trim();
   if (!value) return '';
@@ -44,6 +51,17 @@ export function normalizeDedupUrl(raw = '') {
     const hostLabels = url.hostname.split('.');
     if (hostLabels.length > 2 && MOBILE_SUBDOMAINS.has(hostLabels[0])) {
       url.hostname = hostLabels.slice(1).join('.');
+    }
+    // 等价路径前缀剥离（nifdc 旧路径 /directory/web/）
+    for (const alias of PATH_ALIAS_PREFIXES) {
+      if (alias.host.test(url.hostname)) {
+        for (const prefix of alias.strip) {
+          if (url.pathname.startsWith(prefix)) {
+            url.pathname = url.pathname.slice(prefix.length);
+            break;
+          }
+        }
+      }
     }
     return `${url.origin}${url.pathname.replace(/\/+$/, '')}${url.search}`;
   } catch {
