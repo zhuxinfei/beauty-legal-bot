@@ -159,6 +159,11 @@ console.log(`Candidate pool: ${pool.length} records`);
 // Known noise: gov column pages, hotlines, 404s — skip before AI calls.
 const NOISE_TITLE = /今日海关|12360|通关服务热线|海关热线|服务热线|栏目|首页|平台简介|服务指南|运营公共服务平台|页面不存在|出错了|404|网站导航/i;
 
+// Non-beauty-entity penalties (drugs/food/medical-device) that mention
+// cosmetics incidentally must never reach the report — guards the AI
+// fallback path and saves AI calls.
+const NON_BEAUTY_ENTITY = /(?:药品|医药|兽药|医疗器械|食品|生猪|饲料|消毒产品|保健食品)/;
+
 // Official/authority sources (regulator sites, courts, gov domains) are
 // exempt from the regex pre-screen — fixed-format pages like gov.uk
 // "Product Safety Report" titles carry no beauty keyword but are valid.
@@ -176,6 +181,10 @@ const isAuthoritySource = c => {
 const preDedupPool = pool.filter(c => {
   if (NOISE_TITLE.test(c.title || '')) {
     console.log(`  SKIP [noise-title]: ${(c.title || '').slice(0, 40)}`);
+    return false;
+  }
+  if (NON_BEAUTY_ENTITY.test(c.title || '') && !/(?:化妆品|美妆|护肤|彩妆|香水|口红)/.test(c.title || '')) {
+    console.log(`  SKIP [non-beauty-entity]: ${(c.title || '').slice(0, 40)}`);
     return false;
   }
   // Cheap regex pre-screen before spending AI calls: for non-authority
@@ -211,7 +220,7 @@ async function aiReview(title, text) {
     const resp = await requestAiChat({
       apiKey: aiKey, baseUrl: aiBaseUrl, model: aiModel,
       messages: [
-        { role: 'system', content: '判断文章是否与美妆/化妆品行业的法律合规事务实质相关。仅接受：法规标准与监管新规、行政处罚与虚假宣传、质量抽检不合格与召回、商标/专利/著作权侵权与诉讼、进出口与跨境电商监管执法、电商/直播/网售渠道合规处罚与平台治理、许可证注销与整改处罚、化妆品行业协会的合规治理/标准制定/国际合作动态、明确聚焦美妆品类的平台治理或电商乱象专项报道。明确拒绝：企业IPO/上市/融资/并购/破产清算等财经新闻、营销新品代言与业绩类报道、行业趋势分析、非化妆品主体（美发/美容院/综合商超/药品/医疗器械/综合电商平台）的法律事件、仅附带提及化妆品的综合新闻与泛行业盘点。主体必须是化妆品/美妆企业、产品或监管事件，附带提及不算。仅回复JSON：{"relevant":true或false,"reason":"一句话"}' },
+        { role: 'system', content: '判断文章是否与美妆/化妆品行业的法律合规事务实质相关。仅接受：法规标准与监管新规、行政处罚与虚假宣传、质量抽检不合格与召回、商标/专利/著作权侵权与诉讼、进出口与跨境电商监管执法、电商/直播/网售渠道合规处罚与平台治理、许可证注销与整改处罚、化妆品行业协会的合规治理/标准制定/国际合作动态、监管部门的专项检查/整治行动/飞行检查/核查处置动态、明确聚焦美妆品类的平台治理或电商乱象专项报道。明确拒绝：企业IPO/上市/融资/并购/破产清算等财经新闻、营销新品代言与业绩类报道、行业趋势分析、非化妆品主体（美发/美容院/综合商超/药品/医疗器械/综合电商平台）的法律事件、仅附带提及化妆品的综合新闻与泛行业盘点。主体必须是化妆品/美妆企业、产品或监管事件，附带提及不算。仅回复JSON：{"relevant":true或false,"reason":"一句话"}' },
         { role: 'user', content: `标题：${title}\n正文：${excerpt}` },
       ],
       temperature: 0, maxTokens: 200, timeoutMs: 30000, maxAttempts: 1,

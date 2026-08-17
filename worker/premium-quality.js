@@ -787,7 +787,14 @@ export function validatePremiumEvidenceCard(card = {}) {
   }
   if (isCrossDomainPenaltyNoise(normalized)) return { accepted: false, reason: 'case-not-beauty-specific', card: normalized };
   if (!isBeautyRelevantCard(normalized)) return { accepted: false, reason: 'not-beauty-relevant', card: normalized };
-  if (!normalized.facts.length || !CONCRETE_PATTERNS.test(normalized.facts.join(' '))) {
+  // 官方/监管来源的治理动态卡（行业协会动态、专项检查、整治行动、备案试点）
+  // 没有文号/金额/批次等硬事实锚点，weak-facts 放宽到 facts 非空即可；
+  // 非官方来源保持严格，防止自媒体拼凑内容放水。
+  const authoritySourceCard = ['official_site', 'regulator', 'court', 'official_database'].includes(text(normalized.source_type))
+    || ['official', 'regulator', 'court'].includes(text(normalized.authority_type))
+    || /(^|\.)gov\.(cn|uk|au|ca|sg|jp|kr|tw|hk)|\.gov$|europa\.eu|pom\.go\.id|moph\.go\.th|dav\.gov/i.test(String(normalized.source_url || ''));
+  if (!normalized.facts.length) return { accepted: false, reason: 'weak-facts', card: normalized };
+  if (!authoritySourceCard && !CONCRETE_PATTERNS.test(normalized.facts.join(' '))) {
     return { accepted: false, reason: 'weak-facts', card: normalized };
   }
   if (!normalized.legal_signal || GENERIC_PATTERNS.test(normalized.legal_signal)) {
