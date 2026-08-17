@@ -145,6 +145,13 @@ def extract_detail_urls(markdown, base_url, module=""):
         absolute = urljoin(base_url or "", sanitize_detail_href(raw))
         if not absolute or absolute in seen:
             continue
+        # 过滤非内容链接：图片、搜索、登录、栏目导航页 — 这些抓了也是废请求
+        if re.search(r"\\.(?:png|jpe?g|webp|gif|svg|css|js|ico)(?:$|[?#])", absolute, flags=re.I):
+            continue
+        if re.search(r"/(?:search|login|register|sitemap|member|user|site/login)(?:/|$|[?#])|\\?(?:q|s|keyword|query)=", absolute, flags=re.I):
+            continue
+        if re.search(r"(?:index|more(?:[-0-9]+)?|list|common_list|fwzl_list|tzgg|gstg|flfggz|zcwj|zcfg|ggtzh)\\.(?:s?html?)(?:$|[?#])", absolute, flags=re.I):
+            continue
         seen.add(absolute)
         normalized.append({"url": absolute, "title": label})
     return normalized[:detail_link_limit]
