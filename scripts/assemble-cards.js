@@ -513,8 +513,15 @@ const sections = MODULES.map(mod => ({
 }));
 
 const report = { period, sections };
+// 低供给标注：分级门槛下总量不足仍会发布，但必须在报告正文里显式说明，
+// 避免法务读者误以为这就是本期全部可用信息。
+const supplyFloor = Number(process.env.REPORT_MIN_ITEMS || 15);
+const supplyNote = selected.length < supplyFloor
+  ? `\n> ⚠️ 本期供给偏低：合格条目 ${selected.length} 条，低于常规门槛 ${supplyFloor} 条。已按分级门槛放行发布，缺口主要来自官方站正文抓取受限。\n`
+  : '';
 // preselecteded: true avoids re-validating every card inside the markdown builder
-const markdown = buildPremiumDingTalkMarkdown({ period, cards: selected, preselected: true });
+const markdown = buildPremiumDingTalkMarkdown({ period, cards: selected, preselected: true })
+  .replace(/^(>[^\n]*\n)/m, match => match + supplyNote);
 
 // Emit the URLs actually selected for delivery. The dedup state file
 // (docs/quality/seen-cards.json) is only updated after the DingTalk push

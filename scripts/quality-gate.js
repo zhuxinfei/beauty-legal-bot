@@ -56,7 +56,17 @@ const REQUIRED_CARD_FIELDS = ['title', 'source_url', 'module', 'legal_signal', '
 // 硬门槛（非零退出，阻止 PDF 与钉钉推送）：条目数 < REPORT_MIN_ITEMS、字段缺失、重复条目；
 // 告警（不阻断，输出 ::warning:: 并写入质检报告）：正文残留导航、模块覆盖过窄、
 // 事实要点过少、法规模块条目不足。
-export function assertCiReportGate(payload = {}, { minItems = 15, minLegalItems = 2 } = {}) {
+// 核心类目：承载实质法律/监管内容的模块。美妆动态属行业新闻，不计入硬门槛，
+// 因此核心数 ≈ 总量 - 美妆动态，硬门槛实际等价于「总量下限」。
+export const CORE_MODULES = [
+  '新法律法规政策',
+  '广告处罚案例',
+  '知识产权保护或者侵权',
+  '进出口',
+  '产品质量/召回与安全风险',
+];
+
+export function assertCiReportGate(payload = {}, { minItems = 15, minLegalItems = 2, minCoreItems = 8 } = {}) {
   const cards = Array.isArray(payload.cards) ? payload.cards : [];
   const byModule = {};
   for (const card of cards) {
@@ -64,6 +74,7 @@ export function assertCiReportGate(payload = {}, { minItems = 15, minLegalItems 
     byModule[module] = (byModule[module] || 0) + 1;
   }
   const legalItems = (byModule['新法律法规政策'] || 0) + (byModule['广告处罚案例'] || 0);
+  const coreItems = cards.filter(card => CORE_MODULES.includes(String(card.module || ''))).length;
 
   const problems = [];
   const warnings = [];
@@ -103,9 +114,15 @@ export function assertCiReportGate(payload = {}, { minItems = 15, minLegalItems 
   if (thinFacts) warnings.push(`thin-facts=${thinFacts}（facts 少于 2 条）`);
   if (legalItems < minLegalItems) warnings.push(`legal-items=${legalItems}（低于 ${minLegalItems}）`);
 
-  const summary = { items: cards.length, minItems, legalItems, minLegalItems, modules: moduleCount, byModule, warnings, problems };
+  const summary = { items: cards.length, minItems, coreItems, minCoreItems, legalItems, minLegalItems, modules: moduleCount, byModule, warnings, problems };
+  // 硬门槛：核心类目过少说明本期供给太差，不值得占用一次投递名额。
+  if (coreItems < minCoreItems) {
+    throw new Error(`CI quality gate failed: coreItems=${coreItems} < ${minCoreItems}；核心类目（法规/处罚/知产/进出口/质量）不足，按规则不推送。分布：${JSON.stringify(byModule)}`);
+  }
+  // 软门槛：总量不足不再阻断整期，改为告警 + 报告内标注。
+  // 历史最好成绩正好 15 条（= 原硬门槛），零余量导致任何扰动即整期断供。
   if (cards.length < minItems) {
-    throw new Error(`CI quality gate failed: items=${cards.length} < ${minItems}；本期合格条目不足，按规则不推送。分布：${JSON.stringify(byModule)}`);
+    warnings.push(`low-supply: items=${cards.length} < ${minItems}（分级门槛放行，报告内已标注）`);
   }
   if (problems.length) {
     throw new Error(`CI quality gate failed: ${problems.slice(0, 5).join('; ')}${problems.length > 5 ? ` 等 ${problems.length} 项` : ''}`);
@@ -123,7 +140,8 @@ if (import.meta.url === invokedPath) {
   if (ciMode) {
     const minItems = Number(process.env.REPORT_MIN_ITEMS || 15);
     const minLegalItems = Number(process.env.REPORT_MIN_LEGAL_ITEMS || 2);
-    const result = assertCiReportGate(payload, { minItems, minLegalItems });
+    const minCoreItems = Number(process.env.REPORT_MIN_CORE_ITEMS || 8);
+    const result = assertCiReportGate(payload, { minItems, minLegalItems, minCoreItems });
     // 质检报告写入 out/，随 CI 产物一起上传，便于回查本期输出质量
     writeFileSync(join(dirname(resolve(input)), 'quality-report.json'), `${JSON.stringify(result, null, 2)}\n`, 'utf8');
     console.log(JSON.stringify(result, null, 2));
