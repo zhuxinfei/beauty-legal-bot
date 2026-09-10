@@ -15,6 +15,11 @@ on:
         options:
           - 'false'
           - 'true'
+      hydration_ref:
+        description: '预置水合产物所在的分支/ref（本机采集用）。留空则在本 runner 上现场采集'
+        required: false
+        default: ''
+        type: string
 
 permissions:
   contents: write
@@ -29,7 +34,11 @@ jobs:
       MIN_SOURCE_COVERAGE: ${{ vars.MIN_SOURCE_COVERAGE || '0.9' }}
       MIN_CHINA_CRITICAL_COVERAGE: ${{ vars.MIN_CHINA_CRITICAL_COVERAGE || '0.9' }}
       REPORT_QUALITY_MODE: quality
-      # 质量闸门：合格条目 < REPORT_MIN_ITEMS 时整轮失败、不渲染 PDF、不推送（可用仓库 Variables 覆盖）
+      # 质量闸门（分级，2026-09-10 起）：核心类目（法规/处罚/知产/进出口/质量）条数
+      # < REPORT_MIN_CORE_ITEMS 时整轮失败、不渲染 PDF、不推送；总量 < REPORT_MIN_ITEMS
+      # 只告警并在报告正文里标注「本期供给偏低」，不再阻断整期。
+      # 依据：历史最好成绩正好 15 条（= 原硬门槛），零余量导致任何扰动即断供。
+      REPORT_MIN_CORE_ITEMS: ${{ vars.REPORT_MIN_CORE_ITEMS || '8' }}
       REPORT_MIN_ITEMS: ${{ vars.REPORT_MIN_ITEMS || '15' }}
       REPORT_MIN_LEGAL_ITEMS: ${{ vars.REPORT_MIN_LEGAL_ITEMS || '2' }}
       AI_MODEL: deepseek-chat
@@ -98,9 +107,11 @@ jobs:
           python -m playwright install chromium
 
       - name: Discover open-web legal events
+        if: inputs.hydration_ref == ''
         run: node scripts/discover-open-web.js out/discovery.json out/acquisition-manifest.json
 
       - name: Hydrate evidence sources
+        if: inputs.hydration_ref == ''
         run: |
           mkdir -p out
           node scripts/crawl4ai-hydrate.js \
@@ -112,6 +123,19 @@ jobs:
             --attachment-limit "$CRAWL4AI_ATTACHMENT_LIMIT" \
             || echo '{"records":[]}' > "$SOURCE_HYDRATION_FILE"
           node -e "const fs=require('fs'); const p=JSON.parse(fs.readFileSync(process.env.SOURCE_HYDRATION_FILE,'utf8')); const rows=(p.records||[]); console.log('hydrated records=' + rows.length + ', withText=' + rows.filter(r => (r.article_text||r.raw_markdown||r.fit_markdown||'').length > 0).length + ', attachments=' + rows.reduce((s,r)=>s+(r.attachment_urls||[]).length,0));"
+
+      # 本机采集模式（2026-09-10 起）：discovery + hydration 在国内网络完成，
+      # 产物以单文件分支形式推上来，CI 只负责组装/质检/发布。
+      # 动机：GitHub runner 是境外 IP，政务站 WAF 全量拦截——实测 nmpa.gov.cn 14/14、
+      # customs.gov.cn 6/7 返回空正文，本轮因此丢掉 15 条 hard_fact_ready。
+      # 同批 URL 在本机（国内住宅 IP）探测 21/30 可抓，8 个种子源可展开为 41 条记录。
+      - name: Fetch pre-hydrated evidence from local run
+        if: inputs.hydration_ref != ''
+        run: |
+          mkdir -p out
+          git fetch --depth=1 origin "${{ inputs.hydration_ref }}"
+          git show FETCH_HEAD:hydrated-authority.json > "$SOURCE_HYDRATION_FILE"
+          node -e "const fs=require('fs'); const p=JSON.parse(fs.readFileSync(process.env.SOURCE_HYDRATION_FILE,'utf8')); const rows=(p.records||[]); console.log('pre-hydrated records=' + rows.length + ', withText=' + rows.filter(r => (r.article_text||'').length > 100).length);"
 
       - name: Assemble report from hydrated evidence
         run: |

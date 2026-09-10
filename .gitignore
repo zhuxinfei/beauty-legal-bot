@@ -10,3 +10,4 @@ out/
 .code-index/
 .codegraph/
 .superpowers/
+.venv-hydrate/
