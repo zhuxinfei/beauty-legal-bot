@@ -71,7 +71,7 @@ const NEWS_CHROME = [
   /链接复制成功[^。]*/g,
   /发布于：[^。]*/g,
 ];
-const FORUM_HOSTS = /(?:wenxuecity\.com|\.tieba\.|\.zhihu\.|\.douban\.|\.weibo\.)/i;
+const FORUM_HOSTS = /(?:wenxuecity\.com|\.tieba\.|\.zhihu\.|\.douban\.|\.weibo\.|vietnam\.vn|reach24h\.com|qianlong\.com|online\.sh\.cn)/i;
 const WEAK_TITLE_PATTERN = /(?:举办|召开|培训|会议|活动|论坛|调研|考察|检查指导|工作部署)/;
 const PORTAL_CHROME = [
   /化妆品审评\s*国家抽检管理\s*医疗器械标准与分类管理[^。]*/g,
@@ -161,10 +161,14 @@ pool = pool.filter(c => {
 console.log(`Candidate pool: ${pool.length} records`);
 
 // Known noise: gov column pages, hotlines, 404s — skip before AI calls.
-const NOISE_TITLE = /今日海关|12360|通关服务热线|海关热线|服务热线|栏目|首页|平台简介|服务指南|运营公共服务平台|页面不存在|出错了|404|网站导航|政府信息公开|门户网站|商标网\s*$|保护中心\s*$/i;
+const NOISE_TITLE = /今日海关|12360|通关服务热线|海关热线|服务热线|栏目|首页|平台简介|服务指南|运营公共服务平台|页面不存在|出错了|404|网站导航|政府信息公开|门户网站|商标网\s*$|保护中心\s*$|法规网|法律法规数据库|管理系统\s*$/i;
 // Column/nav pages surfaced as "articles" (e.g. list-page titles like
 // 化妆品政策法规 / 政策法规及标准 / 通知公告) — no concrete event.
-const COLUMN_TITLE = /^(?:政策法规|法规文件|化妆品政策法规|政策法规及标准|标准|通知公告|监管动态|化妆品监管动态|综合要闻|局要闻|信息公开|法定主动公开内容|公告|通告|动态|法规|规章制度|政策解读|法规解读|履职依据|海关法规|规范性文件|部门文件|机构简介|协会简介|研究中心)[\s_-]*$/;
+const COLUMN_TITLE = /^(?:政策法规|法规文件|化妆品政策法规|政策法规及标准|标准|通知公告|监管动态|化妆品监管动态|综合要闻|局要闻|信息公开|法定主动公开内容|公告|通告|动态|法规|规章制度|政策解读|法规解读|履职依据|海关法规|规范性文件|部门文件|机构简介|协会简介|研究中心|中企商标发展中心|中企商标鉴定中心|《?中华商标》?(?:杂志社)?|化妆品召回|化妆品处罚|化妆品抽检|化妆品监管)[\s_-]*$/;
+
+// 非美妆领域的政策/服务页（化学品、污染物、食品等）与"服务/代办"类营销页
+const NON_COSMETIC_SCOPE = /(?:易制毒|新化学物质|新污染物|危险化学品|农药|兽药|饲料|芥末|食用油|食品添加剂)/;
+const SERVICE_PAGE_TITLE = /(?:许可\/备案申请|备案登记|登记服务|法规服务|代办|咨询服务)$/;
 
 // Non-beauty-entity penalties (drugs/food/medical-device) that mention
 // cosmetics incidentally must never reach the report — guards the AI
@@ -192,6 +196,14 @@ const preDedupPool = pool.filter(c => {
   }
   if (COLUMN_TITLE.test(String(c.title || '').trim())) {
     console.log(`  SKIP [column-title]: ${(c.title || '').slice(0, 40)}`);
+    return false;
+  }
+  if (NON_COSMETIC_SCOPE.test(String(c.title || '')) && !/(?:化妆品|美妆|护肤|彩妆|香水|口红)/.test(String(c.title || ''))) {
+    console.log(`  SKIP [non-cosmetic-scope]: ${(c.title || '').slice(0, 40)}`);
+    return false;
+  }
+  if (SERVICE_PAGE_TITLE.test(String(c.title || '').trim())) {
+    console.log(`  SKIP [service-page]: ${(c.title || '').slice(0, 40)}`);
     return false;
   }
   if (NON_BEAUTY_ENTITY.test(c.title || '') && !/(?:化妆品|美妆|护肤|彩妆|香水|口红)/.test(c.title || '')) {
@@ -231,7 +243,7 @@ async function aiReview(title, text) {
     const resp = await requestAiChat({
       apiKey: aiKey, baseUrl: aiBaseUrl, model: aiModel,
       messages: [
-        { role: 'system', content: '判断文章是否与美妆/化妆品行业的法律合规事务实质相关。仅接受：法规标准与监管新规、行政处罚与虚假宣传、质量抽检不合格与召回、商标/专利/著作权侵权与诉讼、进出口与跨境电商监管执法、电商/直播/网售渠道合规处罚与平台治理、许可证注销与整改处罚、化妆品行业协会的合规治理/标准制定/国际合作动态、监管部门的专项检查/整治行动/飞行检查/核查处置动态、明确聚焦美妆品类的平台治理或电商乱象专项报道。明确拒绝：企业IPO/上市/融资/并购/破产清算等财经新闻、营销新品代言与业绩类报道、行业趋势分析、非化妆品主体（美发/美容院/综合商超/药品/医疗器械/综合电商平台）的法律事件、仅附带提及化妆品的综合新闻与泛行业盘点、政府或协会的栏目索引页/机构介绍页/网站地图/联系方式页。美妆电商场景（平台店铺、直播带货、跨境电商、网售抽检、平台治理）优先接受。主体必须是化妆品/美妆企业、产品或监管事件，附带提及不算。仅回复JSON：{"relevant":true或false,"reason":"一句话"}' },
+        { role: 'system', content: '判断文章是否与美妆/化妆品行业的法律合规事务实质相关。仅接受：法规标准与监管新规、行政处罚与虚假宣传、质量抽检不合格与召回、商标/专利/著作权侵权与诉讼、进出口与跨境电商监管执法、电商/直播/网售渠道合规处罚与平台治理、许可证注销与整改处罚、化妆品行业协会的合规治理/标准制定/国际合作动态、监管部门的专项检查/整治行动/飞行检查/核查处置动态、明确聚焦美妆品类的平台治理或电商乱象专项报道。明确拒绝：企业IPO/上市/融资/并购/破产清算等财经新闻、营销新品代言与业绩类报道、行业趋势分析、非化妆品主体（美发/美容院/综合商超/药品/医疗器械/综合电商平台）的法律事件、仅附带提及化妆品的综合新闻与泛行业盘点、政府或协会的栏目索引页/机构介绍页/网站地图/联系方式页、评论与观察类报道。海关/进出口类必须与化妆品直接相关（化妆品通关、准入、退运、跨境化妆品监管）；通用贸易便利化政策、非化妆品商品的口岸政策一律拒绝。美妆电商场景（平台店铺、直播带货、跨境电商、网售抽检、平台治理）优先接受。主体必须是化妆品/美妆企业、产品或监管事件，附带提及不算。仅回复JSON：{"relevant":true或false,"reason":"一句话"}' },
         { role: 'user', content: `标题：${title}\n正文：${excerpt}` },
       ],
       temperature: 0, maxTokens: 200, timeoutMs: 30000, maxAttempts: 1,

@@ -29,13 +29,13 @@ const GENERIC_INFO_PAGE_PATTERN = /(?:安全使用|消费者提示|消费提示|
 const PORTAL_EVIDENCE_PATTERN = /(?:\* \[新闻\]|\* \[首页\]|javascript:void|司局介绍|时政要闻|地方\]\(|媒体聚焦|重要政策举措及实施效果|召回查询|信息查询平台|注册管理信息系统|数据查询|产业创新|统计监控|快捷检索|高级检索|友情链接|用户需求与满意度调查|证明商标使用申请表|填写说明|查看更多|通知公告\s*更多)/i;
 const HARD_LEGAL_EVENT_PATTERN = /(?:文号|公告|通告|通报|征求意见|反馈截止|截止日期|截止|生效|实施|过渡期|新旧衔接|行政处罚|处罚决定|罚款|罚没|没收|违法所得|责令改正|吊销|停止销售|召回|警示信|warning\s+letter|判决|裁定|赔偿|侵权|冒用|假冒|刷单|虚假交易|虚假宣传|功效宣称|平台治理|专项治理|治理公告|商标|专利|著作权|海关|口岸|报关|清关|HS\s*编码|进口|出口|禁用|限用|15\s*个?工作日|serious\s+adverse\s+event|mandatory\s+report)/i;
 const BEAUTY_RELEVANCE_PATTERN = /(?:化妆品|美妆|护肤|彩妆|香水|口红|面膜|洗护|防晒|染发|染眉|染睫|美容|医美|祛斑|美白|功效宣称|玻色因|爱马仕|配方|着色剂|色素|进口化妆品|出口化妆品|化妆品标准|cosmetic|cosmetics|MoCRA|color additives?)/i;
-const GENERIC_NON_BEAUTY_PATTERN = /(?:在线酒店|酒店预订|机票|旅游|平台经济|外卖|网约车|金融监管|证券|外汇|房地产|教育培训|医疗器械|药品集采|保险|银行|携程|美团|阿里巴巴|腾讯|京东|滴滴)/i;
+const GENERIC_NON_BEAUTY_PATTERN = /(?:在线酒店|酒店预订|机票|旅游|平台经济|外卖|网约车|金融监管|证券|外汇|房地产|教育培训|医疗器械|药品集采|保险|银行|携程|美团|阿里巴巴|腾讯|京东|滴滴|易制毒|新化学物质|新污染物|危险化学品|农药|兽药|饲料|芥末|食用油|纺织品|家具)/i;
 const PREMIUM_JUNK_EVIDENCE_PATTERN = /(?:欢迎访问|通知公告\s*更多|首页\s+资讯中心|栏目导航|工作委员会|专业委员会名单|证明商标使用申请表|填写说明|粤港澳知识产权大数据综合服务平台|快捷检索|高级检索|友情链接|用户需求与满意度调查问卷|政府侧应用与数据需求调研问卷)/i;
 const BROKEN_FIELD_PATTERN = /(?:\[\s*\]\s*\(|\]\($|\(\s*$|\[\s*$|javascript:void|undefined|null|NaN|>\s*$|<\s*$)/i;
 const FRAGMENT_FIELD_PATTERN = /^(?:的|和|及|并|依法|予以|进行|相关|上述|该|此|其|对|将|已|了)[，,、；;\s]*(?:依法)?(?:严肃查处|处理|监管|处罚|执行|实施|发布|通告|公告)?$/;
 const DOCUMENT_TITLE_AS_PRODUCT_PATTERN = /(?:关于)?(?:\d+\s*批次)?(?:不符合规定)?化妆品的(?:公告|通告)[（(]20\d{2}年第\d+号[）)](?:\s|$)/;
 const MIXED_NOTICE_CHROME_PATTERN = /20\d{2}[-年]\d{1,2}[-月]\d{1,2}.*(?:召开|工作动态|监管动态|新闻|会议|活动|培训|论坛|检查)/;
-const GENERIC_NAVIGATION_TITLE_PATTERN = /^(?:全文页|政策解读|法规解读|政策法规|法规文件|化妆品政策法规|政策法规及标准|履职依据|海关法规|法律法规|规章|规范性文件|部门文件|文件通知|通知公告|政府信息公开|政府信息公开制度|信息公开指南|首页|网站首页|信息公示|信用信息|商标公告|行政执法结果|工作动态|监管动态|新闻中心|最新动态|栏目页|专题页|信息发布|公示公告|机构简介|协会简介|商会简介|研究中心|门户网站|网站地图)$/;
+const GENERIC_NAVIGATION_TITLE_PATTERN = /^(?:全文页|政策解读|法规解读|政策法规|法规文件|化妆品政策法规|政策法规及标准|履职依据|海关法规|法律法规|规章|规范性文件|部门文件|文件通知|通知公告|政府信息公开|政府信息公开制度|信息公开指南|首页|网站首页|信息公示|信用信息|商标公告|行政执法结果|工作动态|监管动态|新闻中心|最新动态|栏目页|专题页|信息发布|公示公告|机构简介|协会简介|商会简介|研究中心|门户网站|网站地图|中企商标发展中心|中企商标鉴定中心|《?中华商标》?杂志社?|化妆品召回|化妆品处罚|化妆品抽检|化妆品监管|法规网.*数据库)$/;
 const JUNK_DATE_PATTERN = /^20(?:0\d|1[0-9]|2[01])/;
 const GOVERNMENT_FOOTER_PATTERN = /(?:中国政府网|国家政务服务平台|国家市场监督管理总局|©|版权所有|党政机关|政府网站|站点地图|主办单位|通信地址|滇ICP|网站标识码|无障碍浏览|适老化|隐私保护|法律声明|返回首页|页面放大|页面缩小|移动版|本站查询|一网通查|主要职责|基本信息|领导介绍|机构设置|按主题分类|按时间分类|药品GSP|化妆品审评\s*国家抽检管理|办理流程\s*立案|缴纳情况\s*\d{4}年|请\s*\d+s\)\s*抱歉|信息中心|网站声明|智能问答|业务咨询|關閉|esc键)/i;
 
@@ -818,7 +818,19 @@ export function validatePremiumEvidenceCard(card = {}) {
     || ['official', 'regulator', 'court'].includes(text(normalized.authority_type))
     || /(^|\.)gov\.(cn|uk|au|ca|sg|jp|kr|tw|hk)|\.gov$|europa\.eu|pom\.go\.id|moph\.go\.th|dav\.gov/i.test(String(normalized.source_url || ''));
   if (!normalized.facts.length) return { accepted: false, reason: 'weak-facts', card: normalized };
-  if (!authoritySourceCard && !CONCRETE_PATTERNS.test(normalized.facts.join(' '))) {
+  // 具体性检查同时看 facts 与 hard_facts 锚点：媒体源报道的处罚案例，事实要点
+  // 可能只落在 hard_facts（处罚机关/金额/法律依据/文号），不在 facts 文案里。
+  const concreteEvidence = [
+    normalized.facts.join(' '),
+    normalized.hard_facts.authority,
+    normalized.hard_facts.penalty_amount,
+    normalized.hard_facts.confiscation_result,
+    normalized.hard_facts.legal_basis,
+    normalized.hard_facts.document_number,
+    normalized.hard_facts.effective_date,
+    normalized.hard_facts.deadline,
+  ].filter(Boolean).join(' ');
+  if (!authoritySourceCard && !CONCRETE_PATTERNS.test(concreteEvidence)) {
     return { accepted: false, reason: 'weak-facts', card: normalized };
   }
   if (!normalized.legal_signal || GENERIC_PATTERNS.test(normalized.legal_signal)) {

@@ -20,6 +20,8 @@
 | 群内版式 | 一条消息包含管理层摘要、分板块专业正文、本期结论和可点击原文；全部文字可复制 |
 | 重复控制 | 候选 URL 去重、报告内条目去重、最终报告条目 30 天内不重复推送 |
 | 调度 | GitHub Actions 每周一北京时间 08:17 执行，也可手动触发 |
+| 质量门槛 | 每期至少 15 条合格条目（低于门槛整轮失败：不渲染 PDF、不推送、不写去重）；法规模块合计不足 2 条时输出显著告警 |
+| 历史归档 | 每周 PDF 追加发布到 `gh-pages`（不删除历史），附归档索引页，历史各期链接永久可下载 |
 
 ## 信息源工作流
 
@@ -123,6 +125,19 @@ AI 分析后会记录四层审计数量：AI 原始条目、来源匹配条目�
 
 正常周报的硬门槛为：中国 required 高优先级源覆盖率和全部 required 源覆盖率均至少 90%。页面成功读取但本周没有相关资讯记为 `empty`，属于正常零更新，不是抓取失败。required 门槛不满足时，流程会以失败退出，不调用 AI、不发送一份看似完整但来源不足的周报，也不写入 30 天去重状态。
 
+## 质量门槛与历史归档
+
+- 组装完成后先过 CI 质量闸门（`node scripts/quality-gate.js --ci out/assembled-cards.json`）：
+  合格条目少于 `REPORT_MIN_ITEMS`（默认 15，可在仓库 Variables 覆盖）时整轮失败，不渲染 PDF、不推送钉钉、不写去重状态；
+  法规模块（新法律法规政策 + 广告处罚案例）合计少于 `REPORT_MIN_LEGAL_ITEMS`（默认 2）时输出醒目的 CI 告警。
+- 每周 PDF 以追加方式发布到 `gh-pages`（发布步骤不使用 `force_orphan`，`keep_files` 生效），历史各期不会被删除：
+  - 归档索引页：<https://zhuxinfei.github.io/beauty-legal-bot/>
+  - 单期直链：`https://zhuxinfei.github.io/beauty-legal-bot/美妆法务资讯周报-YYYY-MM-DD.pdf`
+  - 最新一期：<https://zhuxinfei.github.io/beauty-legal-bot/latest-report.pdf>
+- 已回收的历史 PDF 存放在 `docs/archive/`，每次发布会一并同步到 gh-pages 并出现在索引页中。
+- `worker/sources.json` 由 Excel 生成；**重新运行 `extract_sources.py` 覆盖前，请保留手工追加的 `hard_fact_list` / `hard_fact_endpoint` 条目**
+  （省级药监局化妆品栏目等，避免法规供给回退）。
+
 ## 部署（Cloudflare Workers）
 
 ### 1. 安装并登录 Wrangler
@@ -191,6 +206,7 @@ npx wrangler deploy
 python3 scripts/extract_sources.py "/Users/zhuxinfei/Downloads/美妆行业新法律法规、违法案例公众号_网站收录 +2026.5.24.xlsx" worker/sources.json
 node worker/test-runner.js
 node --check worker/index.js
+node scripts/quality-gate.js --ci out/assembled-cards.json   # 组装结果质量闸门（<15 条时非零退出）
 python3 - << 'PY'
 import json
 from collections import Counter

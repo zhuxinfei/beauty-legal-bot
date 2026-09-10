@@ -3,7 +3,10 @@ function text(value) {
 }
 
 function clean(value) {
-  return text(value).replace(/[。；;，,]$/, '');
+  return text(value)
+    .replace(/^[，,、；;：:\s]+/, '')
+    .replace(/^(?:将|把|对)(?=[^\s])/, '')
+    .replace(/[。；;，,]$/, '');
 }
 
 function isUsableFact(value) {
