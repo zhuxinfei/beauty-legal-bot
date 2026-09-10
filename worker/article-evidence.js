@@ -1,9 +1,11 @@
 const MARKDOWN_TABLE_SEPARATOR = /^\s*\|?\s*:?-{3,}:?\s*(?:\|\s*:?-{3,}:?\s*)+\|?\s*$/;
 const PAGE_CONTROL_PATTERN = /(?:下载|打印|关闭窗口|字体(?:大小)?|字号|分享到(?:新浪微博|QQ空间|微信|微博)|分享至(?:新浪微博|QQ空间|微信|微博)|收藏本站|返回顶部|视窗|最小化|最大化|还原|loading\.{3}|无障碍|关怀版|繁體|简体|EN(?:\s*$)|扫一扫|复制链接|打开适老|聽|请听|我在听|说话\(|網站地圖)/gi;
-const PAGE_SHELL_PATTERN = /^(?:网站首页|首页|主页|当前位置|导航|站点导航|机构概况|信息公开|办事大厅|新闻中心|通知公告|联系我们|登录|注册|搜索|高级检索|友情链接|上一页|下一页|English|Home|Menu|X\b|用户空间|海关电邮|守国门|促发展)(?:\s|[>＞|｜:：/·-]|$)/i;
+const PAGE_SHELL_PATTERN = /^(?:网站首页|首页|主页|当前位置|您的位置|位置[:：]|导航|站点导航|机构概况|信息公开|办事大厅|新闻中心|通知公告|联系我们|登录|注册|搜索|高级检索|友情链接|上一页|下一页|English|Home|Menu|X\b|用户空间|海关电邮|守国门|促发展)(?:\s|[>＞|｜:：/·-]|$)/i;
 const EVENT_EVIDENCE_PATTERN = /(?:发布|公布|公告|通告|通报|征求意见|实施|生效|处罚|罚款|罚没|没收|召回|停止销售|抽检|不合格|判决|裁定|侵权|冒用|假冒|商标|专利|著作权|虚假宣传|功效宣称|平台治理|专项治理|治理公告|海关|关税|报关|清关|进口|出口|标准|法规|条例|办法|规定|备案|注册)/i;
-const NAVIGATION_TOKEN_PATTERN = /新闻发布厅|时政要闻|媒体聚焦|快捷检索|高级检索|友情链接|返回顶部|上一篇|下一篇|机构|新闻|政务|服务|互动|专题|总局|司局|地方|图片|视频|当|好|让|党|放心/gi;
+const NAVIGATION_TOKEN_PATTERN = /新闻发布厅|时政要闻|媒体聚焦|快捷检索|高级检索|友情链接|返回顶部|上一篇|下一篇|人才队伍|院务动态|党建工作|业务咨询|建言献策|院介绍|院领导|组织机构|能力资质|首席专家|法规政策|公告通知|数据查询|机构简介|领导简介|政府信息公开|依申请公开|办事指南|交流互动|专题专栏|返回主站|网站地图|药监App|监管App|机构|新闻|政务|服务|互动|专题|总局|司局|地方|图片|视频|当|好|让|党|放心/gi;
 const SUBSTANTIVE_ACTION_PATTERN = /发布|公布|通报|征求意见|实施|生效|处罚|罚款|罚没|没收|召回|停止销售|抽检|不合格|判决|裁定|侵权|虚假宣传|功效宣称|平台治理|专项治理|调整|修订|要求|决定/;
+const FOOTER_PATTERN = /^(?:本站由|本站主办|版权所有|Copyright|备案序号|网站标识码|京ICP备|ICP备|主办单位|承办单位|技术支持|地址[:：]|邮编[:：]|联系电话|All Rights Reserved)/i;
+const ATTACHMENT_FILENAME_PATTERN = /^[^。；;]{2,140}?\.(?:docx?|pdf|xlsx?|pptx?)$/i;
 
 function plainText(value) {
   return String(value || '')
@@ -32,6 +34,8 @@ function cleanLine(value) {
     .trim();
   if (!line) return '';
   if (PAGE_SHELL_PATTERN.test(line) && !EVENT_EVIDENCE_PATTERN.test(line)) return '';
+  if (FOOTER_PATTERN.test(line) && !SUBSTANTIVE_ACTION_PATTERN.test(line)) return '';
+  if (ATTACHMENT_FILENAME_PATTERN.test(line)) return '';
   const navigationHits = line.match(NAVIGATION_TOKEN_PATTERN)?.length || 0;
   const withoutNavigationLabels = line.replace(NAVIGATION_TOKEN_PATTERN, ' ');
   if (navigationHits >= 2 && !SUBSTANTIVE_ACTION_PATTERN.test(withoutNavigationLabels)) return '';

@@ -29,6 +29,9 @@ jobs:
       MIN_SOURCE_COVERAGE: ${{ vars.MIN_SOURCE_COVERAGE || '0.9' }}
       MIN_CHINA_CRITICAL_COVERAGE: ${{ vars.MIN_CHINA_CRITICAL_COVERAGE || '0.9' }}
       REPORT_QUALITY_MODE: quality
+      # 质量闸门：合格条目 < REPORT_MIN_ITEMS 时整轮失败、不渲染 PDF、不推送（可用仓库 Variables 覆盖）
+      REPORT_MIN_ITEMS: ${{ vars.REPORT_MIN_ITEMS || '15' }}
+      REPORT_MIN_LEGAL_ITEMS: ${{ vars.REPORT_MIN_LEGAL_ITEMS || '2' }}
       AI_MODEL: deepseek-chat
       REPORT_TARGET_ITEMS: 20
       PREMIUM_MIN_ITEMS: 20
@@ -58,9 +61,10 @@ jobs:
       CRAWL4AI_PREVIEW_LIMIT: 96
       CRAWL4AI_MIN_PER_MODULE: 6
       CRAWL4AI_CONCURRENCY: 6
-      # 总请求预算 160：seed 80 + detail/attachment 余量 80。
-      # 此前 seed 96 占满预算导致官方列表页的通告链接 detail 抓取预算为 0
-      CRAWL4AI_REQUEST_LIMIT: 160
+      # 总请求预算 280：seed 140 + detail/attachment 余量 140。
+      # 此前 seed 96 占满预算导致官方列表页的通告链接 detail 抓取预算为 0；
+      # 提高预算用于扩大法规类明细页供给。
+      CRAWL4AI_REQUEST_LIMIT: 280
       # 仅 worker 链路（/test 手动触发）读取；Actions 链路由 seen-cards.json 状态去重
       FORCE_DELIVERY: '0'
       NO_DELIVERY: ${{ github.event_name == 'workflow_dispatch' && inputs.no_delivery == 'true' && '1' || '0' }}
@@ -103,7 +107,7 @@ jobs:
             --python python \
             --input out/acquisition-manifest.json \
             --output "$SOURCE_HYDRATION_FILE" \
-            --limit 80 \
+            --limit 140 \
             --page-timeout-ms 25000 \
             --attachment-limit "$CRAWL4AI_ATTACHMENT_LIMIT" \
             || echo '{"records":[]}' > "$SOURCE_HYDRATION_FILE"
@@ -115,6 +119,9 @@ jobs:
           echo "[dedup] fingerprint file exists: $([ -f docs/quality/seen-cards.json ] && echo YES || echo NO)"
           node scripts/assemble-cards.js "$SOURCE_HYDRATION_FILE" out/assembled-cards.json
 
+      - name: Validate report quality gate
+        run: node scripts/quality-gate.js --ci out/assembled-cards.json
+
       - name: Render PDF report
         run: node scripts/render-report-pdf.js out/latest-report.md
 
@@ -125,13 +132,21 @@ jobs:
           cp out/latest-report.pdf "public/美妆法务资讯周报-${DATE}.pdf"
           cp out/latest-report.pdf public/latest-report.pdf
 
+      - name: Build archive index
+        run: |
+          git fetch --depth=1 origin gh-pages 2>/dev/null || true
+          cp -n docs/archive/*.pdf public/ 2>/dev/null || true
+          node scripts/render-archive-index.js --date "$(date +%Y-%m-%d)" --out public/index.html
+
+      # 追加式归档：每次发布会把 public/ 同步进 gh-pages，历史 PDF 保留在分支上。
+      # keep_files 仅在非 orphan 模式生效，移除 force_orphan 才能保留历史 PDF
+      # （force_orphan 会重建为单提交分支，旧日期 PDF 被删导致历史链接 404）。
       - name: Publish PDF to GitHub Pages
         uses: peaceiris/actions-gh-pages@v4
         with:
           github_token: ${{ secrets.GITHUB_TOKEN }}
           publish_dir: public
           publish_branch: gh-pages
-          force_orphan: true
           keep_files: true
 
       - name: Deliver to DingTalk

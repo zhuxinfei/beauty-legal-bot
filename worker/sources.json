@@ -1880,6 +1880,56 @@
         "化妆品公告",
         "征求意见"
       ]
+    },
+    {
+      "id": "hardfact-cn-henan-cosmetic-notices",
+      "name": "河南省药监局化妆品公告通告",
+      "url": "https://yjj.henan.gov.cn/hzp/ggtg/",
+      "source_scope": "hard_fact_list",
+      "module": "新规及案例动态",
+      "region": "亚洲",
+      "country": "中国",
+      "source_type": "official_site",
+      "authority_type": "regulator",
+      "priority": "high",
+      "topics": [
+        "化妆品",
+        "公告通告",
+        "监管"
+      ]
+    },
+    {
+      "id": "hardfact-cn-zhejiang-cosmetic-notices",
+      "name": "浙江省药监局通知公告",
+      "url": "https://mpa.zj.gov.cn/col/col1228989285/index.html",
+      "source_scope": "hard_fact_list",
+      "module": "新规及案例动态",
+      "region": "亚洲",
+      "country": "中国",
+      "source_type": "official_site",
+      "authority_type": "regulator",
+      "priority": "medium",
+      "topics": [
+        "化妆品",
+        "通知公告",
+        "试点"
+      ]
+    },
+    {
+      "id": "hardfact-cn-shandong-cosmetic",
+      "name": "山东省药监局化妆品监管",
+      "url": "http://mpa.shandong.gov.cn/col/col101771/index.html",
+      "source_scope": "hard_fact_list",
+      "module": "美妆动态",
+      "region": "亚洲",
+      "country": "中国",
+      "source_type": "official_site",
+      "authority_type": "regulator",
+      "priority": "medium",
+      "topics": [
+        "化妆品",
+        "监管动态"
+      ]
     }
   ]
 }

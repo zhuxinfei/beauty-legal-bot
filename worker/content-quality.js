@@ -148,6 +148,15 @@ export function inferArticleChinaRelevance(candidate = {}) {
   return { relevant: matched.length > 0, evidence_text: evidenceText, matched_markers: matched };
 }
 
+const DECLARED_MODULE_FALLBACKS = new Set([
+  '新规及案例动态',
+  '广告合规及处罚案例',
+  '知识产权动态',
+  '进出口动态',
+  '产品质量/召回与安全风险',
+  '美妆动态',
+]);
+
 export function inferCandidateModule(candidate = {}) {
   const title = String(candidate.title || '').trim();
   const body = substantiveArticleText(candidate, 5);
@@ -164,6 +173,10 @@ export function inferCandidateModule(candidate = {}) {
   if (titleModule) return titleModule;
   const bodyModule = classify(body);
   if (bodyModule) return bodyModule;
+  // 兜底不再一律落到美妆动态：发现阶段已判定过模块归属（discovery_module），
+  // 它比"美妆动态"更接近事实，否则 NMPA 通告会全部挤进美妆动态、法规模块恒空。
+  const declared = String(candidate.discovery_module || '').trim();
+  if (DECLARED_MODULE_FALLBACKS.has(declared)) return declared;
   return '美妆动态';
 }
 

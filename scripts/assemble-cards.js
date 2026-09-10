@@ -46,14 +46,17 @@ const period = {
 };
 
 // --- Patterns ---
-const BEAUTY_PATTERN = /(?:化妆品|美妆|护肤|彩妆|香水|口红|面膜|洗护|防晒|染发|美容|祛斑|美白|功效宣称|玻色因|配方|着色剂|色素|进口化妆品|出口化妆品|化妆品标准|cosmetic|cosmetics|MoCRA)/i;
+// 美妆品牌词表：标题不含"化妆品"等通用词时（如"薇诺娜…被罚"），靠品牌名兜底召回
+const BEAUTY_BRAND_PATTERN = /(?:欧莱雅|雅诗兰黛|兰蔻|珀莱雅|贝泰妮|薇诺娜|花西子|完美日记|韩束|自然堂|百雀羚|上海家化|华熙生物|可复美|润百颜|夸迪|丸美|水羊|逸仙电商|毛戈平|林清轩|植物医生|相宜本草|六神|玉泽|谷雨|半亩花田|冰希黎|KIKO|丝芙兰)/i;
+const BEAUTY_PATTERN = /(?:化妆品|美妆|护肤|彩妆|香水|口红|面膜|洗护|防晒|染发|美容|祛斑|美白|功效宣称|玻色因|配方|着色剂|色素|进口化妆品|出口化妆品|化妆品标准|cosmetic|cosmetics|MoCRA|直播带货|直播营销|网售|网络销售|平台治理|平台规则|旗舰店|店铺合规)/i;
 // Judge beauty relevance from article body (first 1000 chars), not page chrome.
 // Strips known portal/nav text before checking. Returns true if the article's
 // primary subject is beauty/cosmetics — not just incidentally mentioned.
 function isBeautyArticle(title = '', text = '') {
   const combined = `${title} ${text.slice(0, 1000)}`;
   // Must have a beauty subject AND a legal/regulatory signal
-  const hasBeauty = /(?:化妆品|美妆|护肤|彩妆|香水|防晒|染发|洗护|面膜|口红|精华液|面霜|祛斑|美白|功效宣称|玻色因|配方|着色剂|进口化妆品|出口化妆品|化妆品标准|cosmetic|MoCRA)/i.test(combined);
+  const hasBeauty = /(?:化妆品|美妆|护肤|彩妆|香水|防晒|染发|洗护|面膜|口红|精华液|面霜|祛斑|美白|功效宣称|玻色因|配方|着色剂|进口化妆品|出口化妆品|化妆品标准|cosmetic|MoCRA)/i.test(combined)
+    || BEAUTY_BRAND_PATTERN.test(combined);
   if (!hasBeauty) return false; return true;
 }
 const ACADEMIC_IP_PATTERN = /(?:损害赔偿请求权|法理探析|制度研究|案例评析|案例聚焦|知识产权律师网)/i;
@@ -158,10 +161,10 @@ pool = pool.filter(c => {
 console.log(`Candidate pool: ${pool.length} records`);
 
 // Known noise: gov column pages, hotlines, 404s — skip before AI calls.
-const NOISE_TITLE = /今日海关|12360|通关服务热线|海关热线|服务热线|栏目|首页|平台简介|服务指南|运营公共服务平台|页面不存在|出错了|404|网站导航/i;
+const NOISE_TITLE = /今日海关|12360|通关服务热线|海关热线|服务热线|栏目|首页|平台简介|服务指南|运营公共服务平台|页面不存在|出错了|404|网站导航|政府信息公开|门户网站|商标网\s*$|保护中心\s*$/i;
 // Column/nav pages surfaced as "articles" (e.g. list-page titles like
 // 化妆品政策法规 / 政策法规及标准 / 通知公告) — no concrete event.
-const COLUMN_TITLE = /^(?:政策法规|法规文件|化妆品政策法规|政策法规及标准|标准|通知公告|监管动态|化妆品监管动态|综合要闻|局要闻|信息公开|法定主动公开内容|公告|通告|动态|法规|规章制度)[\s_-]*$/;
+const COLUMN_TITLE = /^(?:政策法规|法规文件|化妆品政策法规|政策法规及标准|标准|通知公告|监管动态|化妆品监管动态|综合要闻|局要闻|信息公开|法定主动公开内容|公告|通告|动态|法规|规章制度|政策解读|法规解读|履职依据|海关法规|规范性文件|部门文件|机构简介|协会简介|研究中心)[\s_-]*$/;
 
 // Non-beauty-entity penalties (drugs/food/medical-device) that mention
 // cosmetics incidentally must never reach the report — guards the AI
@@ -228,7 +231,7 @@ async function aiReview(title, text) {
     const resp = await requestAiChat({
       apiKey: aiKey, baseUrl: aiBaseUrl, model: aiModel,
       messages: [
-        { role: 'system', content: '判断文章是否与美妆/化妆品行业的法律合规事务实质相关。仅接受：法规标准与监管新规、行政处罚与虚假宣传、质量抽检不合格与召回、商标/专利/著作权侵权与诉讼、进出口与跨境电商监管执法、电商/直播/网售渠道合规处罚与平台治理、许可证注销与整改处罚、化妆品行业协会的合规治理/标准制定/国际合作动态、监管部门的专项检查/整治行动/飞行检查/核查处置动态、明确聚焦美妆品类的平台治理或电商乱象专项报道。明确拒绝：企业IPO/上市/融资/并购/破产清算等财经新闻、营销新品代言与业绩类报道、行业趋势分析、非化妆品主体（美发/美容院/综合商超/药品/医疗器械/综合电商平台）的法律事件、仅附带提及化妆品的综合新闻与泛行业盘点。主体必须是化妆品/美妆企业、产品或监管事件，附带提及不算。仅回复JSON：{"relevant":true或false,"reason":"一句话"}' },
+        { role: 'system', content: '判断文章是否与美妆/化妆品行业的法律合规事务实质相关。仅接受：法规标准与监管新规、行政处罚与虚假宣传、质量抽检不合格与召回、商标/专利/著作权侵权与诉讼、进出口与跨境电商监管执法、电商/直播/网售渠道合规处罚与平台治理、许可证注销与整改处罚、化妆品行业协会的合规治理/标准制定/国际合作动态、监管部门的专项检查/整治行动/飞行检查/核查处置动态、明确聚焦美妆品类的平台治理或电商乱象专项报道。明确拒绝：企业IPO/上市/融资/并购/破产清算等财经新闻、营销新品代言与业绩类报道、行业趋势分析、非化妆品主体（美发/美容院/综合商超/药品/医疗器械/综合电商平台）的法律事件、仅附带提及化妆品的综合新闻与泛行业盘点、政府或协会的栏目索引页/机构介绍页/网站地图/联系方式页。美妆电商场景（平台店铺、直播带货、跨境电商、网售抽检、平台治理）优先接受。主体必须是化妆品/美妆企业、产品或监管事件，附带提及不算。仅回复JSON：{"relevant":true或false,"reason":"一句话"}' },
         { role: 'user', content: `标题：${title}\n正文：${excerpt}` },
       ],
       temperature: 0, maxTokens: 200, timeoutMs: 30000, maxAttempts: 1,
@@ -289,7 +292,7 @@ for (const { c, relevant, reason } of reviews) {
   if (ACADEMIC_IP_PATTERN.test(titleText)) {
     // Academic IP articles are only valid if they discuss specific beauty brands or products
     const beautyEvidence = (c.evidence_text || '') + ' ' + titleText;
-    if (!/(?:化妆品|美妆|护肤|彩妆|香水|防晒|面膜|口红|精华液|欧莱雅|雅诗兰黛|珀莱雅|贝泰妮|花西子|完美日记|薇诺娜|华熙|上海家化|六神|相宜本草|自然堂|百雀羚|韩束)/i.test(beautyEvidence)) {
+    if (!/(?:化妆品|美妆|护肤|彩妆|香水|防晒|面膜|口红|精华液)/i.test(beautyEvidence) && !BEAUTY_BRAND_PATTERN.test(beautyEvidence)) {
       console.log(`  SKIP [academic-ip]: ${card.title.slice(0, 50)}`);
       continue;
     }
@@ -302,7 +305,7 @@ for (const { c, relevant, reason } of reviews) {
   }
 
   // Reject clearly non-beauty businesses regardless of what regulations they violated
-  if (/(?:五金|建材|食品|餐饮|药品|医疗器械|汽车|房地产|保险|银行|教育培训|网吧|歌厅|浴池|洗浴|理发店|便利店)/i.test(titleText) && !/(?:化妆品|美妆|护肤|彩妆|香水|防晒|面膜|口红|品牌)/i.test(titleText)) {
+  if (/(?:五金|建材|食品|餐饮|药品|医疗器械|汽车|房地产|保险|银行|教育培训|网吧|歌厅|浴池|洗浴|理发店|便利店)/i.test(titleText) && !/(?:化妆品|美妆|护肤|彩妆|香水|防晒|面膜|口红|品牌)/i.test(titleText) && !BEAUTY_BRAND_PATTERN.test(titleText)) {
     console.log(`  SKIP [non-beauty-biz]: ${card.title.slice(0, 50)}`);
     continue;
   }

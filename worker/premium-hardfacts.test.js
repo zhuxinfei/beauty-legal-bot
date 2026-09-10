@@ -35,12 +35,12 @@ function testFormalPromptsRequireAllPremiumHardFactFields() {
   for (const field of ['violation_behavior', 'confiscation_result', 'feedback_channel']) {
     assert.ok(prompt.includes(`"${field}"`), `analysis prompt missing ${field}`);
   }
-  assert.ok(prompt.includes('必须使用具体名称'));
-
   const indexSource = readFileSync(new URL('./index.js', import.meta.url), 'utf8');
   for (const field of ['violation_behavior', 'confiscation_result', 'feedback_channel']) {
     assert.ok(indexSource.includes(`"${field}"`), `rescue prompt missing ${field}`);
   }
+  // 具体名称要求位于救援分析提示词（index.js），主分析提示词只约束硬事实字段
+  assert.ok(indexSource.includes('必须使用具体名称'));
   assert.ok(indexSource.includes('不得退回“商家”“两家公司”“涉案主体”“相关企业”等泛称'));
 }
 

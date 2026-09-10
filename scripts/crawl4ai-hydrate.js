@@ -163,12 +163,17 @@ async def crawl_one(crawler, url, item, module, config, attachment=False):
         result = await asyncio.wait_for(crawler.arun(url=url, config=config), timeout=crawl_timeout_seconds)
     metadata = getattr(result, "metadata", {}) or {}
     extraction = getattr(result, "extraction", None) or getattr(result, "extracted_content", None) or {}
-    markdown = getattr(result, "markdown", "") or ""
-    fit_markdown = getattr(result, "fit_markdown", "") or ""
-    references_markdown = getattr(result, "references_markdown", "") or ""
+    # crawl4ai 版本差异：旧版 result.markdown 是 markdown 字符串；新版是
+    # MarkdownGenerationResult 对象（raw/fit/references 都是它的属性）。
+    # 之前只读 result.fit_markdown，新版下 fit 恒为空、正文只能用带导航的 raw。
+    markdown_result = getattr(result, "markdown", "")
+    markdown = text_value(markdown_result) or text_value(getattr(markdown_result, "raw_markdown", ""))
+    fit_markdown = text_value(getattr(markdown_result, "fit_markdown", "")) or text_value(getattr(result, "fit_markdown", ""))
+    references_markdown = text_value(getattr(markdown_result, "references_markdown", "")) or text_value(getattr(result, "references_markdown", ""))
     title = getattr(result, "title", "") or metadata.get("title", "") or item.get("title", "") or ""
     final_url = getattr(result, "url", "") or getattr(result, "final_url", "") or url
-    body = markdown or fit_markdown or getattr(result, "text", "") or ""
+    # 正文优先用剪枝后的 fit_markdown（已去掉导航/页脚），raw 兜底
+    body = fit_markdown or markdown or text_value(getattr(result, "text", ""))
     return {
         "url": url,
         "final_url": final_url,

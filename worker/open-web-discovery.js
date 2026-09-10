@@ -85,12 +85,12 @@ const QUERY_GROUPS = Object.freeze({
 const BEAUTY = /化妆品|美妆|护肤|彩妆|香水|防晒|染发|洗护|cosmetic|beauty|skincare/i;
 const PROMOTION = /招商|加盟|新品上市|品牌推荐|十大|排行榜|促销|折扣|代购|选购指南/i;
 const MODULE_EVENT = Object.freeze({
-  '广告合规及处罚案例': /处罚|罚款|没收|虚假宣传|广告违法|功效宣称|刷单|反不正当竞争|penalty|fine|advertising/i,
-  '知识产权动态': /商标|专利|著作权|侵权|仿冒|包装装潢|不正当竞争|判决|诉讼|赔偿|trademark|patent|infringement|lawsuit/i,
-  '新规及案例动态': /法规|办法|条例|标准|征求意见|备案|注册|指导原则|公告|实施|policy|regulation|standard|guidance/i,
-  '产品质量/召回与安全风险': /召回|不合格|抽检|检出|禁用|批次|质量安全|风险通报|污染|recall|contamination|safety alert/i,
-  '进出口动态': /海关|进口|出口|清关|扣留|退运|通关|跨境|进口预警|customs|import|export|seizure|import alert/i,
-  '美妆动态': /平台规则|平台治理|公告|通知|合规|下架|禁售|调整|新规|执法|调查|整改|数据泄露|停产|停业|许可证|电商|网售|网络销售|直播|店铺|商家|质量抽检|不合格|policy|rule|enforcement|investigation|compliance|ecommerce/i,
+  '广告合规及处罚案例': /处罚|罚款|没收|虚假宣传|广告违法|功效宣称|刷单|反不正当竞争|查处|责令|典型案例|行政处罚|penalty|fine|advertising/i,
+  '知识产权动态': /商标|专利|著作权|侵权|仿冒|包装装潢|不正当竞争|判决|诉讼|赔偿|恶意抢注|地理标志|商业秘密|trademark|patent|infringement|lawsuit/i,
+  '新规及案例动态': /法规|办法|条例|标准|征求意见|备案|注册|指导原则|公告|通告|通知|实施|印发|发布|修订|试点|清单|目录|技术要求|检验方法|标签|说明书|policy|regulation|standard|guidance/i,
+  '产品质量/召回与安全风险': /召回|不合格|抽检|检出|禁用|批次|质量安全|风险通报|污染|警示|停止经营|约谈|监督抽检|核查|recall|contamination|safety alert/i,
+  '进出口动态': /海关|进口|出口|清关|扣留|退运|通关|跨境|进口预警|报关|原产地|检验检疫|关税|customs|import|export|seizure|import alert/i,
+  '美妆动态': /平台规则|平台治理|公告|通知|合规|下架|禁售|调整|新规|执法|调查|整改|数据泄露|停产|停业|许可证|电商|网售|网络销售|直播|店铺|商家|质量抽检|不合格|整治|规范|监管|检查|通报|policy|rule|enforcement|investigation|compliance|ecommerce/i,
 });
 
 function increment(map, key, amount = 1) {

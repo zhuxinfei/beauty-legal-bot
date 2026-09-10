@@ -35,7 +35,7 @@ const BROKEN_FIELD_PATTERN = /(?:\[\s*\]\s*\(|\]\($|\(\s*$|\[\s*$|javascript:voi
 const FRAGMENT_FIELD_PATTERN = /^(?:的|和|及|并|依法|予以|进行|相关|上述|该|此|其|对|将|已|了)[，,、；;\s]*(?:依法)?(?:严肃查处|处理|监管|处罚|执行|实施|发布|通告|公告)?$/;
 const DOCUMENT_TITLE_AS_PRODUCT_PATTERN = /(?:关于)?(?:\d+\s*批次)?(?:不符合规定)?化妆品的(?:公告|通告)[（(]20\d{2}年第\d+号[）)](?:\s|$)/;
 const MIXED_NOTICE_CHROME_PATTERN = /20\d{2}[-年]\d{1,2}[-月]\d{1,2}.*(?:召开|工作动态|监管动态|新闻|会议|活动|培训|论坛|检查)/;
-const GENERIC_NAVIGATION_TITLE_PATTERN = /^(?:全文页|政策解读|通知公告|政府信息公开|首页|网站首页|信息公示|行政执法结果|工作动态|监管动态|新闻中心|最新动态|栏目页|专题页|信息发布|公示公告)$/;
+const GENERIC_NAVIGATION_TITLE_PATTERN = /^(?:全文页|政策解读|法规解读|政策法规|法规文件|化妆品政策法规|政策法规及标准|履职依据|海关法规|法律法规|规章|规范性文件|部门文件|文件通知|通知公告|政府信息公开|政府信息公开制度|信息公开指南|首页|网站首页|信息公示|信用信息|商标公告|行政执法结果|工作动态|监管动态|新闻中心|最新动态|栏目页|专题页|信息发布|公示公告|机构简介|协会简介|商会简介|研究中心|门户网站|网站地图)$/;
 const JUNK_DATE_PATTERN = /^20(?:0\d|1[0-9]|2[01])/;
 const GOVERNMENT_FOOTER_PATTERN = /(?:中国政府网|国家政务服务平台|国家市场监督管理总局|©|版权所有|党政机关|政府网站|站点地图|主办单位|通信地址|滇ICP|网站标识码|无障碍浏览|适老化|隐私保护|法律声明|返回首页|页面放大|页面缩小|移动版|本站查询|一网通查|主要职责|基本信息|领导介绍|机构设置|按主题分类|按时间分类|药品GSP|化妆品审评\s*国家抽检管理|办理流程\s*立案|缴纳情况\s*\d{4}年|请\s*\d+s\)\s*抱歉|信息中心|网站声明|智能问答|业务咨询|關閉|esc键)/i;
 
@@ -226,6 +226,26 @@ function isoDate(value = '') {
   return '';
 }
 
+// 官方站点详情页 URL 常内嵌发布时间戳（如 NMPA 的 /20260529150154170.html）。
+// 仅对政府/官方域名启用，避免把无关数字串误当日期。
+function compactDateFromOfficialUrl(value = '') {
+  const raw = text(value);
+  if (!/(?:\.gov\.cn|\.gov|\.org\.cn)(?:[:/]|$)/i.test(raw)) return '';
+  let path = '';
+  try {
+    path = new URL(raw).pathname;
+  } catch {
+    return '';
+  }
+  const match = path.match(/(20\d{2})(\d{2})(\d{2})/);
+  if (!match) return '';
+  const year = Number(match[1]);
+  const month = Number(match[2]);
+  const day = Number(match[3]);
+  if (year < 2020 || year > 2035 || month < 1 || month > 12 || day < 1 || day > 31) return '';
+  return `${year}-${String(month).padStart(2, '0')}-${String(day).padStart(2, '0')}`;
+}
+
 function candidateDisplayDate(candidate = {}, hardFacts = {}, source = '') {
   return isoDate(candidate.published_at)
     || isoDate(candidate.updated_at)
@@ -234,6 +254,7 @@ function candidateDisplayDate(candidate = {}, hardFacts = {}, source = '') {
     || isoDate(hardFacts.effective_date)
     || isoDate(hardFacts.deadline)
     || isoDate(candidate.source_url || candidate.url)
+    || compactDateFromOfficialUrl(candidate.source_url || candidate.url)
     || isoDate(source);
 }
 
@@ -691,7 +712,10 @@ function validateTypeHardFacts(card) {
   if (module === '新法律法规政策') {
     const hasPolicyNode = Boolean(hard.effective_date || hard.deadline || hard.action_deadline || hard.document_number || hard.feedback_channel);
     if (!hasPolicyNode) {
-      return 'policy-missing-effective-or-deadline';
+      // 真实法规页经常只有正文：标题/正文已明确指向某部法规/标准/公告，且引用了
+      // 具体法律依据（《…》）时，不再以"缺少生效日/文号"为由拒收。
+      const basisInTitleOrSource = /(办法|规定|公告|标准|征求意见|条例|通知|通告|规范|细则|指南)/.test(`${card.title} ${source}`);
+      if (!(hard.legal_basis && basisInTitleOrSource)) return 'policy-missing-effective-or-deadline';
     }
     if (!/(办法|规定|公告|标准|新规|名单|管理|征求意见|生效|实施|过渡期|条款|执行|备案|注册|禁用|限用)/.test(source)) {
       return 'policy-missing-concrete-change';
