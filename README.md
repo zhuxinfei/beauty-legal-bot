@@ -129,7 +129,9 @@ AI 分析后会记录四层审计数量：AI 原始条目、来源匹配条目�
 
 - 组装完成后先过 CI 质量闸门（`node scripts/quality-gate.js --ci out/assembled-cards.json`）：
   合格条目少于 `REPORT_MIN_ITEMS`（默认 15，可在仓库 Variables 覆盖）时整轮失败，不渲染 PDF、不推送钉钉、不写去重状态；
-  法规模块（新法律法规政策 + 广告处罚案例）合计少于 `REPORT_MIN_LEGAL_ITEMS`（默认 2）时输出醒目的 CI 告警。
+  条目缺少必需字段或重复同样会失败。法规模块（新法律法规政策 + 广告处罚案例）不足 `REPORT_MIN_LEGAL_ITEMS`（默认 2）、
+  正文残留导航/页脚标记、模块覆盖少于 4 个、facts 少于 2 条时输出醒目的 CI 告警。
+  每次质检明细写入 `out/quality-report.json`，随 CI 产物（pipeline-evidence-*）一起上传，便于回查本期输出质量。
 - 每周 PDF 以追加方式发布到 `gh-pages`（发布步骤不使用 `force_orphan`，`keep_files` 生效），历史各期不会被删除：
   - 归档索引页：<https://zhuxinfei.github.io/beauty-legal-bot/>
   - 单期直链：`https://zhuxinfei.github.io/beauty-legal-bot/美妆法务资讯周报-YYYY-MM-DD.pdf`

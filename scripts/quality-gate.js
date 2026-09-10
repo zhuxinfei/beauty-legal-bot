@@ -1,5 +1,5 @@
-import { readFileSync } from 'node:fs';
-import { resolve } from 'node:path';
+import { readFileSync, writeFileSync } from 'node:fs';
+import { dirname, join, resolve } from 'node:path';
 import { pathToFileURL } from 'node:url';
 import {
   assertPremiumPortfolioDelivery,
@@ -44,9 +44,18 @@ export function assertReportQualityGate(report = {}) {
   return { pass: true, audit: delivery.audit, cards: delivery.cards };
 }
 
+// 正文残留标记：导航/页脚/门户组件——出现即说明该条目的证据文本不干净
+const JUNK_MARKERS = [
+  /您的位置/, /首页\s*>/, /分享到/, /扫一扫/, /人才队伍/, /院务动态/,
+  /主办单位/, /版权所有/, /网站标识码/, /ICP备/, /无障碍/, /返回首页/,
+  /打印本页/, /网页设置/, /正在浏览[:：]/, /微信里点/,
+];
+const REQUIRED_CARD_FIELDS = ['title', 'source_url', 'module', 'legal_signal', 'business_impact', 'recommended_action'];
+
 // CI 模式：weekly.yml 在 assemble 之后、渲染 PDF 之前调用。
-// 硬门槛：条目数 < REPORT_MIN_ITEMS（默认 15）→ 非零退出，阻止 PDF 与钉钉推送；
-// 法规模块（新法律法规政策/广告处罚案例）不足 REPORT_MIN_LEGAL_ITEMS 时输出显著告警（不阻断）。
+// 硬门槛（非零退出，阻止 PDF 与钉钉推送）：条目数 < REPORT_MIN_ITEMS、字段缺失、重复条目；
+// 告警（不阻断，输出 ::warning:: 并写入质检报告）：正文残留导航、模块覆盖过窄、
+// 事实要点过少、法规模块条目不足。
 export function assertCiReportGate(payload = {}, { minItems = 15, minLegalItems = 2 } = {}) {
   const cards = Array.isArray(payload.cards) ? payload.cards : [];
   const byModule = {};
@@ -55,9 +64,51 @@ export function assertCiReportGate(payload = {}, { minItems = 15, minLegalItems 
     byModule[module] = (byModule[module] || 0) + 1;
   }
   const legalItems = (byModule['新法律法规政策'] || 0) + (byModule['广告处罚案例'] || 0);
-  const summary = { items: cards.length, minItems, legalItems, minLegalItems, byModule };
+
+  const problems = [];
+  const warnings = [];
+  cards.forEach((card, index) => {
+    const label = `${index + 1}.${String(card.title || '').slice(0, 40)}`;
+    for (const field of REQUIRED_CARD_FIELDS) {
+      if (!String(card[field] || '').trim()) problems.push(`missing-${field}: ${label}`);
+    }
+    if (!Array.isArray(card.facts) || card.facts.length === 0) problems.push(`missing-facts: ${label}`);
+  });
+  const identities = new Map();
+  for (const card of cards) {
+    const key = `${String(card.source_url || '').toLowerCase()}|${String(card.title || '').replace(/\s+/g, '')}`;
+    identities.set(key, (identities.get(key) || 0) + 1);
+  }
+  for (const [key, count] of identities) {
+    if (count > 1) problems.push(`duplicate-card x${count}: ${key.slice(0, 80)}`);
+  }
+  const junkFindings = [];
+  cards.forEach((card, index) => {
+    // 只扫描读者可见字段（标题/事实要点/法务观察/业务影响/行动建议）：
+    // 媒体页正文里的门户组件会残留在 evidence_text，但不进入成品，不算输出质量缺陷。
+    const blob = [
+      card.title,
+      (card.facts || []).join(' '),
+      card.legal_signal,
+      card.business_impact,
+      card.recommended_action,
+    ].filter(Boolean).join(' ');
+    const hits = JUNK_MARKERS.filter(pattern => pattern.test(blob)).length;
+    if (hits > 0) junkFindings.push(`${index + 1}.${String(card.title || '').slice(0, 32)}(junk=${hits})`);
+  });
+  if (junkFindings.length) warnings.push(`evidence-junk: ${junkFindings.join(' | ')}`);
+  const moduleCount = Object.keys(byModule).length;
+  if (moduleCount < 4) warnings.push(`module-coverage=${moduleCount}（少于 4 个模块）`);
+  const thinFacts = cards.filter(card => !Array.isArray(card.facts) || card.facts.length < 2).length;
+  if (thinFacts) warnings.push(`thin-facts=${thinFacts}（facts 少于 2 条）`);
+  if (legalItems < minLegalItems) warnings.push(`legal-items=${legalItems}（低于 ${minLegalItems}）`);
+
+  const summary = { items: cards.length, minItems, legalItems, minLegalItems, modules: moduleCount, byModule, warnings, problems };
   if (cards.length < minItems) {
     throw new Error(`CI quality gate failed: items=${cards.length} < ${minItems}；本期合格条目不足，按规则不推送。分布：${JSON.stringify(byModule)}`);
+  }
+  if (problems.length) {
+    throw new Error(`CI quality gate failed: ${problems.slice(0, 5).join('; ')}${problems.length > 5 ? ` 等 ${problems.length} 项` : ''}`);
   }
   return { pass: true, ...summary };
 }
@@ -73,10 +124,10 @@ if (import.meta.url === invokedPath) {
     const minItems = Number(process.env.REPORT_MIN_ITEMS || 15);
     const minLegalItems = Number(process.env.REPORT_MIN_LEGAL_ITEMS || 2);
     const result = assertCiReportGate(payload, { minItems, minLegalItems });
+    // 质检报告写入 out/，随 CI 产物一起上传，便于回查本期输出质量
+    writeFileSync(join(dirname(resolve(input)), 'quality-report.json'), `${JSON.stringify(result, null, 2)}\n`, 'utf8');
     console.log(JSON.stringify(result, null, 2));
-    if (result.legalItems < result.minLegalItems) {
-      console.warn(`::warning::法规模块条目偏少：legal=${result.legalItems} < ${result.minLegalItems}（本期可能缺法律法规类内容，请检查法规源与闸门）`);
-    }
+    for (const warning of result.warnings) console.warn(`::warning::${warning}`);
     process.exit(0);
   }
   const result = assertReportQualityGate(payload.report || payload);
