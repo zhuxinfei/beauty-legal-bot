@@ -19,7 +19,7 @@ const MODULE_ALIAS = {
   '进出口动态': '进出口',
 };
 
-const GENERIC_PATTERNS = /建议关注|持续关注|企业应留意|可能产生影响|后续观察|待进一步明确|视情况|适时/i;
+const GENERIC_PATTERNS = /建议关注|持续关注|企业应留意|可能产生影响|后续观察|待进一步明确|视情况|适时|建议进一步核实|存在合规关注价值|进一步核实原文|需持续跟踪/i;
 const CONCRETE_PATTERNS = /(20\d{2}|发布|公布|通报|处罚|罚款|召回|判决|裁定|征求意见|公开征求|生效|实施|备案|注册|禁用|限用|进口|出口|海关|监管|法院|委员会|药监|市场监管|快速预警|危险非食品|rapid alert|dangerous non-food|Safety Gate|FDA|FTC|BPOM|MFDS|EUIPO|WIPO|\d+(?:\.\d+)?\s*(?:万|亿|元|美元|欧元|件|批|天|%|％))/i;
 const OWNER_PATTERN = /法务|合规|法规|质量|研发|供应链|采购|电商|广告|品牌|市场|知识产权|IP|进出口|关务|注册|备案|产品|渠道|海外|本地团队/;
 const REPUBLISHER_HOST_PATTERN = /(?:^|\.)((?:sohu|163|sina|qq|toutiao|baijiahao|thepaper|jiemian|36kr)\.com|(?:baijiahao|mp)\.baidu\.com)$/i;
@@ -36,6 +36,8 @@ const FRAGMENT_FIELD_PATTERN = /^(?:的|和|及|并|依法|予以|进行|相关|
 const DOCUMENT_TITLE_AS_PRODUCT_PATTERN = /(?:关于)?(?:\d+\s*批次)?(?:不符合规定)?化妆品的(?:公告|通告)[（(]20\d{2}年第\d+号[）)](?:\s|$)/;
 const MIXED_NOTICE_CHROME_PATTERN = /20\d{2}[-年]\d{1,2}[-月]\d{1,2}.*(?:召开|工作动态|监管动态|新闻|会议|活动|培训|论坛|检查)/;
 const GENERIC_NAVIGATION_TITLE_PATTERN = /^(?:全文页|政策解读|法规解读|政策法规|法规文件|化妆品政策法规|政策法规及标准|履职依据|海关法规|法律法规|规章|规范性文件|部门文件|文件通知|通知公告|政府信息公开|政府信息公开制度|信息公开指南|首页|网站首页|信息公示|信用信息|商标公告|行政执法结果|工作动态|监管动态|新闻中心|最新动态|栏目页|专题页|信息发布|公示公告|机构简介|协会简介|商会简介|研究中心|门户网站|网站地图|中企商标发展中心|中企商标鉴定中心|《?中华商标》?杂志社?|化妆品召回|化妆品处罚|化妆品抽检|化妆品监管|法规网.*数据库)$/;
+// 营销指南/SEO 稿与评论观察类文章：不是法律事件，不进正式报告
+const COMMENTARY_OR_GUIDE_PATTERN = /(?:全指南|一文读懂|一文看懂|避坑|流程、费用|注册攻略|申请攻略|时评|社论|锐评|漫谈|正当其时|成了生意|谁之过|何时休)/;
 const JUNK_DATE_PATTERN = /^20(?:0\d|1[0-9]|2[01])/;
 const GOVERNMENT_FOOTER_PATTERN = /(?:中国政府网|国家政务服务平台|国家市场监督管理总局|©|版权所有|党政机关|政府网站|站点地图|主办单位|通信地址|滇ICP|网站标识码|无障碍浏览|适老化|隐私保护|法律声明|返回首页|页面放大|页面缩小|移动版|本站查询|一网通查|主要职责|基本信息|领导介绍|机构设置|按主题分类|按时间分类|药品GSP|化妆品审评\s*国家抽检管理|办理流程\s*立案|缴纳情况\s*\d{4}年|请\s*\d+s\)\s*抱歉|信息中心|网站声明|智能问答|业务咨询|關閉|esc键)/i;
 
@@ -797,6 +799,9 @@ export function validatePremiumEvidenceCard(card = {}) {
   }
   if (GENERIC_NAVIGATION_TITLE_PATTERN.test(normalized.title)) {
     return { accepted: false, reason: 'navigation-title', card: normalized };
+  }
+  if (COMMENTARY_OR_GUIDE_PATTERN.test(normalized.title)) {
+    return { accepted: false, reason: 'commentary-or-guide', card: normalized };
   }
   if (!isHttpUrl(normalized.source_url)) return { accepted: false, reason: 'missing-source-url', card: normalized };
   if (isNonAuthoritativeRepublisher(normalized) && !isConcreteDiscoveredPublisherCard(normalized)) return { accepted: false, reason: 'non-authoritative-source', card: normalized };

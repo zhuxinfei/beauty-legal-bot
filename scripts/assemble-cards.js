@@ -169,6 +169,8 @@ const COLUMN_TITLE = /^(?:政策法规|法规文件|化妆品政策法规|政策
 // 非美妆领域的政策/服务页（化学品、污染物、食品等）与"服务/代办"类营销页
 const NON_COSMETIC_SCOPE = /(?:易制毒|新化学物质|新污染物|危险化学品|农药|兽药|饲料|芥末|食用油|食品添加剂)/;
 const SERVICE_PAGE_TITLE = /(?:许可\/备案申请|备案登记|登记服务|法规服务|代办|咨询服务)$/;
+// 营销指南/SEO 稿与评论观察类文章：不是法律事件，早期剔除、节省 AI 调用
+const COMMENTARY_OR_GUIDE_TITLE = /(?:全指南|一文读懂|一文看懂|避坑|流程、费用|注册攻略|申请攻略|时评|社论|锐评|漫谈|正当其时|成了生意|谁之过|何时休)/;
 
 // Non-beauty-entity penalties (drugs/food/medical-device) that mention
 // cosmetics incidentally must never reach the report — guards the AI
@@ -204,6 +206,10 @@ const preDedupPool = pool.filter(c => {
   }
   if (SERVICE_PAGE_TITLE.test(String(c.title || '').trim())) {
     console.log(`  SKIP [service-page]: ${(c.title || '').slice(0, 40)}`);
+    return false;
+  }
+  if (COMMENTARY_OR_GUIDE_TITLE.test(String(c.title || ''))) {
+    console.log(`  SKIP [commentary-or-guide]: ${(c.title || '').slice(0, 40)}`);
     return false;
   }
   if (NON_BEAUTY_ENTITY.test(c.title || '') && !/(?:化妆品|美妆|护肤|彩妆|香水|口红)/.test(c.title || '')) {
