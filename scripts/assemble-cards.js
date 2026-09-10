@@ -52,12 +52,19 @@ const BEAUTY_PATTERN = /(?:化妆品|美妆|护肤|彩妆|香水|口红|面膜|�
 // Judge beauty relevance from article body (first 1000 chars), not page chrome.
 // Strips known portal/nav text before checking. Returns true if the article's
 // primary subject is beauty/cosmetics — not just incidentally mentioned.
+// 美妆主体词表：isBeautyArticle 与权威源全文判据共用，避免两处词表漂移。
+const BEAUTY_TERM_PATTERN = /(?:化妆品|美妆|护肤|彩妆|香水|防晒|染发|洗护|面膜|口红|精华液|面霜|祛斑|美白|功效宣称|玻色因|配方|着色剂|进口化妆品|出口化妆品|化妆品标准|cosmetic|MoCRA)/i;
+function hasBeautySubject(combined) {
+  return BEAUTY_TERM_PATTERN.test(combined) || BEAUTY_BRAND_PATTERN.test(combined);
+}
+// Judge beauty relevance from article body (first 1000 chars), not page chrome.
+// Strips known portal/nav text before checking. Returns true if the article's
+// primary subject is beauty/cosmetics — not just incidentally mentioned.
+// 注意：1000 字窗口是按新闻稿（导语在开头）调的。政务公文的页头是元数据，
+// 美妆主体常落在窗口之后——那种情况由 authorityBeautyInFullText 兜底。
 function isBeautyArticle(title = '', text = '') {
   const combined = `${title} ${text.slice(0, 1000)}`;
-  // Must have a beauty subject AND a legal/regulatory signal
-  const hasBeauty = /(?:化妆品|美妆|护肤|彩妆|香水|防晒|染发|洗护|面膜|口红|精华液|面霜|祛斑|美白|功效宣称|玻色因|配方|着色剂|进口化妆品|出口化妆品|化妆品标准|cosmetic|MoCRA)/i.test(combined)
-    || BEAUTY_BRAND_PATTERN.test(combined);
-  if (!hasBeauty) return false; return true;
+  return hasBeautySubject(combined);
 }
 const ACADEMIC_IP_PATTERN = /(?:损害赔偿请求权|法理探析|制度研究|案例评析|案例聚焦|知识产权律师网)/i;
 const NEWS_CHROME = [
@@ -239,9 +246,23 @@ const aiKey = process.env.AI_API_KEY;
 const aiBaseUrl = process.env.AI_API_BASE_URL || 'https://api.deepseek.com/v1';
 const aiModel = process.env.AI_MODEL || 'deepseek-chat';
 
-async function aiReview(title, text) {
+// 兜底判据必须与前面那道 regex 预筛（preDedupPool）口径一致：预筛对权威源是豁免的
+// （政务固定格式页面的标题常无美妆词），而 aiReview 原先无论来源一律套 isBeautyArticle，
+// 且只看正文前 1000 字——政务公文的美妆词大量落在页头元数据之后（实测兖州区一份
+// 行政处罚送达公告，美妆主体出现在第 2100 字的受送达人清单里）。
+// 后果：CI 里 AI 调用一旦失败走 catch，权威公文会被这条正则误杀。
+async function aiReview(c) {
+  const title = c.title || '';
+  const text = c.article_text || '';
+  // 权威源（政务站多为固定格式）页头是元数据栏，只扫前 1000 字会漏判；
+  // 改为在全文里找美妆主体词。全文都找不到的仍按非美妆拒——例如海关
+  // 「进口柬埔寨鲜食龙眼植物检疫要求」这类与美妆无关的公告。
+  const fallbackRelevant = () =>
+    isAuthoritySource(c)
+      ? hasBeautySubject(`${title} ${text}`)
+      : isBeautyArticle(title, text);
   if (!aiKey) {
-    const ok = isBeautyArticle(title, text);
+    const ok = fallbackRelevant();
     return { relevant: ok, reason: ok ? 'regex-pass' : 'regex-reject' };
   }
   const excerpt = (text || '').slice(0, 4000);
@@ -257,7 +278,8 @@ async function aiReview(title, text) {
     const j = JSON.parse(resp.replace(/```json\s*|\s*```/g, '').trim());
     return { relevant: Boolean(j.relevant), reason: j.reason || '' };
   } catch (_) {
-    return { relevant: isBeautyArticle(title, text), reason: 'regex-fallback' };
+    const ok = fallbackRelevant();
+    return { relevant: ok, reason: ok ? 'regex-fallback-authority' : 'regex-fallback' };
   }
 }
 
@@ -267,7 +289,7 @@ const reviews = [];
 for (let i = 0; i < preDedupPool.length; i += 4) {
   const batch = preDedupPool.slice(i, i + 4);
   const results = await Promise.all(batch.map(async c => {
-    const r = await aiReview(c.title || '', c.article_text || '');
+    const r = await aiReview(c);
     return { c, ...r };
   }));
   reviews.push(...results);
