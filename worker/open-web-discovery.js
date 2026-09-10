@@ -14,6 +14,8 @@ const QUERY_GROUPS = Object.freeze({
     '化妆品 专项检查 整治 处罚 通告',
     '化妆品 飞行检查 通告 整改',
     '化妆品 核查处置 通告 不合格',
+    'cosmetics advertising FTC penalty warning letter',
+    'cosmetic brand fined false advertising 2026',
   ],
   '知识产权动态': [
     '化妆品 商标 侵权 判决', '美妆 不正当竞争 诉讼',
@@ -31,6 +33,8 @@ const QUERY_GROUPS = Object.freeze({
     '美妆 品牌 仿冒 山寨 法院 判赔',
     '化妆品 专利 纠纷 判决',
     '化妆品 包装 装潢 不正当竞争 判决',
+    'cosmetics trademark infringement lawsuit ruling',
+    'beauty brand counterfeit court judgment',
   ],
   '新规及案例动态': [
     '化妆品 标准 征求意见 备案', '化妆品 法规 办法 公告 实施',
@@ -40,9 +44,12 @@ const QUERY_GROUPS = Object.freeze({
     '化妆品 新规 实施 通告 2026',
     '化妆品 备案 管理 试点 通告',
     '化妆品 注册 备案 新规 实施 2026',
+    'cosmetics regulation update ASEAN notification',
+    'cosmetics rules notification 2026 ministry of health',
   ],
   '产品质量/召回与安全风险': [
     '化妆品 召回 不合格 批次', '化妆品 抽检 禁用原料 通告',
+    'cosmetics recall product safety alert 2026', 'cosmetic recall BPOM NPRA HSA warning',
     '护肤 彩妆 质量安全 风险 通报', 'cosmetics recall contamination',
     '化妆品 不符合规定 通告 召回 site:gov.cn',
     'cosmetics product safety report recall batch',
@@ -62,6 +69,8 @@ const QUERY_GROUPS = Object.freeze({
     '进口化妆品 海关 公告 清关 退运',
     '跨境电商 零售进口 化妆品 清单 调整',
     '进口化妆品 备案 暂停 注销',
+    'cosmetics import alert customs seizure',
+    'cosmetics export ban regulation 2026',
   ],
   '美妆动态': [
     // 电商/平台渠道的法律合规动态（非财经新闻：IPO/破产/并购 一律不采）
@@ -79,6 +88,7 @@ const QUERY_GROUPS = Object.freeze({
     '化妆品 网售 监管 平台 处罚 通告',
     '杭州 美妆 化妆品 监管 政策 浙江',
     '上海 化妆品 电商 合规 监管',
+    'cosmetics e-commerce platform regulation compliance',
   ],
 });
 

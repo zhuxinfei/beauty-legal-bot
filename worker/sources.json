@@ -2223,6 +2223,44 @@
         "化妆品",
         "监管动态"
       ]
+    },
+    {
+      "source_scope": "hard_fact_list",
+      "region": "亚洲",
+      "country": "韩国",
+      "source_type": "official_site",
+      "authority_type": "regulator",
+      "monitor_only": true,
+      "monitor_reason": "境外站点在 GitHub Runner 上未验证，先按监控源接入",
+      "id": "hardfact-kr-mfds-recalls",
+      "name": "韩国 MFDS 化妆品召回列表",
+      "url": "https://www.mfds.go.kr/brd/m_99/list.do",
+      "module": "产品质量/召回与安全风险",
+      "priority": "high",
+      "topics": [
+        "化妆品",
+        "召回",
+        "MFDS"
+      ]
+    },
+    {
+      "source_scope": "hard_fact_list",
+      "region": "北美洲",
+      "country": "美国",
+      "source_type": "official_site",
+      "authority_type": "regulator",
+      "monitor_only": true,
+      "monitor_reason": "境外站点在 GitHub Runner 上未验证，先按监控源接入",
+      "id": "hardfact-us-fda-recalls-list",
+      "name": "美国 FDA 召回与安全警示列表",
+      "url": "https://www.fda.gov/safety/recalls-market-withdrawals-safety-alerts",
+      "module": "产品质量/召回与安全风险",
+      "priority": "high",
+      "topics": [
+        "FDA",
+        "recall",
+        "cosmetics"
+      ]
     }
   ]
 }
