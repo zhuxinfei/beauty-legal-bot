@@ -1930,6 +1930,99 @@
         "化妆品",
         "监管动态"
       ]
+    },
+    {
+      "id": "hardfact-cn-liaoning-cosmetic-notices",
+      "name": "辽宁省药监局化妆品公告通告",
+      "url": "https://ypjg.ln.gov.cn/ypjg/zwfw/ggtg/hzp/index.shtml",
+      "source_scope": "hard_fact_list",
+      "module": "新规及案例动态",
+      "region": "亚洲",
+      "country": "中国",
+      "source_type": "official_site",
+      "authority_type": "regulator",
+      "priority": "high",
+      "monitor_only": true,
+      "monitor_reason": "省级站点在 GitHub Runner 上未验证，先按监控源接入",
+      "topics": [
+        "化妆品",
+        "公告通告",
+        "监管"
+      ]
+    },
+    {
+      "id": "hardfact-cn-liaoning-cosmetic-worknotices",
+      "name": "辽宁省药监局化妆品工作通知",
+      "url": "https://ypjg.ln.gov.cn/ypjg/zwgk/gztz/hzp/index.shtml",
+      "source_scope": "hard_fact_list",
+      "module": "新规及案例动态",
+      "region": "亚洲",
+      "country": "中国",
+      "source_type": "official_site",
+      "authority_type": "regulator",
+      "priority": "high",
+      "monitor_only": true,
+      "monitor_reason": "同上",
+      "topics": [
+        "化妆品",
+        "通知",
+        "标准"
+      ]
+    },
+    {
+      "id": "hardfact-cn-hunan-cosmetic-penalties",
+      "name": "湖南省药监局行政处罚",
+      "url": "https://mpa.hunan.gov.cn/mpa/xzzfjd/xxgk_fdzd_25.html",
+      "source_scope": "hard_fact_list",
+      "module": "广告合规及处罚案例",
+      "region": "亚洲",
+      "country": "中国",
+      "source_type": "official_site",
+      "authority_type": "regulator",
+      "priority": "medium",
+      "monitor_only": true,
+      "monitor_reason": "同上",
+      "topics": [
+        "行政处罚",
+        "化妆品"
+      ]
+    },
+    {
+      "id": "hardfact-cn-shaanxi-provincial-docs",
+      "name": "陕西省药监局省局文件",
+      "url": "https://mpa.shaanxi.gov.cn/zfxxgk/fdzdgknr/wjtz/sjwj/index.html",
+      "source_scope": "hard_fact_list",
+      "module": "新规及案例动态",
+      "region": "亚洲",
+      "country": "中国",
+      "source_type": "official_site",
+      "authority_type": "regulator",
+      "priority": "medium",
+      "monitor_only": true,
+      "monitor_reason": "同上",
+      "topics": [
+        "化妆品",
+        "省局文件",
+        "政策"
+      ]
+    },
+    {
+      "id": "hardfact-cn-shaanxi-news",
+      "name": "陕西省药监局药监动态",
+      "url": "https://mpa.shaanxi.gov.cn/sy/gzdt/sjdt/index.html",
+      "source_scope": "hard_fact_list",
+      "module": "美妆动态",
+      "region": "亚洲",
+      "country": "中国",
+      "source_type": "official_site",
+      "authority_type": "regulator",
+      "priority": "medium",
+      "monitor_only": true,
+      "monitor_reason": "同上",
+      "topics": [
+        "化妆品",
+        "监管动态"
+      ]
     }
   ]
 }

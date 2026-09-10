@@ -61,10 +61,10 @@ jobs:
       CRAWL4AI_PREVIEW_LIMIT: 96
       CRAWL4AI_MIN_PER_MODULE: 6
       CRAWL4AI_CONCURRENCY: 6
-      # 总请求预算 280：seed 140 + detail/attachment 余量 140。
+      # 总请求预算 360：seed 160 + detail/attachment 余量 200。
       # 此前 seed 96 占满预算导致官方列表页的通告链接 detail 抓取预算为 0；
-      # 提高预算用于扩大法规类明细页供给。
-      CRAWL4AI_REQUEST_LIMIT: 280
+      # 提高预算用于扩大法规类明细页供给（2026-09 新增多个省级药监局列表页）。
+      CRAWL4AI_REQUEST_LIMIT: 360
       # 仅 worker 链路（/test 手动触发）读取；Actions 链路由 seen-cards.json 状态去重
       FORCE_DELIVERY: '0'
       NO_DELIVERY: ${{ github.event_name == 'workflow_dispatch' && inputs.no_delivery == 'true' && '1' || '0' }}
@@ -107,7 +107,7 @@ jobs:
             --python python \
             --input out/acquisition-manifest.json \
             --output "$SOURCE_HYDRATION_FILE" \
-            --limit 140 \
+            --limit 160 \
             --page-timeout-ms 25000 \
             --attachment-limit "$CRAWL4AI_ATTACHMENT_LIMIT" \
             || echo '{"records":[]}' > "$SOURCE_HYDRATION_FILE"
