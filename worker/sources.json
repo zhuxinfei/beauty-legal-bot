@@ -2023,6 +2023,206 @@
         "化妆品",
         "监管动态"
       ]
+    },
+    {
+      "source_scope": "hard_fact_list",
+      "region": "亚洲",
+      "country": "中国",
+      "source_type": "official_site",
+      "authority_type": "regulator",
+      "monitor_only": true,
+      "monitor_reason": "省级栏目在 GitHub Runner 上未验证，先按监控源接入",
+      "id": "hardfact-cn-beijing-notices",
+      "name": "北京市药监局公告",
+      "url": "https://yjj.beijing.gov.cn/yjj/zwgk20/gg17/index.html",
+      "module": "新规及案例动态",
+      "priority": "high",
+      "topics": [
+        "公告",
+        "化妆品",
+        "监管"
+      ]
+    },
+    {
+      "source_scope": "hard_fact_list",
+      "region": "亚洲",
+      "country": "中国",
+      "source_type": "official_site",
+      "authority_type": "regulator",
+      "monitor_only": true,
+      "monitor_reason": "省级栏目在 GitHub Runner 上未验证，先按监控源接入",
+      "id": "hardfact-cn-beijing-quality-notices",
+      "name": "北京市药监局质量公告",
+      "url": "https://yjj.beijing.gov.cn/yjj/xxcx/zlgg/yp30/index.html",
+      "module": "产品质量/召回与安全风险",
+      "priority": "medium",
+      "topics": [
+        "质量公告",
+        "抽检",
+        "化妆品"
+      ]
+    },
+    {
+      "source_scope": "hard_fact_list",
+      "region": "亚洲",
+      "country": "中国",
+      "source_type": "official_site",
+      "authority_type": "regulator",
+      "monitor_only": true,
+      "monitor_reason": "省级栏目在 GitHub Runner 上未验证，先按监控源接入",
+      "id": "hardfact-cn-hebei-enforcement",
+      "name": "河北省药监局行政执法公示",
+      "url": "https://yjj.hebei.gov.cn/xxgk/xzzfgs/sxzd/index.html",
+      "module": "广告合规及处罚案例",
+      "priority": "high",
+      "topics": [
+        "行政执法",
+        "处罚",
+        "化妆品"
+      ]
+    },
+    {
+      "source_scope": "hard_fact_list",
+      "region": "亚洲",
+      "country": "中国",
+      "source_type": "official_site",
+      "authority_type": "regulator",
+      "monitor_only": true,
+      "monitor_reason": "省级栏目在 GitHub Runner 上未验证，先按监控源接入",
+      "id": "hardfact-cn-hebei-quality-notices",
+      "name": "河北省药监局质量公告",
+      "url": "https://yjj.hebei.gov.cn/xxgk/zlgg/zlggyp/index.html",
+      "module": "产品质量/召回与安全风险",
+      "priority": "medium",
+      "topics": [
+        "质量公告",
+        "抽检"
+      ]
+    },
+    {
+      "source_scope": "hard_fact_list",
+      "region": "亚洲",
+      "country": "中国",
+      "source_type": "official_site",
+      "authority_type": "regulator",
+      "monitor_only": true,
+      "monitor_reason": "省级栏目在 GitHub Runner 上未验证，先按监控源接入",
+      "id": "hardfact-cn-anhui-notices",
+      "name": "安徽省药监局公示公告",
+      "url": "https://mpa.ah.gov.cn/zwgz/gsgg/index.html",
+      "module": "新规及案例动态",
+      "priority": "high",
+      "topics": [
+        "公示公告",
+        "化妆品"
+      ]
+    },
+    {
+      "source_scope": "hard_fact_list",
+      "region": "亚洲",
+      "country": "中国",
+      "source_type": "official_site",
+      "authority_type": "regulator",
+      "monitor_only": true,
+      "monitor_reason": "省级栏目在 GitHub Runner 上未验证，先按监控源接入",
+      "id": "hardfact-cn-jiangxi-inspection",
+      "name": "江西省药监局监督抽检",
+      "url": "https://mpa.jiangxi.gov.cn/jxsypjdglj/col/col35123/index.html",
+      "module": "产品质量/召回与安全风险",
+      "priority": "high",
+      "topics": [
+        "监督抽检",
+        "化妆品"
+      ]
+    },
+    {
+      "source_scope": "hard_fact_list",
+      "region": "亚洲",
+      "country": "中国",
+      "source_type": "official_site",
+      "authority_type": "regulator",
+      "monitor_only": true,
+      "monitor_reason": "省级栏目在 GitHub Runner 上未验证，先按监控源接入",
+      "id": "hardfact-cn-jiangxi-notices",
+      "name": "江西省药监局公示公告",
+      "url": "https://mpa.jiangxi.gov.cn/jxsypjdglj/col/col35115/index.html",
+      "module": "新规及案例动态",
+      "priority": "medium",
+      "topics": [
+        "公示公告",
+        "政务通告"
+      ]
+    },
+    {
+      "source_scope": "hard_fact_list",
+      "region": "亚洲",
+      "country": "中国",
+      "source_type": "official_site",
+      "authority_type": "regulator",
+      "monitor_only": true,
+      "monitor_reason": "省级栏目在 GitHub Runner 上未验证，先按监控源接入",
+      "id": "hardfact-cn-yunnan-penalties",
+      "name": "云南省药监局行政处罚",
+      "url": "https://mpa.yn.gov.cn/zfxxgk/fdzdgknr/ypjg/xzcf/",
+      "module": "广告合规及处罚案例",
+      "priority": "high",
+      "topics": [
+        "行政处罚",
+        "化妆品"
+      ]
+    },
+    {
+      "source_scope": "hard_fact_list",
+      "region": "亚洲",
+      "country": "中国",
+      "source_type": "official_site",
+      "authority_type": "regulator",
+      "monitor_only": true,
+      "monitor_reason": "省级栏目在 GitHub Runner 上未验证，先按监控源接入",
+      "id": "hardfact-cn-yunnan-notices",
+      "name": "云南省药监局公示公告",
+      "url": "https://mpa.yn.gov.cn/zfxxgk/fdzdgknr/gsgg/",
+      "module": "新规及案例动态",
+      "priority": "medium",
+      "topics": [
+        "公示公告"
+      ]
+    },
+    {
+      "source_scope": "hard_fact_list",
+      "region": "亚洲",
+      "country": "中国",
+      "source_type": "official_site",
+      "authority_type": "regulator",
+      "monitor_only": true,
+      "monitor_reason": "省级栏目在 GitHub Runner 上未验证，先按监控源接入",
+      "id": "hardfact-cn-guizhou-notices",
+      "name": "贵州省药监局公示公告",
+      "url": "http://yjj.guizhou.gov.cn/gsgg/",
+      "module": "新规及案例动态",
+      "priority": "medium",
+      "topics": [
+        "公示公告",
+        "化妆品"
+      ]
+    },
+    {
+      "source_scope": "hard_fact_list",
+      "region": "亚洲",
+      "country": "中国",
+      "source_type": "official_site",
+      "authority_type": "regulator",
+      "monitor_only": true,
+      "monitor_reason": "省级栏目在 GitHub Runner 上未验证，先按监控源接入",
+      "id": "hardfact-cn-henan-cosmetics-column",
+      "name": "河南省药监局化妆品栏目",
+      "url": "https://yjj.henan.gov.cn/hzp/",
+      "module": "美妆动态",
+      "priority": "medium",
+      "topics": [
+        "化妆品",
+        "监管动态"
+      ]
     }
   ]
 }

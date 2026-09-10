@@ -68,9 +68,9 @@ function testManualWorkflowHydratesEnoughChinaAuthoritySources() {
   assert.match(hydrateSource, /CRAWL4AI_PREVIEW_LIMIT \|\| 72/);
   assert.match(hydrateSource, /CRAWL4AI_DETAIL_LINK_LIMIT", "12"/);
   assert.match(workflow, /CRAWL4AI_DETAIL_LINK_LIMIT:\s*12/);
-  // 2026-09 提高水合预算：limit 160 + 请求预算 360，扩大法规类明细页供给
-  assert.match(workflow, /--limit 160/);
-  assert.match(workflow, /CRAWL4AI_REQUEST_LIMIT:\s*360/);
+  // 2026-09 提高水合预算：limit 200 + 请求预算 480，扩大法规类明细页供给
+  assert.match(workflow, /--limit 200/);
+  assert.match(workflow, /CRAWL4AI_REQUEST_LIMIT:\s*480/);
 }
 
 function testHydrationPrefersEventEndpointOverAuthorityListPage() {
@@ -108,8 +108,8 @@ function testHydrationUsesBoundedConcurrentRequestBudget() {
   assert.match(runner, /asyncio\.create_task\(crawl_one/);
   assert.match(runner, /CRAWL4AI_REQUEST_LIMIT/);
   assert.match(workflow, /CRAWL4AI_CONCURRENCY:\s*6/);
-  // 2026-09 请求预算 160 → 360（配合 --limit 160 扩大法规类明细页供给）
-  assert.match(workflow, /CRAWL4AI_REQUEST_LIMIT:\s*360/);
+  // 2026-09 请求预算 160 → 480（配合 --limit 200 扩大法规类明细页供给）
+  assert.match(workflow, /CRAWL4AI_REQUEST_LIMIT:\s*480/);
 }
 
 function testDetailTasksReserveCapacityForEveryModuleBeforeFillingBudget() {
