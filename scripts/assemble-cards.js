@@ -178,6 +178,10 @@ const NON_COSMETIC_SCOPE = /(?:易制毒|新化学物质|新污染物|危险化�
 const SERVICE_PAGE_TITLE = /(?:许可\/备案申请|备案登记|登记服务|法规服务|代办|咨询服务)$/;
 // 营销指南/SEO 稿与评论观察类文章：不是法律事件，早期剔除、节省 AI 调用
 const COMMENTARY_OR_GUIDE_TITLE = /(?:全指南|一文读懂|一文看懂|避坑|流程、费用|注册攻略|申请攻略|时评|社论|锐评|漫谈|正当其时|成了生意|谁之过|何时休)/;
+// 频道页/标签页（「最新的XX相关资讯、品牌动态、行业报道」）与盘点稿（「一周药闻速揽」
+// 「新闻8点见」）：正文是标题列表或跨行业汇总，成卡后「法务观察」只能是标题碎片或
+// 无关内容，实测是成卡质量最差的一类。2026-09-11 用户要求「保证质量」后加的确定性判据。
+const CHANNEL_OR_ROUNDUP_TITLE = /(?:相关资讯|品牌动态|行业报道|资讯汇总|专题汇总|标签页)|(?:\d点见|速揽|速览|一周[药要]闻|要闻盘点|周报盘点)/;
 
 // Non-beauty-entity penalties (drugs/food/medical-device) that mention
 // cosmetics incidentally must never reach the report — guards the AI
@@ -234,6 +238,13 @@ const preDedupPool = pool.filter(c => {
   const entityTitle = String(c.title || '');
   if (NON_BEAUTY_ENTITY.test(entityTitle) && !regulatorExempt(entityTitle) && !/(?:化妆品|美妆|护肤|彩妆|香水|口红)/.test(entityTitle)) {
     console.log(`  SKIP [non-beauty-entity]: ${entityTitle.slice(0, 40)}`);
+    return false;
+  }
+  // 频道页/标签页与盘点稿：标题自带签名，不必花 AI 调用，更不该让 AI 的波动决定
+  // 它们进出周报。实测这类稿件的成卡质量最差——「法务观察」会变成标题碎片加无关
+  // 法规（亿邦动力「出口电商，最新的出口电商相关资讯…」），或把药品盘点包装成美妆。
+  if (CHANNEL_OR_ROUNDUP_TITLE.test(String(c.title || ''))) {
+    console.log(`  SKIP [channel-or-roundup]: ${(c.title || '').slice(0, 40)}`);
     return false;
   }
   // 「附带提及」的确定性判据：美妆词只出现在商品/品类枚举里就拦掉，不必花 AI 调用。

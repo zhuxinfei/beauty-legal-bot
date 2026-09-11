@@ -94,6 +94,7 @@ function isNavigationLabelLine(line) {
 const NAVIGATION_CHROME_MAX_CJK = 12;
 const NAVIGATION_CHROME_MIN_PUNCTUATION = 2;
 const NAVIGATION_CHROME_MAX_LENGTH = 26;
+const NAVIGATION_CHROME_MAX_ASCII_LENGTH = 45;
 const ASCII_NOISE_PATTERN = /[A-Za-z0-9]|[ -/:-@[-`{-~]/g;
 
 function isChromeLine(line) {
@@ -102,6 +103,12 @@ function isChromeLine(line) {
   // 光看「CJK 少」会误伤「标签：值」型正文——EU Safety Gate 的通报正文就是
   // 「通报国：Greece」这种结构，值是英文，CJK 天然少，整片会被当成 chrome 删光
   // （实测 11 条记录正文全变 0）。真 chrome 行另外带脚本残渣：引号、括号、分号。
+  // 整行没有任何汉字且很短 → 播放器/时间戳/统计条一类组件：
+  // `2026-09-07 18:30 Current Time 0:00`、`Duration 0:34 Loaded: 29.09%`。
+  // 这类行会落进 firstEvidenceSentence 的兜底分支（没有句子匹配事件词时取第一句），
+  // 于是「事实要点」印到 PDF 上变成播放器读数（实测汕头联合执法组那条）。
+  // 长度上限保证不误伤英文正文——Safety Gate 的风险描述是整句长英文，远长于此。
+  if (raw.length <= NAVIGATION_CHROME_MAX_ASCII_LENGTH && !/[一-龥]/.test(raw)) return true;
   const asciiPunctuation = (raw.match(/["'();:,.]/g) || []).length;
   if (asciiPunctuation < NAVIGATION_CHROME_MIN_PUNCTUATION) return false;
   // 还要短。长行哪怕 CJK 少也是正文——EU Safety Gate 的「风险描述：The product
