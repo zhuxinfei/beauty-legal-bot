@@ -42,6 +42,12 @@ fi
 mkdir -p out
 
 echo "==> [1/4] 发现候选（走代理访问 Google News RSS）"
+# CI 的 DISCOVERY_TOTAL_TIMEOUT_MS=180s 是按 runner 直连 Google 定的。本机每条查询
+# 都要经代理，141 个查询跑到一半就被总预算掐断，整批返回 0 条
+# （实测日志：Open-web discovery unavailable: open-web discovery timed out /
+#   Discovery queries=0, raw=0，直接导致水合只能去抓固定栏目页、净新增为 0）。
+export DISCOVERY_TOTAL_TIMEOUT_MS="${DISCOVERY_TOTAL_TIMEOUT_MS:-900000}"
+export DISCOVERY_QUERY_TIMEOUT_MS="${DISCOVERY_QUERY_TIMEOUT_MS:-20000}"
 node scripts/discover-open-web.js out/discovery.json out/acquisition-manifest.json
 
 echo "==> [2/4] 水合正文（直连政务站，显式绕开代理）"

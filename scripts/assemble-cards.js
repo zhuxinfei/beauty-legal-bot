@@ -183,6 +183,11 @@ const COMMENTARY_OR_GUIDE_TITLE = /(?:全指南|一文读懂|一文看懂|避坑
 // cosmetics incidentally must never reach the report — guards the AI
 // fallback path and saves AI calls.
 const NON_BEAUTY_ENTITY = /(?:药品|医药|兽药|医疗器械|食品|生猪|饲料|消毒产品|保健食品)/;
+// 但监管机构自身的名称必须放行：「X药品监督管理局」的机构名里天然带「药品」，
+// 而药监局正是化妆品的主管部门，是本报告最重要的来源类型。
+// 实测该词表曾把「云南省药品监督管理局-行政处罚」「公示公告_安徽省药品监督管理局」
+// 这类栏目整片打死。
+const REGULATOR_NAME = /(?:药品|医药)监督(?:管理)?局/;
 
 // Official/authority sources (regulator sites, courts, gov domains) are
 // exempt from the regex pre-screen — fixed-format pages like gov.uk
@@ -219,8 +224,9 @@ const preDedupPool = pool.filter(c => {
     console.log(`  SKIP [commentary-or-guide]: ${(c.title || '').slice(0, 40)}`);
     return false;
   }
-  if (NON_BEAUTY_ENTITY.test(c.title || '') && !/(?:化妆品|美妆|护肤|彩妆|香水|口红)/.test(c.title || '')) {
-    console.log(`  SKIP [non-beauty-entity]: ${(c.title || '').slice(0, 40)}`);
+  const entityTitle = String(c.title || '');
+  if (NON_BEAUTY_ENTITY.test(entityTitle) && !REGULATOR_NAME.test(entityTitle) && !/(?:化妆品|美妆|护肤|彩妆|香水|口红)/.test(entityTitle)) {
+    console.log(`  SKIP [non-beauty-entity]: ${entityTitle.slice(0, 40)}`);
     return false;
   }
   // Cheap regex pre-screen before spending AI calls: for non-authority
@@ -344,8 +350,10 @@ for (const { c, relevant, reason } of reviews) {
     continue;
   }
 
-  // Reject clearly non-beauty businesses regardless of what regulations they violated
-  if (/(?:五金|建材|食品|餐饮|药品|医疗器械|汽车|房地产|保险|银行|教育培训|网吧|歌厅|浴池|洗浴|理发店|便利店)/i.test(titleText) && !/(?:化妆品|美妆|护肤|彩妆|香水|防晒|面膜|口红|品牌)/i.test(titleText) && !BEAUTY_BRAND_PATTERN.test(titleText)) {
+  // Reject clearly non-beauty businesses regardless of what regulations they violated.
+  // 同样要放行监管机构自身：「云南省药品监督管理局-行政处罚」这类栏目名会被
+  // 词表里的「药品」误伤（REGULATOR_NAME 见上）。
+  if (/(?:五金|建材|食品|餐饮|药品|医疗器械|汽车|房地产|保险|银行|教育培训|网吧|歌厅|浴池|洗浴|理发店|便利店)/i.test(titleText) && !REGULATOR_NAME.test(titleText) && !/(?:化妆品|美妆|护肤|彩妆|香水|防晒|面膜|口红|品牌)/i.test(titleText) && !BEAUTY_BRAND_PATTERN.test(titleText)) {
     console.log(`  SKIP [non-beauty-biz]: ${card.title.slice(0, 50)}`);
     continue;
   }
