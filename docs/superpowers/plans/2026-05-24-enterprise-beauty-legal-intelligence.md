@@ -564,7 +564,7 @@ git commit -m "Polish executive Feishu intelligence card"
 Run with real credentials:
 
 ```bash
-DEEPSEEK_API_KEY='sk-255518b8aa8c450e8973ccc7dd174bea' FEISHU_WEBHOOK_URL='https://open.feishu.cn/open-apis/bot/v2/hook/b69fabf6-5922-4460-9055-c73322301316' DEEPSEEK_WORKER_MODEL='deepseek-chat' node worker/run-local.js
+DEEPSEEK_API_KEY='<你的 DeepSeek key>' FEISHU_WEBHOOK_URL='<你的飞书机器人 webhook>' DEEPSEEK_WORKER_MODEL='deepseek-chat' node worker/run-local.js
 ```
 
 Expected console stages:
