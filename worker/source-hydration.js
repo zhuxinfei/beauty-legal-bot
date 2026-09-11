@@ -357,7 +357,11 @@ export function normalizeHydratedRecord(record = {}) {
       || record.extraction?.summary
       || ''
   );
-  const articleText = cleanArticleEvidence([primaryArticleText, extractedMarkdown, attachmentText].filter(Boolean).join('\n\n'));
+  // 传标题：正文从标题处开始，标题之前的页头组件（无障碍工具栏/登录墙/分享栏）整段切掉
+  const articleText = cleanArticleEvidence(
+    [primaryArticleText, extractedMarkdown, attachmentText].filter(Boolean).join('\n\n'),
+    { title: text(record.title) },
+  );
   const publishedAt = extractPublishedDate(record, articleText);
   const qualityFlags = Array.isArray(record.quality_flags)
     ? record.quality_flags.map(text).filter(Boolean)

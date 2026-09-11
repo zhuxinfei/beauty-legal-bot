@@ -117,7 +117,7 @@ const records = rawRecords
 // Step 2: Pre-clean, extract hard facts, grade evidence
 console.log(`Extracting hard facts from ${records.length} records...`);
 const candidates = records.map(r => {
-  let text = cleanArticleEvidence(r.article_text || '');
+  let text = cleanArticleEvidence(r.article_text || '', { title: r.title || '' });
   for (const pattern of PORTAL_CHROME) text = text.replace(pattern, '');
   for (const pattern of NEWS_CHROME) text = text.replace(pattern, '');
   text = text.replace(/\s{2,}/g, ' ');

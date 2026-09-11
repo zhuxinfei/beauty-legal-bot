@@ -1,7 +1,12 @@
 const MARKDOWN_TABLE_SEPARATOR = /^\s*\|?\s*:?-{3,}:?\s*(?:\|\s*:?-{3,}:?\s*)+\|?\s*$/;
 const PAGE_CONTROL_PATTERN = /(?:下载|打印|关闭窗口|字体(?:大小)?|字号|分享到(?:新浪微博|QQ空间|微信|微博)|分享至(?:新浪微博|QQ空间|微信|微博)|收藏本站|返回顶部|视窗|最小化|最大化|还原|loading\.{3}|无障碍|关怀版|繁體|简体|EN(?:\s*$)|扫一扫|复制链接|打开适老|聽|请听|我在听|说话\(|網站地圖)/gi;
 const PAGE_SHELL_PATTERN = /^(?:网站首页|首页|主页|当前位置|您的位置|位置[:：]|导航|站点导航|机构概况|信息公开|办事大厅|新闻中心|通知公告|联系我们|登录|注册|搜索|高级检索|友情链接|上一页|下一页|English|Home|Menu|X\b|用户空间|海关电邮|守国门|促发展)(?:\s|[>＞|｜:：/·-]|$)/i;
-const EVENT_EVIDENCE_PATTERN = /(?:发布|公布|公告|通告|通报|征求意见|实施|生效|处罚|罚款|罚没|没收|召回|停止销售|抽检|不合格|判决|裁定|侵权|冒用|假冒|商标|专利|著作权|虚假宣传|功效宣称|平台治理|专项治理|治理公告|海关|关税|报关|清关|进口|出口|标准|法规|条例|办法|规定|备案|注册)/i;
+// 执法动作词（制假/售假/查封/查扣/查获/立案/抓获/停职/查处/整治）2026-09-11 补：
+// 原表只认「假冒」，漏掉「制假售假」整族，导致本周最大的汕头化妆品打假系列
+// （约 10 条）提不出证据句——facts 退化成标题复读、legal_signal 退化成模板
+// 套话，随后被 weak-facts / weak-legal-signal 正确拒掉。稿子没问题，是词表不认识
+// 「执法通报」这种事件类型。
+const EVENT_EVIDENCE_PATTERN = /(?:发布|公布|公告|通告|通报|征求意见|实施|生效|处罚|罚款|罚没|没收|召回|停止销售|抽检|不合格|判决|裁定|侵权|冒用|假冒|制假|售假|造假|假货|查封|查扣|查获|缴获|立案|抓获|停职|查处|整治|商标|专利|著作权|虚假宣传|功效宣称|平台治理|专项治理|治理公告|海关|关税|报关|清关|进口|出口|标准|法规|条例|办法|规定|备案|注册)/i;
 const NAVIGATION_TOKEN_PATTERN = /新闻发布厅|时政要闻|媒体聚焦|快捷检索|高级检索|友情链接|返回顶部|上一篇|下一篇|人才队伍|院务动态|党建工作|业务咨询|建言献策|院介绍|院领导|组织机构|能力资质|首席专家|法规政策|公告通知|数据查询|机构简介|领导简介|政府信息公开|依申请公开|办事指南|交流互动|专题专栏|返回主站|网站地图|药监App|监管App|机构|新闻|政务|服务|互动|专题|总局|司局|地方|图片|视频|当|好|让|党|放心/gi;
 const SUBSTANTIVE_ACTION_PATTERN = /发布|公布|通报|征求意见|实施|生效|处罚|罚款|罚没|没收|召回|停止销售|抽检|不合格|判决|裁定|侵权|虚假宣传|功效宣称|平台治理|专项治理|调整|修订|要求|决定/;
 const FOOTER_PATTERN = /^(?:本站由|本站主办|版权所有|Copyright|备案序号|网站标识码|京ICP备|ICP备|主办单位|承办单位|技术支持|地址[:：]|邮编[:：]|联系电话|All Rights Reserved)/i;
@@ -81,8 +86,24 @@ function isNavigationLabelLine(line) {
   return tokens.length >= 2 || raw.length <= NAVIGATION_LABEL_MAX_LENGTH;
 }
 
+// 页面组件（无障碍工具栏 / 登录墙 / 分享栏 / 天气条）的形状：
+// 去掉 ASCII 字母数字与标点后，剩下的中文很少。实测这类块比菜单更毒——
+// 卡片生成器会拿它当正文去填 facts 与 legal_signal，于是弱事实卡把
+// 真正的好稿拒掉（新京报「地下工厂」调查、上海家化六神维权案都死在这）。
+// 例：`; "重新设置Shift+1") 重置` → 只剩「重新设置重置」6 字。
+const NAVIGATION_CHROME_MAX_CJK = 12;
+const ASCII_NOISE_PATTERN = /[A-Za-z0-9]|[ -/:-@[-`{-~]/g;
+
+function isChromeLine(line) {
+  const raw = String(line || '').trim();
+  if (!raw) return false;
+  const cjkOnly = raw.replace(ASCII_NOISE_PATTERN, ' ').replace(/\s+/g, '');
+  return cjkOnly.length <= NAVIGATION_CHROME_MAX_CJK;
+}
+
 const NAVIGATION_KIND_CONTENT = 'content';
 const NAVIGATION_KIND_MENU = 'menu';
+const NAVIGATION_KIND_CHROME = 'chrome';
 const NAVIGATION_KIND_IGNORE = 'ignore';
 
 // 三分类：菜单项 / 透明行（空行、纯图标行）/ 正文行。
@@ -96,6 +117,7 @@ function classifyNavigationLine(line) {
   if (isNavigationMenuLine(withoutImages)) return NAVIGATION_KIND_MENU;
   // 纯标签行（`## 政策` / `政府信息公开指南`）同样按菜单项算。
   if (isNavigationLabelLine(withoutImages)) return NAVIGATION_KIND_MENU;
+  if (isChromeLine(withoutImages)) return NAVIGATION_KIND_CHROME;
   return NAVIGATION_KIND_CONTENT;
 }
 
@@ -110,20 +132,23 @@ function stripNavigationBlocks(value) {
   const dropped = new Array(lines.length).fill(false);
   let run = [];
   let runHasLink = false;
+  let runHasChrome = false;
   const flush = () => {
-    // 带链接的菜单块 ≥3 行即可判定；纯标签块要求更长，避免误吃正文里
+    // 带链接或页面组件的块 ≥3 行即可判定；纯标签块要求更长，避免误吃正文里
     // 连续几行短句（公告的小标题、落款等）。
-    const isBlock = runHasLink ? run.length >= NAVIGATION_BLOCK_MIN_LINES : run.length >= NAVIGATION_LABEL_BLOCK_MIN_LINES;
-    if (isBlock) for (const index of run) dropped[index] = true;
+    const threshold = (runHasLink || runHasChrome) ? NAVIGATION_BLOCK_MIN_LINES : NAVIGATION_LABEL_BLOCK_MIN_LINES;
+    if (run.length >= threshold) for (const index of run) dropped[index] = true;
     run = [];
     runHasLink = false;
+    runHasChrome = false;
   };
   lines.forEach((line, index) => {
     const kind = classifyNavigationLine(line);
     if (kind === NAVIGATION_KIND_IGNORE) return;
-    if (kind === NAVIGATION_KIND_MENU) {
+    if (kind === NAVIGATION_KIND_MENU || kind === NAVIGATION_KIND_CHROME) {
       run.push(index);
-      if (isNavigationMenuLine(String(line).trim().replace(MARKDOWN_IMAGE_PATTERN, ' ').trim())) runHasLink = true;
+      if (kind === NAVIGATION_KIND_CHROME) runHasChrome = true;
+      else if (isNavigationMenuLine(String(line).trim().replace(MARKDOWN_IMAGE_PATTERN, ' ').trim())) runHasLink = true;
       return;
     }
     flush();
@@ -157,13 +182,34 @@ function cleanLine(value) {
   return line;
 }
 
-export function cleanArticleEvidence(value) {
+// 正文从标题处开始：页头组件（无障碍工具栏、登录墙、分享栏）千站千面，
+// 逐个加形状判据永远补不完，但它们的**位置**是固定的——都在标题之前。
+// 只要标题出现在文本里，把标题之前的行整段切掉即可，与站点无关。
+// 安全边界：被切掉的部分不含句末标点（。！？），也就是绝不丢真正的正文句子。
+const TITLE_ANCHOR_MIN_LENGTH = 10;
+
+function stripHeadBeforeTitle(lines, title) {
+  const needle = String(title || '').replace(/[\s　]+/g, '');
+  if (needle.length < TITLE_ANCHOR_MIN_LENGTH) return lines;
+  const probe = needle.slice(0, Math.max(TITLE_ANCHOR_MIN_LENGTH, Math.min(24, needle.length)));
+  const index = lines.findIndex(line => line.replace(/[\s　]+/g, '').includes(probe));
+  if (index <= 0) return lines;
+  const dropped = lines.slice(0, index);
+  if (dropped.length > 40) return lines;
+  // 安全网：被切掉的部分不该含真正的句子。只数「。」——页头组件里
+  // 「提示：该链接属站外链接…！」这类带叹号的提示很常见，用 ！？ 当护栏会把它挡下。
+  if (dropped.filter(line => /。/.test(line)).length > 1) return lines;
+  return lines.slice(index);
+}
+
+export function cleanArticleEvidence(value, { title = '' } = {}) {
   // 先按链接形状剥掉导航/页脚，再压成纯文本：plainText 会把 [标签](url)
   // 拍平成标签，菜单的结构信号随之消失，之后就再也分不出导航和正文了。
-  const lines = stripNavigationBlocks(value)
+  const cleaned = stripNavigationBlocks(value)
     .split(/\n+/)
     .map(line => cleanLine(plainText(line)))
     .filter(Boolean);
+  const lines = stripHeadBeforeTitle(cleaned, title);
   const unique = [];
   const seen = new Set();
   for (const line of lines) {

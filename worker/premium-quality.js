@@ -20,7 +20,10 @@ const MODULE_ALIAS = {
 };
 
 const GENERIC_PATTERNS = /建议关注|持续关注|企业应留意|可能产生影响|后续观察|待进一步明确|视情况|适时|建议进一步核实|存在合规关注价值|进一步核实原文|需持续跟踪/i;
-const CONCRETE_PATTERNS = /(20\d{2}|发布|公布|通报|处罚|罚款|召回|判决|裁定|征求意见|公开征求|生效|实施|备案|注册|禁用|限用|进口|出口|海关|监管|法院|委员会|药监|市场监管|快速预警|危险非食品|rapid alert|dangerous non-food|Safety Gate|FDA|FTC|BPOM|MFDS|EUIPO|WIPO|\d+(?:\.\d+)?\s*(?:万|亿|元|美元|欧元|件|批|天|%|％))/i;
+// 执法动作词与 article-evidence.js 的 EVENT_EVIDENCE_PATTERN 保持同族：
+// 只认「处罚/罚款」这类正式文书词，会把执法通报（查封/查扣/查获/制假/售假）
+// 判成「没有硬事实」而整批拒掉。
+const CONCRETE_PATTERNS = /(20\d{2}|发布|公布|通报|处罚|罚款|召回|判决|裁定|征求意见|公开征求|生效|实施|备案|注册|禁用|限用|进口|出口|海关|监管|法院|委员会|药监|市场监管|制假|售假|造假|假货|查封|查扣|查获|缴获|立案|抓获|停职|查处|整治|快速预警|危险非食品|rapid alert|dangerous non-food|Safety Gate|FDA|FTC|BPOM|MFDS|EUIPO|WIPO|\d+(?:\.\d+)?\s*(?:万|亿|元|美元|欧元|件|批|天|%|％))/i;
 const OWNER_PATTERN = /法务|合规|法规|质量|研发|供应链|采购|电商|广告|品牌|市场|知识产权|IP|进出口|关务|注册|备案|产品|渠道|海外|本地团队/;
 const REPUBLISHER_HOST_PATTERN = /(?:^|\.)((?:sohu|163|sina|qq|toutiao|baijiahao|thepaper|jiemian|36kr)\.com|(?:baijiahao|mp)\.baidu\.com)$/i;
 const MEDIA_SOURCE_TYPES = new Set(['industry_media', 'media', 'wechat_lead', 'wechat_public_account', 'discovered_publisher']);
@@ -1456,7 +1459,7 @@ function candidateEvidenceText(candidate = {}) {
     candidate.text,
     candidate.snippet,
     candidate.title,
-  ].filter(Boolean).join('。'));
+  ].filter(Boolean).join('。'), { title: text(candidate.title) });
 }
 
 function firstEvidenceSentence(value = '') {
@@ -1510,7 +1513,15 @@ function candidateLegalSignal(module, source, hardFacts = {}) {
     return `${parts.join('，')}，已形成公开执法或监管信号，需要法务团队评估合规影响。`;
   }
   if (parts.length === 1) {
-    return `${parts[0]}，该事项存在合规关注价值，建议进一步核实原文细节。`;
+    // 只填到一个槽位时不要退回套话模板——「该事项存在合规关注价值，建议进一步
+    // 核实原文细节」正好命中 GENERIC_PATTERNS，会把卡片判成空话拒掉。用证据句
+    // 收尾，既具体又同样有信息量。（实测执法通报类稿全灭在这一步。）
+    const evidence = firstEvidenceSentence(source);
+    const tail = evidence ? evidence.replace(/[。；;]+$/g, '').slice(0, 90) : '';
+    if (tail && !tail.includes(parts[0].slice(0, 8))) {
+      return `${parts[0]}，${tail}，已形成公开执法或监管信号，需要法务团队评估合规影响。`;
+    }
+    return `${parts[0]}已形成公开执法或监管信号，需要法务团队评估合规影响。`;
   }
   const sentence = firstEvidenceSentence(source);
   return sentence
@@ -1581,7 +1592,20 @@ function candidateObservation(module, source = '', hardFacts = {}) {
 export function premiumCardFromCandidate(candidate = {}) {
   const source = candidateEvidenceText(candidate);
   const module = normalizeModule(candidate.module);
-  const candidateFacts = uniqueValues([firstEvidenceSentence(source), text(candidate.title)]).filter(Boolean);
+  // 证据句不能取到标题本身：标题在 facts 里已单独占一位，证据句若是标题，
+  // facts 就退化成「标题复读」，weak-facts 的具体性锚点随之失效
+  // （实测执法通报类稿——汕头化妆品制假售假系列约 10 条——全灭在这）。
+  // 去掉「标题 — 媒体名」的尾巴后再切：只切前 20 字会在正文里留下标题残尾
+  // （「假，线上销售高频换店 民房制假，…」这种半截话）。
+  const titleCore = text(candidate.title).split(/\s+[—\-|]\s+/)[0].replace(/\s+/g, '');
+  const titleProbe = titleCore.slice(0, Math.min(20, titleCore.length));
+  // 按标题串整体切除，而不是按行过滤：candidateEvidenceText 把多个字段用「。」
+  // 拼成一整坨，标题会和下一行黏在同一「行」里，按行删会连正文句一起删掉；
+  // 而且标题在拼接结果里会出现多次（字段拼接 + 末尾附加 candidate.title）。
+  const bodySource = titleCore
+    ? text(source).split(titleCore).join('\n').split(titleProbe).join('\n')
+    : text(source);
+  const candidateFacts = uniqueValues([firstEvidenceSentence(bodySource || source), text(candidate.title)]).filter(Boolean);
   const extractedFacts = extractHardFacts(source, {
     title: candidate.title,
     source_name: candidate.source_name || candidate.name,
