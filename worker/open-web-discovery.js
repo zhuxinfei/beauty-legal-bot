@@ -1,106 +1,53 @@
 import { parseGoogleNewsRss } from './google-rss-discovery.js';
 
+// 查询词一律两个词。2026-09-11 实测：45 条长查询里 27 条返回 0（60%），
+// 换成两个词后 50 条里只有 1 条返回 0（2%）。Google News RSS 对长查询
+// 是「全词都要命中」，词一多必然空手而归。
+// 选词依据同一轮实测的命中数（总/美妆/美妆+电商），例如：
+//   化妆品 电商 46/25/7、化妆品 网店 30/25/5、化妆品 平台 31/26/7、
+//   化妆品 假冒 27/25/5、化妆品 处罚 20/11/3、化妆品 虚假宣传 22/15/0。
 const QUERY_GROUPS = Object.freeze({
   '广告合规及处罚案例': [
-    '化妆品 行政处罚 虚假宣传 罚款', '美妆 直播 广告 处罚',
-    '护肤 功效宣称 市场监管 处罚', '化妆品 电商 刷单 反不正当竞争',
-    '化妆品 行政处罚决定书 市场监督管理局 site:gov.cn',
-    '化妆品 功效宣称 行政处罚决定书 罚款 site:gov.cn',
-    '薇诺娜 处罚 罚款', '珀莱雅 处罚',
-    '化妆品 直播带货 虚假宣传 市监局 罚款 2026',
-    '化妆品 广告法 处罚 罚款 site:gov.cn',
-    '化妆品 直播 专项整治 通报 2026',
-    '美妆 广告 极限词 虚假 处罚 通告',
-    '化妆品 专项检查 整治 处罚 通告',
-    '化妆品 飞行检查 通告 整改',
-    '化妆品 核查处置 通告 不合格',
-    'cosmetics advertising FTC penalty warning letter',
-    'cosmetic brand fined false advertising 2026',
+    '化妆品 处罚', '化妆品 虚假宣传', '化妆品 网售', '化妆品 直播', '美妆 罚款',
+    // site: 只在 Google News RSS 上生效（GDELT 要用 domain:），见 queryProviders
+    '化妆品 处罚 site:gov.cn', '化妆品 功效宣称 site:gov.cn', '化妆品 广告 site:gov.cn',
   ],
   '知识产权动态': [
-    '化妆品 商标 侵权 判决', '美妆 不正当竞争 诉讼',
-    '护肤 包装 装潢 仿冒 处罚', '香水 彩妆 专利 侵权 判决',
-    '化妆品 商标 侵权 法院 国家知识产权局 site:gov.cn',
-    '化妆品 商标 包装装潢 仿冒 侵权 判决 处罚',
-    '化妆品企业 商标权 法院 赔偿', '美妆品牌 知识产权 维权 案',
-    '化妆品 驰名商标 跨类 保护 判决',
-    '护肤品牌 假冒 商标 刑事 判决',
-    '珀莱雅 商标 侵权 案', '贝泰妮 商标 侵权',
-    '华熙生物 专利', '上海家化 商标 纠纷',
-    '欧莱雅 商标 侵权 中国', '雅诗兰黛 商标 维权',
-    '花西子 商标', '完美日记 知识产权',
-    '化妆品 商标 无效 宣告 国知局',
-    '美妆 品牌 仿冒 山寨 法院 判赔',
-    '化妆品 专利 纠纷 判决',
-    '化妆品 包装 装潢 不正当竞争 判决',
-    'cosmetics trademark infringement lawsuit ruling',
-    'beauty brand counterfeit court judgment',
+    '化妆品 假冒', '化妆品 商标', '化妆品 专利', '美妆 仿冒',
+    '化妆品 商标 site:gov.cn',
   ],
   '新规及案例动态': [
-    '化妆品 标准 征求意见 备案', '化妆品 法规 办法 公告 实施',
-    '化妆品 技术指导原则 发布', 'cosmetics regulation effective date',
-    '化妆品 公告 征求意见 site:nmpa.gov.cn',
-    '化妆品 安全技术规范 修订 公告',
-    '化妆品 新规 实施 通告 2026',
-    '化妆品 备案 管理 试点 通告',
-    '化妆品 注册 备案 新规 实施 2026',
-    'cosmetics regulation update ASEAN notification',
-    'cosmetics rules notification 2026 ministry of health',
+    '化妆品 法规', '化妆品 备案', '化妆品 公告', '化妆品 新规',
+    '化妆品 征求意见 site:nmpa.gov.cn',
   ],
   '产品质量/召回与安全风险': [
-    '化妆品 召回 不合格 批次', '化妆品 抽检 禁用原料 通告',
-    'cosmetics recall product safety alert 2026', 'cosmetic recall BPOM NPRA HSA warning',
-    '护肤 彩妆 质量安全 风险 通报', 'cosmetics recall contamination',
-    '化妆品 不符合规定 通告 召回 site:gov.cn',
-    'cosmetics product safety report recall batch',
-    '化妆品 抽检 不合格 通告 site:gov.cn',
-    '进口化妆品 检测 不合格 通报',
-    '化妆品 抽检 通告 黑龙江',
-    '化妆品 抽检 通告 山东 不合格',
-    '化妆品 抽检 通告 江苏 浙江',
-    '化妆品 抽检 通告 广东 四川',
-    '化妆品 抽检 通告 湖南 湖北',
-    '化妆品 抽检 通告 陕西 河南',
+    '化妆品 通报', '化妆品 不合格', '化妆品 召回', '化妆品 抽检',
+    '化妆品 抽检 site:gov.cn', '化妆品 召回 site:gov.cn',
   ],
   '进出口动态': [
-    '化妆品 海关 进口 出口 扣留', '进口化妆品 清关 监管 通知',
-    '跨境电商 美妆 海关 政策', 'cosmetics customs seizure import alert',
-    '进口 化妆品 海关 公告 site:customs.gov.cn',
-    '进口化妆品 海关 公告 清关 退运',
-    '跨境电商 零售进口 化妆品 清单 调整',
-    '进口化妆品 备案 暂停 注销',
-    'cosmetics import alert customs seizure',
-    'cosmetics export ban regulation 2026',
+    '化妆品 进口', '跨境电商 化妆品', '化妆品 出口', '化妆品 海关',
+    '化妆品 海关 site:customs.gov.cn',
   ],
   '美妆动态': [
     // 电商/平台渠道的法律合规动态（非财经新闻：IPO/破产/并购 一律不采）
-    '化妆品 电商 平台 处罚 下架',
-    '美妆 直播 带货 违规 处罚',
-    '化妆品 网店 虚假宣传 处罚',
-    '化妆品 网络销售 质量 抽检 通告',
-    '美妆 电商 价格 欺诈 处罚',
-    '化妆品 跨境电商 监管 政策',
-    '美妆 平台 商家 治理 合规',
-    '化妆品 电商 监管 市监局 公告',
-    '化妆品 电商 消费 投诉 集中整治',
-    '美妆 直播间 违规 通报 平台处罚',
-    '化妆品 经营 检查 处罚 化妆品店',
-    '化妆品 网售 监管 平台 处罚 通告',
-    '杭州 美妆 化妆品 监管 政策 浙江',
-    '上海 化妆品 电商 合规 监管',
-    'cosmetics e-commerce platform regulation compliance',
+    '美妆 电商', '化妆品 电商', '化妆品 网店', '化妆品 平台',
+    '化妆品 网络销售', '美妆 带货',
   ],
 });
 
 const BEAUTY = /化妆品|美妆|护肤|彩妆|香水|防晒|染发|洗护|cosmetic|beauty|skincare/i;
 const PROMOTION = /招商|加盟|新品上市|品牌推荐|十大|排行榜|促销|折扣|代购|选购指南/i;
 const MODULE_EVENT = Object.freeze({
-  '广告合规及处罚案例': /处罚|罚款|没收|虚假宣传|广告违法|功效宣称|刷单|反不正当竞争|查处|责令|典型案例|行政处罚|penalty|fine|advertising/i,
-  '知识产权动态': /商标|专利|著作权|侵权|仿冒|包装装潢|不正当竞争|判决|诉讼|赔偿|恶意抢注|地理标志|商业秘密|trademark|patent|infringement|lawsuit/i,
+  // 打假词（假冒/制假/售假/造假）2026-09-11 补：词表原先只有「仿冒」，漏掉本周
+  // 最大的一批供给——「化妆品制假售假」系列 20 条全被 missing-module-event 打掉，
+  // 知识产权模块因此归零。制假售假同时落在知产（假冒商标）、质量（假货安全）、
+  // 电商（网店售假）三类事件里，故三处都补。
+  '广告合规及处罚案例': /处罚|罚款|没收|虚假宣传|广告违法|功效宣称|刷单|反不正当竞争|查处|责令|典型案例|行政处罚|制假|售假|假货|penalty|fine|advertising/i,
+  '知识产权动态': /商标|专利|著作权|侵权|仿冒|假冒|制假|售假|造假|假货|山寨|包装装潢|不正当竞争|判决|诉讼|赔偿|恶意抢注|地理标志|商业秘密|trademark|patent|infringement|lawsuit/i,
   '新规及案例动态': /法规|办法|条例|标准|征求意见|备案|注册|指导原则|公告|通告|通知|实施|印发|发布|修订|试点|清单|目录|技术要求|检验方法|标签|说明书|policy|regulation|standard|guidance/i,
-  '产品质量/召回与安全风险': /召回|不合格|抽检|检出|禁用|批次|质量安全|风险通报|污染|警示|停止经营|约谈|监督抽检|核查|recall|contamination|safety alert/i,
+  '产品质量/召回与安全风险': /召回|不合格|抽检|检出|禁用|批次|质量安全|风险通报|污染|警示|停止经营|约谈|监督抽检|核查|假冒|制假|售假|假货|recall|contamination|safety alert/i,
   '进出口动态': /海关|进口|出口|清关|扣留|退运|通关|跨境|进口预警|报关|原产地|检验检疫|关税|customs|import|export|seizure|import alert/i,
-  '美妆动态': /平台规则|平台治理|公告|通知|合规|下架|禁售|调整|新规|执法|调查|整改|数据泄露|停产|停业|许可证|电商|网售|网络销售|直播|店铺|商家|质量抽检|不合格|整治|规范|监管|检查|通报|policy|rule|enforcement|investigation|compliance|ecommerce/i,
+  '美妆动态': /平台规则|平台治理|公告|通知|合规|下架|禁售|调整|新规|执法|调查|整改|数据泄露|停产|停业|许可证|电商|网售|网络销售|直播|店铺|商家|质量抽检|不合格|整治|规范|监管|检查|通报|假冒|制假|售假|假货|policy|rule|enforcement|investigation|compliance|ecommerce/i,
 });
 
 function increment(map, key, amount = 1) {
@@ -132,6 +79,42 @@ function takeBalancedByModule(items = [], limit = items.length) {
   return result;
 }
 
+export const PROVIDER_GOOGLE_NEWS_RSS = 'google_news_rss';
+export const PROVIDER_GDELT = 'gdelt';
+
+// GDELT DOC API 已下线（2026-09-11 实测结论）：
+//   · 中文关键词永远检索不到——索引里是机器翻译的英文正文；
+//   · 英文关键词 + sourcelang:zho + domain: 过滤，14 天窗口只捞回 0–1 条，
+//     且唯一命中与美妆无关（「上海睡莲」），因为匹配发生在译文的正文词上；
+//   · 限流很硬：7 秒间隔仍被拒（"Please limit requests to one every 5 seconds"），
+//     而并发跑正是触发它的原因——旧管线 51 条查询并发打过去必然被罚。
+// 通道保留，置 DISCOVERY_ENABLE_GDELT=1 可重新启用（启用后按英文关键词 +
+// sourcelang:zho 构造查询，并串行限流）。
+const GDELT_ENABLED = /^(?:1|true|yes)$/i.test(String(process.env.DISCOVERY_ENABLE_GDELT || ''));
+const GDELT_SOURCE_LANG = process.env.DISCOVERY_GDELT_SOURCELANG || 'zho';
+// 中文查询 -> GDELT 英文检索词。GDELT 的 zho 流合并简繁、且夹带内容农场，
+// 所以再叠一层大陆域名过滤。
+const GDELT_ENGLISH_QUERY = Object.freeze({
+  '广告合规及处罚案例': 'cosmetics advertising penalty',
+  '知识产权动态': 'cosmetics trademark infringement',
+  '新规及案例动态': 'cosmetics regulation',
+  '产品质量/召回与安全风险': 'cosmetics recall safety',
+  '进出口动态': 'cosmetics import customs',
+  '美妆动态': 'cosmetics e-commerce',
+});
+const GDELT_DOMAIN_FILTER = process.env.DISCOVERY_GDELT_DOMAINS || 'domain:gov.cn';
+
+function queryProviders(query) {
+  // site: 只在 Google News RSS 上生效；发给 GDELT 是白跑（那边要用 domain:）。
+  if (/site:/i.test(query)) return [PROVIDER_GOOGLE_NEWS_RSS];
+  return GDELT_ENABLED ? [PROVIDER_GOOGLE_NEWS_RSS, PROVIDER_GDELT] : [PROVIDER_GOOGLE_NEWS_RSS];
+}
+
+export function gdeltQueryFor(row) {
+  const english = GDELT_ENGLISH_QUERY[row.module] || 'cosmetics';
+  return `${english} ${GDELT_DOMAIN_FILTER} sourcelang:${GDELT_SOURCE_LANG}`;
+}
+
 export function buildDiscoveryQueries({ modules } = {}) {
   const selectedModules = Array.isArray(modules) && modules.length ? new Set(modules) : null;
   return Object.entries(QUERY_GROUPS)
@@ -140,61 +123,23 @@ export function buildDiscoveryQueries({ modules } = {}) {
     module,
     query,
     beautyScoped: true,
+    providers: queryProviders(query),
   })));
 }
 
-export async function discoverOpenWeb({ period = {}, queryRows = buildDiscoveryQueries(), fetchRss, fetchSecondary, resolveCandidates, maxItems = 120, maxPerHost = 8, maxPerModule = 30 } = {}) {
-  const raw = [];
-  const queryCounts = {};
-  const rawByModule = {};
-  const queryErrors = [];
-  const queryResults = await Promise.all(queryRows.map(async row => {
-    increment(queryCounts, row.module);
-    try {
-      const items = parseGoogleNewsRss(await fetchRss(row.query, row.module), row.module).map(item => ({
-        ...item,
-        discovery_query: row.query,
-        discovery_module: row.module,
-        discovery_beauty_scoped: row.beautyScoped !== false,
-      }));
-      increment(rawByModule, row.module, items.length);
-      return items;
-    } catch (error) {
-      queryErrors.push({
-        provider: 'google_news_rss',
-        module: row.module,
-        query: row.query,
-        error: String(error?.message || error).slice(0, 240),
-      });
-      return [];
-    }
-  }));
-  raw.push(...queryResults.flat());
-  const resolutionInput = takeBalancedByModule(raw, Math.min(Math.max(1, maxItems), 120));
-  const googleResolved = await resolveCandidates(resolutionInput);
-  const secondaryResults = typeof fetchSecondary === 'function'
-    ? (await Promise.all(queryRows.map(async row => {
-      try {
-        const items = await fetchSecondary(row.query, row.module);
-        increment(rawByModule, row.module, items.length);
-        return items.map(item => ({
-          ...item,
-          module: item.module || row.module,
-          discovery_query: row.query,
-          discovery_module: row.module,
-          discovery_beauty_scoped: row.beautyScoped !== false,
-        }));
-      } catch (_error) {
-        // GDELT is frequently unavailable; silently skip
-        return [];
-      }
-    }))).flat()
-    : [];
-  const resolved = [...googleResolved, ...secondaryResults];
-  const resolvedByModule = {};
-  for (const item of resolved) {
-    if (item.resolution_status === 'resolved') increment(resolvedByModule, item.discovery_module || item.module);
+// 分块执行：块与块之间可以被 signal 打断，已完成的结果留在调用方的 accumulator 里。
+// 原先所有查询一次性铺开（Promise.all），任何一处超时都会让整轮颗粒无收。
+async function forEachChunk(items, size, worker, signal) {
+  for (let index = 0; index < items.length; index += size) {
+    if (signal?.aborted) return;
+    await worker(items.slice(index, index + size));
   }
+}
+
+// 候选选择：对「累计已解析」的列表统一做容量裁剪。
+// 每解析出一批就整体重跑——上限（host/module/maxItems）只取决于累计集合，
+// 因此分块重跑的结果与一次性跑完一致：中断时拿到的是同一套规则下的前缀。
+function selectDiscoveredCandidates({ resolved = [], period = {}, maxItems = 120, maxPerHost = 8, maxPerModule = 30 }) {
   const seen = new Set();
   const hostCounts = new Map();
   const moduleCounts = new Map();
@@ -278,25 +223,126 @@ export async function discoverOpenWeb({ period = {}, queryRows = buildDiscoveryQ
   }
   const acceptedByModule = {};
   for (const item of candidates) increment(acceptedByModule, item.discovery_module || item.module);
-  return {
-    candidates,
-    audit: {
-      queries: queryRows.length,
-      queriesByModule: queryCounts,
-      raw: raw.length + secondaryResults.length,
-      rawByModule,
-      googleRaw: raw.length,
-      secondaryRaw: secondaryResults.length,
-      resolved: resolved.filter(item => item.resolution_status === 'resolved').length,
-      resolvedByModule,
-      unique: candidates.length,
-      acceptedByModule,
-      queryErrors,
-      rejectionReasons,
-      rejectionReasonsByModule,
-      rejections,
-    },
+  return { candidates, rejectionReasons, rejectionReasonsByModule, rejections, acceptedByModule };
+}
+
+const sleep = ms => new Promise(resolve => { setTimeout(resolve, ms); });
+const GDELT_INTERVAL_MS = Math.max(5000, Number(process.env.DISCOVERY_GDELT_INTERVAL_MS || 6000));
+const QUERY_CHUNK_SIZE = Math.max(1, Number(process.env.DISCOVERY_QUERY_CHUNK || 6));
+const RESOLVE_CHUNK_SIZE = Math.max(1, Number(process.env.DISCOVERY_RESOLVE_CHUNK || 24));
+const EMPTY_SELECTION = Object.freeze({
+  candidates: [], acceptedByModule: {}, rejectionReasons: {}, rejectionReasonsByModule: {}, rejections: [],
+});
+
+export async function discoverOpenWeb({ period = {}, queryRows = buildDiscoveryQueries(), fetchRss, fetchSecondary, resolveCandidates, maxItems = 120, maxPerHost = 8, maxPerModule = 30, onProgress, signal } = {}) {
+  const raw = [];
+  const secondaryResults = [];
+  const resolved = [];
+  const queryCounts = {};
+  const rawByModule = {};
+  const queryErrors = [];
+  let selected = EMPTY_SELECTION;
+  // 按 provider 分流：site: 查询只走 Google News RSS，GDELT 默认关闭（见文件头注释）。
+  const googleRows = queryRows.filter(row => (row.providers || [PROVIDER_GOOGLE_NEWS_RSS]).includes(PROVIDER_GOOGLE_NEWS_RSS));
+  const secondaryRows = queryRows.filter(row => (row.providers || []).includes(PROVIDER_GDELT));
+
+  const snapshot = () => {
+    const resolvedByModule = {};
+    for (const item of resolved) {
+      if (item.resolution_status === 'resolved') increment(resolvedByModule, item.discovery_module || item.module);
+    }
+    return {
+      candidates: selected.candidates,
+      audit: {
+        queries: queryRows.length,
+        queriesByModule: queryCounts,
+        raw: raw.length + secondaryResults.length,
+        rawByModule,
+        googleRaw: raw.length,
+        secondaryRaw: secondaryResults.length,
+        secondaryProvider: GDELT_ENABLED ? PROVIDER_GDELT : 'disabled',
+        googleQueries: googleRows.length,
+        secondaryQueries: secondaryRows.length,
+        resolved: resolved.filter(item => item.resolution_status === 'resolved').length,
+        resolvedByModule,
+        unique: selected.candidates.length,
+        acceptedByModule: selected.acceptedByModule,
+        queryErrors,
+        rejectionReasons: selected.rejectionReasons,
+        rejectionReasonsByModule: selected.rejectionReasonsByModule,
+        rejections: selected.rejections,
+      },
+    };
   };
+  // 每完成一个分块就把当前快照交给调用方；超时中断时调用方手里始终有已完成的部分。
+  const emit = () => {
+    if (typeof onProgress !== 'function') return;
+    try { onProgress(snapshot()); } catch (_error) { /* 进度上报绝不能反过来打断发现流程 */ }
+  };
+
+  const collectGoogle = forEachChunk(googleRows, QUERY_CHUNK_SIZE, async chunk => {
+    const items = await Promise.all(chunk.map(async row => {
+      increment(queryCounts, row.module);
+      try {
+        const parsed = parseGoogleNewsRss(await fetchRss(row.query, row.module), row.module).map(item => ({
+          ...item,
+          discovery_query: row.query,
+          discovery_module: row.module,
+          discovery_beauty_scoped: row.beautyScoped !== false,
+        }));
+        increment(rawByModule, row.module, parsed.length);
+        return parsed;
+      } catch (error) {
+        queryErrors.push({
+          provider: 'google_news_rss',
+          module: row.module,
+          query: row.query,
+          error: String(error?.message || error).slice(0, 240),
+        });
+        return [];
+      }
+    }));
+    raw.push(...items.flat());
+    emit();
+  }, signal);
+
+  // 次要供给通道（GDELT）串行 + 限流：GDELT 明确要求 ≥5 秒一次，
+  // 并发打过去会被限流罚掉整条通道（旧管线正是并发 51 条）。
+  const collectSecondary = typeof fetchSecondary === 'function' && secondaryRows.length
+    ? forEachChunk(secondaryRows, 1, async chunk => {
+      const row = chunk[0];
+      try {
+        const fetched = await fetchSecondary(gdeltQueryFor(row), row.module);
+        increment(rawByModule, row.module, fetched.length);
+        secondaryResults.push(...fetched.map(item => ({
+          ...item,
+          module: item.module || row.module,
+          discovery_query: row.query,
+          discovery_module: row.module,
+          discovery_beauty_scoped: row.beautyScoped !== false,
+        })));
+      } catch (_error) {
+        // GDELT is frequently unavailable; silently skip
+      }
+      emit();
+      await sleep(GDELT_INTERVAL_MS);
+    }, signal)
+    : Promise.resolve();
+
+  await Promise.all([collectGoogle, collectSecondary]);
+
+  const resolutionInput = takeBalancedByModule(raw, Math.min(Math.max(1, maxItems), 120));
+  await forEachChunk(resolutionInput, RESOLVE_CHUNK_SIZE, async chunk => {
+    resolved.push(...await resolveCandidates(chunk));
+    selected = selectDiscoveredCandidates({ resolved, period, maxItems, maxPerHost, maxPerModule });
+    emit();
+  }, signal);
+
+  resolved.push(...secondaryResults);
+  selected = selectDiscoveredCandidates({ resolved, period, maxItems, maxPerHost, maxPerModule });
+  const final = snapshot();
+  emit();
+  return { candidates: final.candidates, audit: final.audit };
 }
 
 function countCandidatesByModule(candidates = []) {
