@@ -285,6 +285,14 @@ export function compactEvidenceText(value, maxLength = 220) {
 
 const GENERIC_INTRO_PATTERN = /(?:引发关注|备受关注|引起热议|引发热议|受到关注|引发讨论|引人注目)/i;
 
+// 兜底句也必须是「句子」：没有句读、只由 UI 标签拼起来的行是页面组件。
+// 原先的 `|| sentences[0]` 会把它们当成证据句——「事实要点」印到 PDF 上就变成
+// 播放器读数（`Current Time 0:00 Duration 0:34`）、取色器（`Text ColorWhite…`）
+// 或分享栏（`发布时间：…【 ：小 中 大】 分享：#### 微信…`）。实测北仑海关、
+// 汕头联合执法组、Medicube 三条卡片的「事实要点」都是这样被污染的。
+// 一个句子该有句读，或者至少带逗号且有一定长度。
+const SENTENCE_LIKE = sentence => /[。；！？]/.test(sentence) || (/[，、]/.test(sentence) && sentence.length >= 24);
+
 export function firstEvidenceSentence(value, maxLength = 220) {
   const cleaned = cleanArticleEvidence(value);
   const sentences = cleaned
@@ -292,10 +300,11 @@ export function firstEvidenceSentence(value, maxLength = 220) {
     .map(sentence => sentence.trim())
     .filter(sentence => sentence.length >= 16);
   const selected = sentences.find(sentence =>
-    EVENT_EVIDENCE_PATTERN.test(sentence) && !GENERIC_INTRO_PATTERN.test(sentence)
+    EVENT_EVIDENCE_PATTERN.test(sentence) && !GENERIC_INTRO_PATTERN.test(sentence) && SENTENCE_LIKE(sentence)
   )
-    || sentences.find(sentence => EVENT_EVIDENCE_PATTERN.test(sentence))
-    || sentences[0]
-    || cleaned;
-  return compactEvidenceText(selected, maxLength);
+    || sentences.find(sentence => EVENT_EVIDENCE_PATTERN.test(sentence) && SENTENCE_LIKE(sentence))
+    || sentences.find(SENTENCE_LIKE)
+    // 找不到像句子的内容就返回空：调用方会退回标题，总好过把页面组件当事实印出去。
+    || '';
+  return selected ? compactEvidenceText(selected, maxLength) : '';
 }
