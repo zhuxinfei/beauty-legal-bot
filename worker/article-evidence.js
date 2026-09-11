@@ -19,6 +19,119 @@ function plainText(value) {
     .replace(/\s*⟨\d+⟩/g, '');
 }
 
+// --- 导航/页脚剥离：在正文进入任何判据之前做 ---
+// 词表法在这件事上必然漏：政务站的菜单标签是无穷的（实测「机构设置/新闻动态/
+// 政务公开/互动交流/智能问答」都不在任何词表里），但菜单的**形状**是稳定的——
+// 整行都是链接（或链接包着图标与短标签），几乎没有正文残留。
+// 反过来，正文里单独的链接行（附件、相关阅读）很常见，所以只丢成片的块（≥3 行）。
+// 目的地里允许转义括号：crawl4ai 抓下来的 `[标签](javascript:void\(0\);)`
+// 很常见，早期版本按普通括号切会切不干净，整行被误判成正文、打断菜单块。
+const MARKDOWN_LINK_PATTERN = /\[[^\]]*\]\((?:[^)\\]|\\.)*\)/g;
+const MARKDOWN_IMAGE_PATTERN = /!\[[^\]]*\]\((?:[^)\\]|\\.)*\)/g;
+const NAVIGATION_BLOCK_MIN_LINES = 3;
+const NAVIGATION_LABEL_BLOCK_MIN_LINES = 4;
+const NAVIGATION_LABEL_RESIDUE_LIMIT = 20;
+
+// 菜单项判定（传入前已剥掉图片）：整行是链接，或链接包着短标签。
+function isNavigationMenuLine(line) {
+  const raw = String(line || '').trim();
+  if (!raw) return false;
+  const links = raw.match(MARKDOWN_LINK_PATTERN) || [];
+  if (!links.length) return false;
+  const residue = raw
+    .replace(MARKDOWN_LINK_PATTERN, ' ')
+    .replace(/[\s*•·|]+/g, '');
+  if (!residue) return true;
+  if (residue.length > NAVIGATION_LABEL_RESIDUE_LIMIT || /[。！？；]/.test(residue)) return false;
+  // 有的站把标签文字包在链接里（`[ 图标 政策文件 图标 ](javascript:;)`），
+  // 剥掉链接后仍有短残留；这种链接密集的行同样是菜单项。
+  if (links.length >= 2) return true;
+  // 栏目索引页的列表行是「一个链接 + 日期」：`[标题](url) 2026-09-01`。
+  // 残留里没有汉字就说明它不是句子（正文的「详见《通知》[链接](url)」残留带汉字），
+  // 这类行整片出现时就是索引页，必须在这里摘掉——否则它会以「满屏化妆品标题」
+  // 的形态喂给 AI，被判成相关文章。
+  return !/[一-龥]/.test(residue);
+}
+
+// 没有链接的菜单（`## 政策` / `政府信息公开指南` 这类纯标签）：
+// 形状是「标题」而非「句子」——短、无句读、无数字（日期/文号/金额都会带数字）、
+// 无书名号。菜单项与正文短句的区别就在这里，仍然不看具体词。
+const NAVIGATION_LABEL_MAX_LENGTH = 8;
+const NAVIGATION_ROW_TOKEN_MAX_LENGTH = 10;
+
+function isNavigationLabelToken(token) {
+  if (!token || token.length > NAVIGATION_ROW_TOKEN_MAX_LENGTH) return false;
+  // 句读与引号书名号：。！？；，、： 以及 “”‘’《》〈〉〔〕【】
+  if (/[。！？；，、：“”‘’《》〈〉〔〕【】]/.test(token)) return false;
+  if (/\d/.test(token)) return false;
+  return true;
+}
+
+function isNavigationLabelLine(line) {
+  const raw = String(line || '')
+    .trim()
+    .replace(/^[#>\-*+]+/, '')
+    .replace(/;\)+\s*$/, '')   // 站点脚本残渣 `标签;)`
+    .trim();
+  if (!raw) return false;
+  const tokens = raw.split(/\s+/).filter(Boolean);
+  if (!tokens.length || !tokens.every(isNavigationLabelToken)) return false;
+  // 一行排开好几个菜单项，是菜单的强特征；单个标签要更短才算，
+  // 否则「为进一步完善化妆品技术标准」这种正文短句会被误判成菜单项。
+  return tokens.length >= 2 || raw.length <= NAVIGATION_LABEL_MAX_LENGTH;
+}
+
+const NAVIGATION_KIND_CONTENT = 'content';
+const NAVIGATION_KIND_MENU = 'menu';
+const NAVIGATION_KIND_IGNORE = 'ignore';
+
+// 三分类：菜单项 / 透明行（空行、纯图标行）/ 正文行。
+// 纯图标行是菜单的内部构件（`![](logo.png)`），既不是正文也不该打断菜单块——
+// 早期版本在这里断了块，整片导航因此整片漏过。
+function classifyNavigationLine(line) {
+  const raw = String(line || '').trim();
+  if (!raw) return NAVIGATION_KIND_IGNORE;
+  const withoutImages = raw.replace(MARKDOWN_IMAGE_PATTERN, ' ').trim();
+  if (!withoutImages) return NAVIGATION_KIND_IGNORE;
+  if (isNavigationMenuLine(withoutImages)) return NAVIGATION_KIND_MENU;
+  // 纯标签行（`## 政策` / `政府信息公开指南`）同样按菜单项算。
+  if (isNavigationLabelLine(withoutImages)) return NAVIGATION_KIND_MENU;
+  return NAVIGATION_KIND_CONTENT;
+}
+
+// 丢掉成片的菜单/页脚行。透明行不打断块（菜单行之间常夹空行与图标行），
+// 正文行一定打断块——所以只有连续成片的菜单才会被摘掉。
+function stripNavigationBlocks(value) {
+  const lines = String(value || '')
+    .replace(/\r\n?/g, '\n')
+    .replace(/ /g, ' ')
+    .replace(/<!--[\s\S]*?-->/g, ' ')
+    .split('\n');
+  const dropped = new Array(lines.length).fill(false);
+  let run = [];
+  let runHasLink = false;
+  const flush = () => {
+    // 带链接的菜单块 ≥3 行即可判定；纯标签块要求更长，避免误吃正文里
+    // 连续几行短句（公告的小标题、落款等）。
+    const isBlock = runHasLink ? run.length >= NAVIGATION_BLOCK_MIN_LINES : run.length >= NAVIGATION_LABEL_BLOCK_MIN_LINES;
+    if (isBlock) for (const index of run) dropped[index] = true;
+    run = [];
+    runHasLink = false;
+  };
+  lines.forEach((line, index) => {
+    const kind = classifyNavigationLine(line);
+    if (kind === NAVIGATION_KIND_IGNORE) return;
+    if (kind === NAVIGATION_KIND_MENU) {
+      run.push(index);
+      if (isNavigationMenuLine(String(line).trim().replace(MARKDOWN_IMAGE_PATTERN, ' ').trim())) runHasLink = true;
+      return;
+    }
+    flush();
+  });
+  flush();
+  return lines.filter((_, index) => !dropped[index]).join('\n');
+}
+
 function cleanLine(value) {
   let line = String(value || '').trim();
   if (!line || MARKDOWN_TABLE_SEPARATOR.test(line)) return '';
@@ -45,9 +158,11 @@ function cleanLine(value) {
 }
 
 export function cleanArticleEvidence(value) {
-  const lines = plainText(value)
+  // 先按链接形状剥掉导航/页脚，再压成纯文本：plainText 会把 [标签](url)
+  // 拍平成标签，菜单的结构信号随之消失，之后就再也分不出导航和正文了。
+  const lines = stripNavigationBlocks(value)
     .split(/\n+/)
-    .map(cleanLine)
+    .map(line => cleanLine(plainText(line)))
     .filter(Boolean);
   const unique = [];
   const seen = new Set();
