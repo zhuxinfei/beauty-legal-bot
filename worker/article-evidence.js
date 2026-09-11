@@ -221,6 +221,42 @@ export function cleanArticleEvidence(value, { title = '' } = {}) {
   return unique.join('\n');
 }
 
+// --- 「附带提及」的确定性判据 ---
+// 美妆词只出现在商品/品类枚举里（关税新闻里的「…乳制品、五金工具、美妆化妆品、
+// 电子设备等」），而不是文章主体。AI 在这条边界上不稳定——同一篇稿子这轮判不相关、
+// 下轮判相关（实测加拿大对美反制关税一篇），所以用规则兜住，别把波动带进周报。
+const BEAUTY_MENTION_PATTERN = /化妆品|美妆|护肤|彩妆|香水|防晒|染发|洗护|面膜|口红/g;
+// 安全阀：只认「长枚举」。真文章里也会列举品类（「化妆品、护肤品、彩妆等」），
+// 那种只有 1–2 个顿号，不判附带提及；贸易/关税类新闻的品类清单通常有 3 个以上。
+const ENUMERATION_WINDOW = 60;
+const ENUMERATION_MIN_SEPARATORS = 3;
+
+export function isIncidentalBeautyMention(value) {
+  const source = String(value || '');
+  const matches = [...source.matchAll(BEAUTY_MENTION_PATTERN)];
+  if (!matches.length) return false;
+  // 合并相邻匹配：「美妆化妆品」会被拆成「美妆」+「化妆品」两段，只看前一段会误判
+  // （它后面紧跟着汉字，判不出枚举边界）。
+  const spans = [];
+  for (const match of matches) {
+    const last = spans[spans.length - 1];
+    if (last && match.index === last.end) last.end = match.index + match[0].length;
+    else spans.push({ start: match.index, end: match.index + match[0].length });
+  }
+  for (const span of spans) {
+    const start = span.start;
+    const end = span.end;
+    const before = source.slice(Math.max(0, start - 14), start);
+    const after = source.slice(end, end + 14);
+    const insideEnumeration = /[、，,]\s*$/.test(before) && /^\s*(?:[、，,]|等)/.test(after);
+    if (!insideEnumeration) return false; // 只要有一处出现在正文里，就不是附带提及
+    const window = source.slice(Math.max(0, start - ENUMERATION_WINDOW), end + ENUMERATION_WINDOW);
+    const separators = (window.match(/[、，,]/g) || []).length;
+    if (separators < ENUMERATION_MIN_SEPARATORS) return false;
+  }
+  return true;
+}
+
 export function compactEvidenceText(value, maxLength = 220) {
   const cleaned = cleanArticleEvidence(value).replace(/\s+/g, ' ').trim();
   if (!cleaned || cleaned.length <= maxLength) return cleaned;

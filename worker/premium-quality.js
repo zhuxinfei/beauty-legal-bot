@@ -734,6 +734,17 @@ function validateTypeHardFacts(card) {
   }
 
   if (module === '知识产权保护或者侵权') {
+    // 执法通报单开判据（2026-09-11 用户确认）：查封/查扣/立案类通报没有「裁判结果」，
+    // 原先与知产诉讼共用判据而被整批拒掉——实测汕头化妆品制假售假系列约 10 条全灭
+    // 在这里。判据是「执法机关 + 当事人 + 处置结果」。诉讼类稿件的既有标准不变，
+    // 下面这条命中才放行，命中不了仍走原来的三要素判据。
+    const enforcementBlob = `${card.title || ''} ${source}`;
+    const hasEnforcementAgency = /(市场监督管理局|市场监管|药监局|药品监督管理局|公安局|公安机关|综合执法|行政执法|执法工作组|执法组)/.test(enforcementBlob);
+    const hasSeizureResult = /(查封|查扣|查获|缴获|立案|抓获|停职|查处|整治|责令|吊销|控制)/.test(enforcementBlob);
+    const hasEnforcementParty = Boolean(meaningfulInvolvedParty(hard.involved_party))
+      || /(涉事|当事人|相关人员|人员|公司|企业|商家|店铺|网店|窝点|工厂)/.test(enforcementBlob);
+    if (hasEnforcementAgency && hasSeizureResult && hasEnforcementParty) return '';
+
     const hasParty = Boolean(meaningfulInvolvedParty(hard.involved_party)) || /(权利人|当事人|公司|企业|品牌|原告|被告)/.test(source);
     const hasRight = /(商标|专利|著作权|版权|外观设计|爱马仕|PRO-XYLANE|玻色因)/i.test(source);
     const hasResult = Boolean(hard.penalty_amount || hard.legal_basis) || /(罚款|处罚|没收|判决|裁定|赔偿|侵权|冒用|假冒)/.test(source);

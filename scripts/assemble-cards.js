@@ -13,7 +13,7 @@ import {
   validatePremiumEvidenceCard,
   buildPremiumDingTalkMarkdown,
 } from '../worker/premium-quality.js';
-import { cleanArticleEvidence } from '../worker/article-evidence.js';
+import { cleanArticleEvidence, isIncidentalBeautyMention } from '../worker/article-evidence.js';
 
 const inputPath = resolve(process.argv[2] || 'out/hydrated-authority.json');
 const outputPath = resolve(process.argv[3] || 'out/assembled-cards.json');
@@ -234,6 +234,13 @@ const preDedupPool = pool.filter(c => {
   const entityTitle = String(c.title || '');
   if (NON_BEAUTY_ENTITY.test(entityTitle) && !regulatorExempt(entityTitle) && !/(?:化妆品|美妆|护肤|彩妆|香水|口红)/.test(entityTitle)) {
     console.log(`  SKIP [non-beauty-entity]: ${entityTitle.slice(0, 40)}`);
+    return false;
+  }
+  // 「附带提及」的确定性判据：美妆词只出现在商品/品类枚举里就拦掉，不必花 AI 调用。
+  // 连标题一起判——标题里出现美妆词就不可能落在枚举里，自然放行。
+  // AI 在这条边界上会波动（同一篇稿子这轮进下轮不进），规则能兜住的那部分就不交给它。
+  if (isIncidentalBeautyMention(`${c.title || ''}。${c.article_text || ''}`)) {
+    console.log(`  SKIP [incidental-beauty-mention]: ${(c.title || '').slice(0, 40)}`);
     return false;
   }
   // Cheap regex pre-screen before spending AI calls: for non-authority
