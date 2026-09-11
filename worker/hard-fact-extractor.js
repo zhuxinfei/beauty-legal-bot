@@ -257,7 +257,10 @@ function hasHardLegalEvent(textValue = '', facts = {}) {
     || facts.hs_code
     || facts.deadline
     || facts.effective_date
-    || /行政处罚|处罚决定|罚款|没收|征求意见|新旧衔接|实施|生效|海关|进口|出口|HS\s*编码|商标|侵权|冒用|假冒|刷单/.test(source)
+    // 召回/下架/撤回 2026-09-11 补：EU Safety Gate 的官方召回通报有品牌、批次、
+    // 风险类型、处置措施等硬信息，但一个都不沾「处罚/罚款/文号」，原表把它判成
+    // insufficient-legal-evidence 直接 reject。
+    || /行政处罚|处罚决定|罚款|没收|征求意见|新旧衔接|实施|生效|海关|进口|出口|HS\s*编码|商标|侵权|冒用|假冒|刷单|召回|下架|撤回|风险警示|通报/.test(source)
   );
 }
 
@@ -370,7 +373,7 @@ export function gradeEvidence({ text: textValue = '', hard_facts: hardFacts = {}
       && /(?:化妆品|美妆|护肤|彩妆|香水|防晒|洗护|美容)/i.test(`${title} ${source}`)) {
     return { evidence_grade: 'hard_fact_ready', evidence_reason: `beauty-biz-event=${hardCount}`, evidence_quotes: evidenceQuotes(source, facts) };
   }
-  if (/征求意见|行政处罚|公告|附件|处罚决定|海关|进口|商标|侵权/.test(`${title} ${source}`)) {
+  if (/征求意见|行政处罚|公告|附件|处罚决定|海关|进口|商标|侵权|召回|下架|撤回|风险警示|通报/.test(`${title} ${source}`)) {
     return { evidence_grade: 'lead_only', evidence_reason: `insufficient-hard-facts=${hardCount}`, evidence_quotes: evidenceQuotes(source, facts) };
   }
   return { evidence_grade: 'reject', evidence_reason: `insufficient-legal-evidence=${hardCount}`, evidence_quotes: evidenceQuotes(source, facts) };

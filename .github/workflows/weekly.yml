@@ -137,6 +137,16 @@ jobs:
           git show FETCH_HEAD:hydrated-authority.json > "$SOURCE_HYDRATION_FILE"
           node -e "const fs=require('fs'); const p=JSON.parse(fs.readFileSync(process.env.SOURCE_HYDRATION_FILE,'utf8')); const rows=(p.records||[]); console.log('pre-hydrated records=' + rows.length + ', withText=' + rows.filter(r => (r.article_text||'').length > 100).length);"
 
+      # EU Safety Gate 化妆品召回（2026-09-11 新增）：官方、每周五发布、结构化 XML、
+      # 无反爬无需 key。加它的动因是筛选层修对之后，瓶颈变成「合格的条目数」本身——
+      # 国内法规类不是周更（实测中国政府网政策文件库返回的全是 2025 年文件），
+      # 而 Safety Gate 实测最新一期发布日就是当天，41 条通报里 4 条化妆品。
+      # 采集失败不阻断整期：这条通道是补充，不是主供给。
+      - name: Collect EU Safety Gate cosmetics alerts
+        run: |
+          node scripts/collect-safety-gate.js --days 15 --merge-into "$SOURCE_HYDRATION_FILE" \
+            || echo "Safety Gate 采集失败，跳过（不阻断本期）"
+
       - name: Assemble report from hydrated evidence
         run: |
           echo "[dedup] CWD=$(pwd)"

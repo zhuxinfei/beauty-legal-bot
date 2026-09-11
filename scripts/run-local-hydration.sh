@@ -61,6 +61,10 @@ env -u ALL_PROXY -u HTTP_PROXY -u HTTPS_PROXY -u all_proxy -u http_proxy -u http
     --page-timeout-ms "${PAGE_TIMEOUT_MS:-25000}" \
     --attachment-limit "${CRAWL4AI_ATTACHMENT_LIMIT:-2}"
 
+echo "==> [2.5/4] 并入 EU Safety Gate 化妆品召回（官方周更，结构化，无反爬）"
+node scripts/collect-safety-gate.js --days 15 --merge-into out/hydrated-authority.json \
+  || echo "    Safety Gate 采集失败，跳过（不阻断）"
+
 node -e '
 const fs = require("fs");
 const rows = JSON.parse(fs.readFileSync("out/hydrated-authority.json", "utf8")).records || [];

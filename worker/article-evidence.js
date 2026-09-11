@@ -92,11 +92,21 @@ function isNavigationLabelLine(line) {
 // 真正的好稿拒掉（新京报「地下工厂」调查、上海家化六神维权案都死在这）。
 // 例：`; "重新设置Shift+1") 重置` → 只剩「重新设置重置」6 字。
 const NAVIGATION_CHROME_MAX_CJK = 12;
+const NAVIGATION_CHROME_MIN_PUNCTUATION = 2;
+const NAVIGATION_CHROME_MAX_LENGTH = 26;
 const ASCII_NOISE_PATTERN = /[A-Za-z0-9]|[ -/:-@[-`{-~]/g;
 
 function isChromeLine(line) {
   const raw = String(line || '').trim();
   if (!raw) return false;
+  // 光看「CJK 少」会误伤「标签：值」型正文——EU Safety Gate 的通报正文就是
+  // 「通报国：Greece」这种结构，值是英文，CJK 天然少，整片会被当成 chrome 删光
+  // （实测 11 条记录正文全变 0）。真 chrome 行另外带脚本残渣：引号、括号、分号。
+  const asciiPunctuation = (raw.match(/["'();:,.]/g) || []).length;
+  if (asciiPunctuation < NAVIGATION_CHROME_MIN_PUNCTUATION) return false;
+  // 还要短。长行哪怕 CJK 少也是正文——EU Safety Gate 的「风险描述：The product
+  // contains benzyl alcohol…」就是这样被误删的；chrome 行都是短标签。
+  if (raw.length > NAVIGATION_CHROME_MAX_LENGTH) return false;
   const cjkOnly = raw.replace(ASCII_NOISE_PATTERN, ' ').replace(/\s+/g, '');
   return cjkOnly.length <= NAVIGATION_CHROME_MAX_CJK;
 }
