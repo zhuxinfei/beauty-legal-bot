@@ -283,7 +283,7 @@ async function aiReview(c) {
     const resp = await requestAiChat({
       apiKey: aiKey, baseUrl: aiBaseUrl, model: aiModel,
       messages: [
-        { role: 'system', content: '判断文章是否与美妆/化妆品行业的法律合规事务实质相关。仅接受：法规标准与监管新规、行政处罚与虚假宣传、质量抽检不合格与召回、商标/专利/著作权侵权与诉讼、进出口与跨境电商监管执法、电商/直播/网售渠道合规处罚与平台治理、许可证注销与整改处罚、化妆品行业协会的合规治理/标准制定/国际合作动态、监管部门的专项检查/整治行动/飞行检查/核查处置动态、明确聚焦美妆品类的平台治理或电商乱象专项报道。明确拒绝：企业IPO/上市/融资/并购/破产清算等财经新闻、营销新品代言与业绩类报道、行业趋势分析、非化妆品主体（美发/美容院/综合商超/药品/医疗器械/综合电商平台）的法律事件、仅附带提及化妆品的综合新闻与泛行业盘点、政府或协会的栏目索引页/机构介绍页/网站地图/联系方式页、评论与观察类报道。海关/进出口类必须与化妆品直接相关（化妆品通关、准入、退运、跨境化妆品监管）；通用贸易便利化政策、非化妆品商品的口岸政策一律拒绝。主体必须是化妆品/美妆企业、产品或监管事件，附带提及不算。本报告面向美妆电商法务：判相关时必须确认该事件与美妆/化妆品的电商经营相关（平台店铺、直播带货、跨境电商、网售抽检、平台治理、店铺合规、达人素材、商品宣传、线上销售），或属于直接约束电商卖家的化妆品法规/标准/抽检/召回/处罚。药品、医疗器械、非化妆品品类，以及纯生产端/原料端且不影响电商经营的内容一律拒绝。仅回复JSON：{"relevant":true或false,"reason":"一句话"}' },
+        { role: 'system', content: '判断文章是否与美妆/化妆品行业的法律合规事务实质相关。仅接受：法规标准与监管新规、行政处罚与虚假宣传、质量抽检不合格与召回、商标/专利/著作权侵权与诉讼、进出口与跨境电商监管执法、电商/直播/网售渠道合规处罚与平台治理、许可证注销与整改处罚、化妆品行业协会的合规治理/标准制定/国际合作动态、监管部门的专项检查/整治行动/飞行检查/核查处置动态、明确聚焦美妆品类的平台治理或电商乱象专项报道。明确拒绝：企业IPO/上市/融资/并购/破产清算等财经新闻、营销新品代言与业绩类报道、行业趋势分析、非化妆品主体（美发/美容院/综合商超/药品/医疗器械/综合电商平台）的法律事件、仅附带提及化妆品的综合新闻与泛行业盘点、政府或协会的栏目索引页/机构介绍页/网站地图/联系方式页、评论与观察类报道。海关/进出口类必须与化妆品直接相关（化妆品通关、准入、退运、跨境化妆品监管）；通用贸易便利化政策、非化妆品商品的口岸政策一律拒绝。主体必须是化妆品/美妆企业、产品或监管事件，附带提及不算。本报告面向美妆电商法务：判相关时必须确认该事件与美妆/化妆品的电商经营相关（平台店铺、直播带货、跨境电商、网售抽检、平台治理、店铺合规、达人素材、商品宣传、线上销售），或属于直接约束电商卖家的化妆品法规/标准/抽检/召回/处罚。药品、医疗器械、非化妆品品类，以及纯生产端/原料端且不影响电商经营的内容一律拒绝。另外，正文主体不是化妆品的一律拒绝，即使文中出现了「化妆品」字样：贸易关税/物流/口岸便利化等综合新闻（哪怕提到化妆品可能涨价）、行业日报/周报/综述/盘点（哪怕其中一条是化妆品）、媒体频道页或标签页/索引页/聚合页（正文是一串文章标题或摘要列表）、以及企业营收/收购/转型/趋势分析类稿件，全部判 false。判据是「换掉化妆品这个词，这条新闻还成立吗」——成立就说明化妆品只是附带提及，判 false。仅回复JSON：{"relevant":true或false,"reason":"一句话"}' },
         { role: 'user', content: `标题：${title}\n正文：${excerpt}` },
       ],
       temperature: 0, maxTokens: 200, timeoutMs: 30000, maxAttempts: 1,
@@ -329,7 +329,11 @@ for (const { c, relevant, reason } of reviews) {
   const validation = validatePremiumEvidenceCard(card);
   if (!validation.accepted) {
     // When AI confirms beauty relevance, bypass structural/source/title gates
-    const bypassReasons = ['navigation-or-generic-page', 'non-authoritative-source', 'missing-chinese-display-title'];
+    // 'navigation-or-generic-page' 不再参与绕过：该判据判的就是「这页是导航/栏目页」，
+    // 而 AI 恰恰最容易被这种页面骗过——索引页的正文就是一串化妆品标题，AI 看满屏
+    // 化妆品词就判相关（实测：逸仙电商转型、蹭《狂飙》卖酒两张垃圾卡都由它放行）。
+    // 该判据自身已为政务固定格式页留了出口（isHardFactReadyDetailCard 等），无需再绕。
+    const bypassReasons = ['non-authoritative-source', 'missing-chinese-display-title'];
     if (bypassReasons.includes(validation.reason) && relevant) {
       console.log(`  AI-OVERRIDE [${validation.reason}]: ${card.title.slice(0, 30)}...`);
       // fall through — accept the card
