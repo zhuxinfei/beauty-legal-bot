@@ -188,6 +188,13 @@ const NON_BEAUTY_ENTITY = /(?:药品|医药|兽药|医疗器械|食品|生猪|�
 // 实测该词表曾把「云南省药品监督管理局-行政处罚」「公示公告_安徽省药品监督管理局」
 // 这类栏目整片打死。
 const REGULATOR_NAME = /(?:药品|医药)监督(?:管理)?局/;
+// 放行机构名 != 放行该机构的全部内容：药监局同时管药品与医疗器械，
+// 「辽宁省药品监督管理局关于注销《医疗器械生产许可证》的公告」不是美妆事件。
+// 判据只取标题：正文全扫会被政务站导航栏里的「化妆品」栏目链接骗过
+// （实测该词表曾被导航栏带过，放行了医疗器械公告与药品新闻）。
+function regulatorExempt(title) {
+  return REGULATOR_NAME.test(String(title || '')) && hasBeautySubject(String(title || ''));
+}
 
 // Official/authority sources (regulator sites, courts, gov domains) are
 // exempt from the regex pre-screen — fixed-format pages like gov.uk
@@ -225,7 +232,7 @@ const preDedupPool = pool.filter(c => {
     return false;
   }
   const entityTitle = String(c.title || '');
-  if (NON_BEAUTY_ENTITY.test(entityTitle) && !REGULATOR_NAME.test(entityTitle) && !/(?:化妆品|美妆|护肤|彩妆|香水|口红)/.test(entityTitle)) {
+  if (NON_BEAUTY_ENTITY.test(entityTitle) && !regulatorExempt(entityTitle) && !/(?:化妆品|美妆|护肤|彩妆|香水|口红)/.test(entityTitle)) {
     console.log(`  SKIP [non-beauty-entity]: ${entityTitle.slice(0, 40)}`);
     return false;
   }
@@ -276,7 +283,7 @@ async function aiReview(c) {
     const resp = await requestAiChat({
       apiKey: aiKey, baseUrl: aiBaseUrl, model: aiModel,
       messages: [
-        { role: 'system', content: '判断文章是否与美妆/化妆品行业的法律合规事务实质相关。仅接受：法规标准与监管新规、行政处罚与虚假宣传、质量抽检不合格与召回、商标/专利/著作权侵权与诉讼、进出口与跨境电商监管执法、电商/直播/网售渠道合规处罚与平台治理、许可证注销与整改处罚、化妆品行业协会的合规治理/标准制定/国际合作动态、监管部门的专项检查/整治行动/飞行检查/核查处置动态、明确聚焦美妆品类的平台治理或电商乱象专项报道。明确拒绝：企业IPO/上市/融资/并购/破产清算等财经新闻、营销新品代言与业绩类报道、行业趋势分析、非化妆品主体（美发/美容院/综合商超/药品/医疗器械/综合电商平台）的法律事件、仅附带提及化妆品的综合新闻与泛行业盘点、政府或协会的栏目索引页/机构介绍页/网站地图/联系方式页、评论与观察类报道。海关/进出口类必须与化妆品直接相关（化妆品通关、准入、退运、跨境化妆品监管）；通用贸易便利化政策、非化妆品商品的口岸政策一律拒绝。美妆电商场景（平台店铺、直播带货、跨境电商、网售抽检、平台治理）优先接受。主体必须是化妆品/美妆企业、产品或监管事件，附带提及不算。仅回复JSON：{"relevant":true或false,"reason":"一句话"}' },
+        { role: 'system', content: '判断文章是否与美妆/化妆品行业的法律合规事务实质相关。仅接受：法规标准与监管新规、行政处罚与虚假宣传、质量抽检不合格与召回、商标/专利/著作权侵权与诉讼、进出口与跨境电商监管执法、电商/直播/网售渠道合规处罚与平台治理、许可证注销与整改处罚、化妆品行业协会的合规治理/标准制定/国际合作动态、监管部门的专项检查/整治行动/飞行检查/核查处置动态、明确聚焦美妆品类的平台治理或电商乱象专项报道。明确拒绝：企业IPO/上市/融资/并购/破产清算等财经新闻、营销新品代言与业绩类报道、行业趋势分析、非化妆品主体（美发/美容院/综合商超/药品/医疗器械/综合电商平台）的法律事件、仅附带提及化妆品的综合新闻与泛行业盘点、政府或协会的栏目索引页/机构介绍页/网站地图/联系方式页、评论与观察类报道。海关/进出口类必须与化妆品直接相关（化妆品通关、准入、退运、跨境化妆品监管）；通用贸易便利化政策、非化妆品商品的口岸政策一律拒绝。主体必须是化妆品/美妆企业、产品或监管事件，附带提及不算。本报告面向美妆电商法务：判相关时必须确认该事件与美妆/化妆品的电商经营相关（平台店铺、直播带货、跨境电商、网售抽检、平台治理、店铺合规、达人素材、商品宣传、线上销售），或属于直接约束电商卖家的化妆品法规/标准/抽检/召回/处罚。药品、医疗器械、非化妆品品类，以及纯生产端/原料端且不影响电商经营的内容一律拒绝。仅回复JSON：{"relevant":true或false,"reason":"一句话"}' },
         { role: 'user', content: `标题：${title}\n正文：${excerpt}` },
       ],
       temperature: 0, maxTokens: 200, timeoutMs: 30000, maxAttempts: 1,
@@ -353,7 +360,7 @@ for (const { c, relevant, reason } of reviews) {
   // Reject clearly non-beauty businesses regardless of what regulations they violated.
   // 同样要放行监管机构自身：「云南省药品监督管理局-行政处罚」这类栏目名会被
   // 词表里的「药品」误伤（REGULATOR_NAME 见上）。
-  if (/(?:五金|建材|食品|餐饮|药品|医疗器械|汽车|房地产|保险|银行|教育培训|网吧|歌厅|浴池|洗浴|理发店|便利店)/i.test(titleText) && !REGULATOR_NAME.test(titleText) && !/(?:化妆品|美妆|护肤|彩妆|香水|防晒|面膜|口红|品牌)/i.test(titleText) && !BEAUTY_BRAND_PATTERN.test(titleText)) {
+  if (/(?:五金|建材|食品|餐饮|药品|医疗器械|汽车|房地产|保险|银行|教育培训|网吧|歌厅|浴池|洗浴|理发店|便利店)/i.test(titleText) && !regulatorExempt(titleText) && !/(?:化妆品|美妆|护肤|彩妆|香水|防晒|面膜|口红|品牌)/i.test(titleText) && !BEAUTY_BRAND_PATTERN.test(titleText)) {
     console.log(`  SKIP [non-beauty-biz]: ${card.title.slice(0, 50)}`);
     continue;
   }
