@@ -177,7 +177,13 @@ function inferAffectedProcesses(source, facts = {}, context = {}) {
   if (/玻色因|成分卖点|刷单|平台店铺/.test(combined)) {
     return ['成分卖点命名', '商标授权', '平台店铺运营', '达人素材'];
   }
-  if (/爱马仕|商标|冒用|假冒|包装装潢|礼盒/.test(combined) || /知识产权/.test(module)) {
+  // 这条分支原先只认「商标」「礼盒」这类**话题词**，于是把约束性表述与产品描述误判成 IP 事件：
+  // 儿童化妆品强制国标一文里的「不得利用商标、图案…暗示」「卡通联名礼盒」把它挤掉了标准
+  // 分支，业务影响被写成「商标授权、包装设计、达人素材、平台店铺」（应为配方/标签/备案）。
+  // 改判据为**权利受侵害的事件词**。注意不能补裸「侵权」——内容农场的页脚免责声明
+  // （「无法杜绝所有侵权行为，如有侵权烦请联系我们」）就带这两个字，实测会把加拿大关税
+  // 一条从海关分支翻到 IP 分支；「商标权」既能认下北仑海关的「侵犯其…商标权」，又不误伤。
+  if (/爱马仕|假冒|冒用|仿冒|山寨|傍名牌|商标权|商标侵权|不正当竞争|包装装潢/.test(combined) || /知识产权/.test(module)) {
     return ['商标授权', '包装设计', '达人素材', '平台店铺'];
   }
   if (/标准|征求意见|新旧衔接|制修订|执行标准/.test(combined)) {
@@ -208,6 +214,67 @@ function inferRiskTier(source) {
   return '持续监测';
 }
 
+// --- 结构化通报（key：值 块）的字段读取 ---
+// Safety Gate 一类官方通报的正文本身就是一段 `标签：值` 块（通报国/原产国/品牌/
+// 风险类型/风险等级/风险描述/处置措施/在线销售商/案号）。压平与不压平在这儿都成立，
+// 所以判据只看「一行里连着几个标签：」这个形状。
+// 原先的唯一入口是 extractProductOrBatch 的 `[^。；;\n]{2,80}`——它既跨字段溢出
+// （实测产品名抓成「…PROFUMO AROMATICO 产品描述：Eau de pa」），又被 80 字截断，
+// 于是法务观察退化成把字段倒出来（「涉及Tesori… 产品描述：…，通报国：Greece…」）。
+// 这里按**下一个字段标签**收口，拿到干净的单字段值。
+const STRUCTURED_ALERT_LABELS = ['通报国', '原产国', '品牌', '产品类别', '产品名称', '产品描述', '型号', '条码', '批号', '风险类型', '风险等级', '风险描述', '处置措施', '在线销售商', '案号'];
+// 光有「品牌：/批号：」这种通用标签不算通报，必须带风险或处置字段——否则
+// 普通政务页里偶然出现的标签对会被当成通报处理。
+const STRUCTURED_ALERT_DECISIVE = ['风险描述', '风险等级', '风险类型', '处置措施'];
+// 取值上界只决定「愿意往后找多远才遇到下一个标签」，不决定值本身的长度
+// （值在第一个终止符处就停了）。实测 `处置措施` 一栏在正文里重复了两遍，
+// 值到下一个标签相距 657 字——600 的旧上界让那一条取值为空，处置措施整段丢失。
+const STRUCTURED_ALERT_VALUE_PATTERN = '[\\s\\S]{0,1200}?';
+const STRUCTURED_ALERT_MIN_LABELS = 3;
+
+function structuredAlertField(source, label) {
+  const others = STRUCTURED_ALERT_LABELS.filter(item => item !== label).join('|');
+  const match = String(source || '').match(
+    new RegExp(`${label}\\s*[:：]\\s*(${STRUCTURED_ALERT_VALUE_PATTERN})(?=\\s*(?:${others})\\s*[:：]|[。]|$)`),
+  );
+  return match ? clean(match[1]) : '';
+}
+
+function isStructuredAlert(source) {
+  const value = String(source || '');
+  const hits = STRUCTURED_ALERT_LABELS.filter(label => new RegExp(`${label}\\s*[:：]`).test(value));
+  return hits.length >= STRUCTURED_ALERT_MIN_LABELS
+    && hits.some(label => STRUCTURED_ALERT_DECISIVE.includes(label));
+}
+
+// 处置措施是三个子字段拼在一行的（发出对象 / 措施类别 / 生效日），分开取。
+function parseStructuredMeasure(value) {
+  const source = text(value);
+  if (!source) return {};
+  return {
+    operator: clean(source.match(/Type of economic operator [^:]*:\s*(.*?)(?:Category of measure|Date of entry|$)/)?.[1] || ''),
+    category: clean(source.match(/Category of measure\(s\):\s*(.*?)(?:Date of entry into force|Type of economic operator|$)/)?.[1] || ''),
+    date: source.match(/Date of entry into force:\s*(\d{2}\/\d{2}\/\d{4})/)?.[1] || '',
+  };
+}
+
+function structuredAlertFacts(source) {
+  if (!isStructuredAlert(source)) return {};
+  const measure = parseStructuredMeasure(structuredAlertField(source, '处置措施'));
+  return {
+    alert_reference: structuredAlertField(source, '案号'),
+    notifying_country: structuredAlertField(source, '通报国'),
+    origin_country: structuredAlertField(source, '原产国'),
+    brand: structuredAlertField(source, '品牌'),
+    risk_type: structuredAlertField(source, '风险类型'),
+    risk_level: structuredAlertField(source, '风险等级'),
+    risk_description: structuredAlertField(source, '风险描述'),
+    measure_category: measure.category,
+    measure_operator: measure.operator,
+    measure_date: measure.date,
+  };
+}
+
 export function extractHardFacts(value = '', context = {}) {
   const source = stripMarkdown(value);
   if (!source) return {};
@@ -225,6 +292,13 @@ export function extractHardFacts(value = '', context = {}) {
     deadline: extractDeadline(source),
     feedback_channel: extractFeedbackChannel(source),
   };
+  // 通报类的产品名取自专用字段，别让 extractProductOrBatch 的宽抓取跨字段溢出。
+  const alert = structuredAlertFacts(source);
+  if (alert.risk_description) {
+    Object.assign(facts, alert);
+    const alertProduct = structuredAlertField(source, '产品名称') || alert.brand;
+    if (alertProduct) facts.product_or_batch = alertProduct;
+  }
   facts.affected_processes = inferAffectedProcesses(source, facts, context);
   facts.signal_type = inferSignalType(source);
   facts.risk_tier = inferRiskTier(source);

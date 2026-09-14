@@ -9,7 +9,10 @@ const PAGE_SHELL_PATTERN = /^(?:网站首页|首页|主页|当前位置|您的�
 const EVENT_EVIDENCE_PATTERN = /(?:发布|公布|公告|通告|通报|征求意见|实施|生效|处罚|罚款|罚没|没收|召回|停止销售|抽检|不合格|判决|裁定|侵权|冒用|假冒|制假|售假|造假|假货|查封|查扣|查获|缴获|立案|抓获|停职|查处|整治|商标|专利|著作权|虚假宣传|功效宣称|平台治理|专项治理|治理公告|海关|关税|报关|清关|进口|出口|标准|法规|条例|办法|规定|备案|注册)/i;
 const NAVIGATION_TOKEN_PATTERN = /新闻发布厅|时政要闻|媒体聚焦|快捷检索|高级检索|友情链接|返回顶部|上一篇|下一篇|人才队伍|院务动态|党建工作|业务咨询|建言献策|院介绍|院领导|组织机构|能力资质|首席专家|法规政策|公告通知|数据查询|机构简介|领导简介|政府信息公开|依申请公开|办事指南|交流互动|专题专栏|返回主站|网站地图|药监App|监管App|机构|新闻|政务|服务|互动|专题|总局|司局|地方|图片|视频|当|好|让|党|放心/gi;
 const SUBSTANTIVE_ACTION_PATTERN = /发布|公布|通报|征求意见|实施|生效|处罚|罚款|罚没|没收|召回|停止销售|抽检|不合格|判决|裁定|侵权|虚假宣传|功效宣称|平台治理|专项治理|调整|修订|要求|决定/;
-const FOOTER_PATTERN = /^(?:本站由|本站主办|版权所有|Copyright|备案序号|网站标识码|京ICP备|ICP备|主办单位|承办单位|技术支持|地址[:：]|邮编[:：]|联系电话|All Rights Reserved)/i;
+// 版权行以 © 开头是常见写法（gov.uk 的「© Crown copyright。」），
+// 而这条判据原先只认「版权所有 / Copyright」开头，于是那行活到选择层被当成证据句。
+// 同理补上「All content is available under…」这类授权声明。
+const FOOTER_PATTERN = /^(?:©|本站由|本站主办|版权所有|Copyright|备案序号|网站标识码|京ICP备|ICP备|主办单位|承办单位|技术支持|地址[:：]|邮编[:：]|联系电话|All content is available under|All Rights Reserved)/i;
 const ATTACHMENT_FILENAME_PATTERN = /^[^。；;]{2,140}?\.(?:docx?|pdf|xlsx?|pptx?)$/i;
 
 function plainText(value) {
@@ -291,7 +294,29 @@ const GENERIC_INTRO_PATTERN = /(?:引发关注|备受关注|引起热议|引发�
 // 或分享栏（`发布时间：…【 ：小 中 大】 分享：#### 微信…`）。实测北仑海关、
 // 汕头联合执法组、Medicube 三条卡片的「事实要点」都是这样被污染的。
 // 一个句子该有句读，或者至少带逗号且有一定长度。
-const SENTENCE_LIKE = sentence => /[。；！？]/.test(sentence) || (/[，、]/.test(sentence) && sentence.length >= 24);
+// 「元数据条」不是句子：一串短标签连着排（`发布时间：… 文章来源：… 分享：…`、
+// `来源：… 作者：… 责任编辑：…`）。真句子最多带一两个冒号，元数据条是三四个
+// 标签值对连着来。这类组件常以句号或逗号收尾，光看句读拦不住——实测北仑海关的
+// 分享栏（含「发布」二字，还会误命中事件词）就是靠这条判据挡下的。
+const METADATA_LABEL_PATTERN = /[一-龥]{1,8}[:：]/g;
+const METADATA_STRIP_MIN_LABELS = 3;
+// 英文正文句：ASCII 句号收尾、按空格分词、且足够长。没有这一条，英文来源
+// （gov.uk 的 OPSS 通报、Safety Gate）整篇没有一句「像句子」的行，选择层只能
+// 退到最靠前的一行带全角标点的内容——而那往往是页尾的 cookie／调研横幅
+// （实测 gov.uk 一条印出「To help us improve GOV.UK…fill in this survey」，
+// 真正该印的 Hazard 段反而落选）。长度与词数门槛挡 UI 残句：
+// 「End of dialog window.」只有 22 字符、4 个词。
+const ENGLISH_SENTENCE_MIN_LENGTH = 40;
+const ENGLISH_SENTENCE_MIN_WORDS = 6;
+const isEnglishSentence = sentence => sentence.length >= ENGLISH_SENTENCE_MIN_LENGTH
+  && /\.[\s"')]*$/.test(sentence)
+  && (sentence.match(/[A-Za-z]+/g) || []).length >= ENGLISH_SENTENCE_MIN_WORDS;
+const SENTENCE_LIKE = sentence => {
+  if ((sentence.match(METADATA_LABEL_PATTERN) || []).length >= METADATA_STRIP_MIN_LABELS) return false;
+  return /[。；！？]/.test(sentence)
+    || (/[，、]/.test(sentence) && sentence.length >= 24)
+    || isEnglishSentence(sentence);
+};
 
 export function firstEvidenceSentence(value, maxLength = 220) {
   const cleaned = cleanArticleEvidence(value);

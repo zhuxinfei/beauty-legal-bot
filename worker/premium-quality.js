@@ -34,7 +34,11 @@ const HARD_LEGAL_EVENT_PATTERN = /(?:文号|公告|通告|通报|征求意见|�
 const BEAUTY_RELEVANCE_PATTERN = /(?:化妆品|美妆|护肤|彩妆|香水|口红|面膜|洗护|防晒|染发|染眉|染睫|美容|医美|祛斑|美白|功效宣称|玻色因|爱马仕|配方|着色剂|色素|进口化妆品|出口化妆品|化妆品标准|cosmetic|cosmetics|MoCRA|color additives?)/i;
 const GENERIC_NON_BEAUTY_PATTERN = /(?:在线酒店|酒店预订|机票|旅游|平台经济|外卖|网约车|金融监管|证券|外汇|房地产|教育培训|医疗器械|药品集采|保险|银行|携程|美团|阿里巴巴|腾讯|京东|滴滴|易制毒|新化学物质|新污染物|危险化学品|农药|兽药|饲料|芥末|食用油|纺织品|家具)/i;
 const PREMIUM_JUNK_EVIDENCE_PATTERN = /(?:欢迎访问|通知公告\s*更多|首页\s+资讯中心|栏目导航|工作委员会|专业委员会名单|证明商标使用申请表|填写说明|粤港澳知识产权大数据综合服务平台|快捷检索|高级检索|友情链接|用户需求与满意度调查问卷|政府侧应用与数据需求调研问卷)/i;
-const BROKEN_FIELD_PATTERN = /(?:\[\s*\]\s*\(|\]\($|\(\s*$|\[\s*$|javascript:void|undefined|null|NaN|>\s*$|<\s*$)/i;
+// 技术垃圾值（undefined/null/NaN）必须按**整词**认：这几个串在英文正文里到处都是
+// 子串——实测 Safety Gate 的风险描述「…should not be used by pregnant and breastfeeding
+// women…」里的「pregnan**t**」被 /NaN/i 命中，整段风险描述被判成坏字段丢掉，
+// 法务观察随之退回字段倒出。加 \b 只认独立的裸值，判据本意不变。
+const BROKEN_FIELD_PATTERN = /(?:\[\s*\]\s*\(|\]\($|\(\s*$|\[\s*$|javascript:void|\bundefined\b|\bnull\b|\bNaN\b|>\s*$|<\s*$)/i;
 const FRAGMENT_FIELD_PATTERN = /^(?:的|和|及|并|依法|予以|进行|相关|上述|该|此|其|对|将|已|了)[，,、；;\s]*(?:依法)?(?:严肃查处|处理|监管|处罚|执行|实施|发布|通告|公告)?$/;
 const DOCUMENT_TITLE_AS_PRODUCT_PATTERN = /(?:关于)?(?:\d+\s*批次)?(?:不符合规定)?化妆品的(?:公告|通告)[（(]20\d{2}年第\d+号[）)](?:\s|$)/;
 const MIXED_NOTICE_CHROME_PATTERN = /20\d{2}[-年]\d{1,2}[-月]\d{1,2}.*(?:召开|工作动态|监管动态|新闻|会议|活动|培训|论坛|检查)/;
@@ -46,6 +50,17 @@ const GOVERNMENT_FOOTER_PATTERN = /(?:中国政府网|国家政务服务平台|�
 
 function text(value) {
   return String(value || '').replace(/\s+/g, ' ').trim();
+}
+
+// 行内归一空白、保留换行。需要「把一行的多余空白收干净、但不许跨行粘连」时用它——
+// 正文的行结构是页面组件判据（article-evidence.js 的 stripNavigationBlocks）赖以工作的
+// 信号，任何一次全篇压平都会把已经洗好的结构重新弄脏。
+function perLineText(value) {
+  return String(value || '')
+    .split('\n')
+    .map(line => line.replace(/\s+/g, ' ').trim())
+    .filter(Boolean)
+    .join('\n');
 }
 
 function utf8Bytes(value) {
@@ -147,6 +162,19 @@ function normalizeHardFacts(value = {}) {
     feedback_channel: hardText(input.feedback_channel),
     risk_tier: text(input.risk_tier),
     signal_type: text(input.signal_type),
+    // 结构化通报字段（EU Safety Gate 等）：风险与处置是「法务观察」的分析素材，
+    // 没有它们就只能把 key：value 抄一遍。见 hard-fact-extractor.js 的
+    // structuredAlertFacts。
+    alert_reference: hardText(input.alert_reference),
+    notifying_country: hardText(input.notifying_country),
+    origin_country: hardText(input.origin_country),
+    brand: hardText(input.brand),
+    risk_type: hardText(input.risk_type),
+    risk_level: hardText(input.risk_level),
+    risk_description: hardText(input.risk_description),
+    measure_category: hardText(input.measure_category),
+    measure_operator: hardText(input.measure_operator),
+    measure_date: hardText(input.measure_date),
     affected_processes: list(input.affected_processes),
     owner_teams: list(input.owner_teams),
     action_deadline: text(input.action_deadline),
@@ -1477,6 +1505,60 @@ function firstEvidenceSentence(value = '') {
   return extractFirstEvidenceSentence(value, 220);
 }
 
+// --- 召回/通报类卡片的呈现 ---
+// 措施类别与发出对象是欧盟通报的受控词表，量小且固定；翻成中文才谈得上「给法务看的
+// 判断」，没收录的保持原文——不臆造、不扩写。
+const MEASURE_LABELS = {
+  'Withdrawal of the product from the market': '撤出市场',
+  'Recall of the product from end users': '从消费者端召回',
+  'Ban on the marketing of the product and any accompanying measures': '禁售并采取配套措施',
+  'Stop of sales': '停止销售',
+  'Removal of this product listing by the online marketplace': '电商平台下架商品链接',
+  'Destruction of the product': '销毁产品',
+  'Import rejected': '拒绝进口',
+};
+const OPERATOR_LABELS = {
+  Distributor: '经销商',
+  Retailer: '零售商',
+  Manufacturer: '制造商',
+  Importer: '进口商',
+  Other: '其他经营者',
+};
+const RISK_LEVEL_LABELS = {
+  'Serious risk': '严重风险',
+  'Serious risk / other': '严重风险',
+  'Medium risk': '中等风险',
+  'Low risk': '低风险',
+};
+
+function measureLabel(value = '') {
+  const source = hardText(value);
+  return source ? MEASURE_LABELS[source] || source : '';
+}
+
+// 通报类卡片的事实要点：识别信息一行 + 风险描述一行。
+// 原先这里走 firstEvidenceSentence 的兜底，压平之后抓到的是一整段 key：value
+// 倒出且被 220 字截断（「…产品描述：Eau de pa」），既不是句子也不完整。
+function alertFactLines(hardFacts = {}) {
+  const hard = hardFacts || {};
+  const riskDescription = hardText(hard.risk_description);
+  if (!riskDescription) return [];
+  const identity = [
+    hardText(hard.notifying_country) && `通报国：${hardText(hard.notifying_country)}`,
+    hardText(hard.origin_country) && `原产国：${hardText(hard.origin_country)}`,
+    hardText(hard.brand) && `品牌：${hardText(hard.brand)}`,
+    hardText(hard.alert_reference) && `案号：${hardText(hard.alert_reference)}`,
+  ].filter(Boolean).join('；');
+  const measure = measureLabel(hard.measure_category);
+  const disposal = measure
+    ? `处置措施：${measure}${hardText(hard.measure_date) ? `（${hardText(hard.measure_date)} 生效）` : ''}`
+    : '';
+  return [
+    [identity, disposal].filter(Boolean).join('；'),
+    `风险描述：${riskDescription}`,
+  ].filter(Boolean);
+}
+
 function candidateLegalSignal(module, source, hardFacts = {}) {
   const hard = hardFacts || {};
   const product = hardText(hard.product_or_batch);
@@ -1487,6 +1569,26 @@ function candidateLegalSignal(module, source, hardFacts = {}) {
   const amount = hardText(hard.penalty_amount);
   const disposition = hardText(hard.confiscation_result);
   const basis = hardText(hard.legal_basis || hard.document_number);
+
+  // 召回/通报类：法务观察要落在「这条通报对同类产品的合规含义」上。原先没有这条分支，
+  // 落到末尾的通用拼装——把 product_or_batch 里的 key：value 原样倒出来，
+  // 「涉及Tesori… 产品描述：Eau de pa，通报国：Greece…，已形成公开执法或监管信号」。
+  const riskDescription = hardText(hard.risk_description);
+  if (riskDescription) {
+    const authority = hardText(hard.authority) || '官方';
+    const level = RISK_LEVEL_LABELS[hardText(hard.risk_level)] || hardText(hard.risk_level);
+    const riskType = hardText(hard.risk_type);
+    const measure = measureLabel(hard.measure_category);
+    const operator = hardText(hard.measure_operator);
+    const operatorPrefix = operator && operator !== OPERATOR_LABELS.Other
+      ? OPERATOR_LABELS[operator] || operator
+      : '';
+    const date = hardText(hard.measure_date);
+    const market = /safety\s*gate|rapex/i.test(`${authority} ${source}`) ? '欧盟' : '该市场';
+    const head = `${product || hardText(hard.brand) || '该产品'}因${riskType ? `${riskType} ` : ''}风险经${authority}通报为${level}`;
+    const disposal = measure ? `，处置措施为${operatorPrefix}${measure}${date ? `（${date} 生效）` : ''}` : '';
+    return `${head}${disposal}；同类出口${market}的化妆品需按同一口径复核成分与标签一致性，并预置下架与召回应对。`;
+  }
 
   if (module === '新法律法规政策') {
     if (/新原料注册备案.*资料管理|注册备案资料管理规定/.test(product)) {
@@ -1545,7 +1647,6 @@ function candidateBusinessImpact(module, hardFacts = {}, source = '') {
     ? hardFacts.affected_processes
     : inferAffectedProcesses(hardFacts.product_or_batch ? `${source} ${hardFacts.product_or_batch}` : source, {}, { module });
   const labels = processes.length ? processes : inferAffectedProcesses(source, {}, { module });
-  if (labels.length) return `影响中国市场美妆业务的${labels.join('、')}。`;
   // Module-specific fallbacks derived from actual business workflows
   const defaults = {
     '知识产权保护或者侵权': '商标授权、包装设计、达人素材、平台店铺',
@@ -1554,6 +1655,7 @@ function candidateBusinessImpact(module, hardFacts = {}, source = '') {
     '广告处罚案例': '达人素材/广告宣传、平台店铺/渠道运营',
     '新法律法规政策': '配方开发、备案资料、标签审核、存量SKU管理',
   };
+  if (labels.length) return `影响中国市场美妆业务的${labels.join('、')}。`;
   const fallback = defaults[module] || '标签、备案注册、广告素材、平台上架';
   return `影响中国市场美妆业务的${fallback}。`;
 }
@@ -1613,10 +1715,13 @@ export function premiumCardFromCandidate(candidate = {}) {
   // 按标题串整体切除，而不是按行过滤：candidateEvidenceText 把多个字段用「。」
   // 拼成一整坨，标题会和下一行黏在同一「行」里，按行删会连正文句一起删掉；
   // 而且标题在拼接结果里会出现多次（字段拼接 + 末尾附加 candidate.title）。
+  // 逐行归一空白，**不要整篇压平**。text() 把 \s+ 全换成空格，行结构一没，
+  // 页面组件行（分享栏／取色器／播放器读数）就和后文粘成一句，行级清洗随之失效，
+  // 再被 compactEvidenceText 截成 220 字的半截话——「事实要点」印到 PDF 上就是它
+  // （实测汕头联合执法组那条印的是取色器 Text ColorWhite…）。
   const bodySource = titleCore
-    ? text(source).split(titleCore).join('\n').split(titleProbe).join('\n')
-    : text(source);
-  const candidateFacts = uniqueValues([firstEvidenceSentence(bodySource || source), text(candidate.title)]).filter(Boolean);
+    ? perLineText(source).split(titleCore).join('\n').split(titleProbe).join('\n')
+    : source;
   const extractedFacts = extractHardFacts(source, {
     title: candidate.title,
     source_name: candidate.source_name || candidate.name,
@@ -1632,13 +1737,23 @@ export function premiumCardFromCandidate(candidate = {}) {
       ? providedHardFacts.affected_processes
       : extractedFacts.affected_processes,
   };
-  const hardFacts = withInferredHardFacts(normalizeCandidateHardFacts(candidate, mergedHardFacts), {
+  // 事实要点分两段拼：先出「来源证据段」，再拼通报字段段。
+  // 关键：withInferredHardFacts 的推断（当事人、业务环节、违规行为）只能看**来源证据段**。
+  // 通报字段段是本卡自己生成的文案，喂回去会自我强化——实测「处置措施：停止销售」
+  // 「电商平台下架商品链接」这两句把自己算成了业务环节，把召回场景人工梳理的
+  // 「库存隔离、渠道下架、消费者通知」挤掉（Caro White、Sun screen 三条实测）。
+  // 证据句在「一行一个字段」的通报正文里取不到东西，所以通报类的事实要点
+  // 由它自己的结构化字段提供（alertFactLines）。
+  const evidenceFacts = uniqueValues([firstEvidenceSentence(bodySource || source), text(candidate.title)]).filter(Boolean);
+  const normalizedHardFacts = normalizeCandidateHardFacts(candidate, mergedHardFacts);
+  const hardFacts = withInferredHardFacts(normalizedHardFacts, {
     title: text(candidate.title),
     module,
     evidence_text: source,
-    facts: candidateFacts,
+    facts: evidenceFacts,
     business_impact: candidate.business_impact || '',
   });
+  const candidateFacts = uniqueValues([...alertFactLines(hardFacts), ...evidenceFacts]).filter(Boolean);
   const baseCard = {
     title: cleanDisplayTitle(text(candidate.display_title_zh || candidate.title_zh || candidate.title)),
     source_candidate: true,
