@@ -1,6 +1,7 @@
-import { readFile, writeFile } from 'node:fs/promises';
+import { readFile, writeFile, rm } from 'node:fs/promises';
 import { execFileSync } from 'node:child_process';
 import { resolve } from 'node:path';
+import { tmpdir } from 'node:os';
 import { pathToFileURL } from 'node:url';
 import { normalizeHydratedPayload } from '../worker/source-hydration.js';
 import {
@@ -626,7 +627,20 @@ async function main() {
     env.CRAWL4AI_DETAIL_LINK_LIMIT = String(Math.min(currentDetailLimit, previewDetailLimit));
     env.CRAWL4AI_CRAWL_TIMEOUT_SECONDS = String(Math.ceil(effectivePageTimeoutMs / 1000) + 5);
   }
-  const stdout = execFileSync(python, ['-c', buildPythonScript(spec, { pageTimeoutMs: effectivePageTimeoutMs, attachmentLimit: effectiveAttachmentLimit, outputPath: output ? resolve(output) : '' })], { encoding: 'utf8', env, maxBuffer: 1024 * 1024 * 200 });
+  // 抓取脚本内嵌整份候选清单（spec 作为 JSON 字面量），**不能**再用 `-c` 当命令行参数传：
+  // Linux 单个参数上限 MAX_ARG_STRLEN=128KiB，候选一多就越线。实测 2026-09-14 定时任务
+  // spec=152 条 → 脚本 144,232 字节 → `spawnSync python E2BIG` → hydrated records=0，
+  // 整轮只剩 Safety Gate 那几条、coreItems=0 撞死闸门（当天 workflow_dispatch 走预览模式
+  // 限 72 条没越线，所以看起来"只有定时任务坏"，其实是按体积触发的潜伏 bug）。
+  // 落盘再跑：文件大小不受 argv 限制。
+  const scriptPath = resolve(tmpdir(), `crawl4ai-hydrate-${process.pid}-${Date.now()}.py`);
+  await writeFile(scriptPath, buildPythonScript(spec, { pageTimeoutMs: effectivePageTimeoutMs, attachmentLimit: effectiveAttachmentLimit, outputPath: output ? resolve(output) : '' }));
+  let stdout;
+  try {
+    stdout = execFileSync(python, [scriptPath], { encoding: 'utf8', env, maxBuffer: 1024 * 1024 * 200 });
+  } finally {
+    await rm(scriptPath, { force: true });
+  }
 
   if (output) {
     const summary = stdout.trim() ? JSON.parse(stdout.trim()) : { records: spec.length, output: resolve(output) };
