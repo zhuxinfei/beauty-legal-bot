@@ -34,12 +34,16 @@ jobs:
       MIN_SOURCE_COVERAGE: ${{ vars.MIN_SOURCE_COVERAGE || '0.9' }}
       MIN_CHINA_CRITICAL_COVERAGE: ${{ vars.MIN_CHINA_CRITICAL_COVERAGE || '0.9' }}
       REPORT_QUALITY_MODE: quality
-      # 质量闸门（分级，2026-09-10 起）：核心类目（法规/处罚/知产/进出口/质量）条数
-      # < REPORT_MIN_CORE_ITEMS 时整轮失败、不渲染 PDF、不推送；总量 < REPORT_MIN_ITEMS
-      # 只告警并在报告正文里标注「本期供给偏低」，不再阻断整期。
-      # 依据：历史最好成绩正好 15 条（= 原硬门槛），零余量导致任何扰动即断供。
+      # 质量闸门（2026-09-15 调整）：硬门槛改成**总量下限** REPORT_MIN_ITEMS（默认 8）。
+      # 原先由「核心类目 < REPORT_MIN_CORE_ITEMS」硬拦，但修好模块分区
+      # （discovery_module 透传进 card）后，被接受的卡几乎全部落在 core 模块
+      # （实测某周「美妆动态」0 条），core 与总量重合、已无区分度。
+      # REPORT_WARN_ITEMS（默认 15）是目标值，不足只告警并在报告正文标注「本期供给偏低」；
+      # 不把 15 做成硬拦，是因为历史最好成绩正好 15 条、零余量，任何扰动都会变成整期断供。
+      # REPORT_MIN_CORE_ITEMS 保留但只作参考告警。
+      REPORT_MIN_ITEMS: ${{ vars.REPORT_MIN_ITEMS || '8' }}
+      REPORT_WARN_ITEMS: ${{ vars.REPORT_WARN_ITEMS || '15' }}
       REPORT_MIN_CORE_ITEMS: ${{ vars.REPORT_MIN_CORE_ITEMS || '8' }}
-      REPORT_MIN_ITEMS: ${{ vars.REPORT_MIN_ITEMS || '15' }}
       REPORT_MIN_LEGAL_ITEMS: ${{ vars.REPORT_MIN_LEGAL_ITEMS || '2' }}
       AI_MODEL: deepseek-chat
       REPORT_TARGET_ITEMS: 20
