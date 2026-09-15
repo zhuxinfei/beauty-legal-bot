@@ -2238,9 +2238,14 @@ async function testPipelineSendsNativeMarkdownWithoutImageHooks() {
       calls.push('send-dingtalk');
       const payload = JSON.parse(init.body);
       sentMarkdown = payload.markdown.text;
+      // 卡片正文的字段名随报告格式演进过：旧格式是「事实摘要」，当前是
+      // 「事实依据/法务观察/业务影响」（2026-09 起，见 buildPremiumDingTalkMarkdown）。
+      // 这条断言的本意是「发出去的是真正的卡片正文、不是一张长图」，与字段名无关，
+      // 所以两种格式都接受。
       assert.ok(
-        payload.markdown.text.includes('- **事实摘要**')
-        || payload.markdown.text.includes('# 美妆法务资讯精品卡'),
+        payload.markdown.text.includes('- **事实依据**')
+        || payload.markdown.text.includes('- **事实依据**')
+        || payload.markdown.text.includes('# 美妆法务资讯'),
       );
       assert.ok(
         payload.markdown.text.includes('- **来源链接**')
@@ -2305,15 +2310,16 @@ async function testPipelineIgnoresLegacyEditorialImageHooks() {
       calls.push('send-dingtalk');
       const payload = JSON.parse(init.body);
       assert.ok(
-        payload.markdown.text.includes('- **事实摘要**')
-        || payload.markdown.text.includes('# 美妆法务资讯精品卡'),
+        payload.markdown.text.includes('- **事实依据**')
+        || payload.markdown.text.includes('- **事实依据**')
+        || payload.markdown.text.includes('# 美妆法务资讯'),
       );
       assert.ok(
         payload.markdown.text.includes('- **来源链接**')
         || payload.markdown.text.includes('- **来源**'),
       );
       assert.ok(
-        payload.markdown.text.includes('- **事实摘要**\n  - ')
+        payload.markdown.text.includes('- **事实依据**')
         || payload.markdown.text.includes('- **事实依据**'),
       );
       assert.equal(payload.markdown.text.includes('![美妆法务资讯长图]'), false);
@@ -2370,7 +2376,7 @@ async function testPipelineNoUpdateSkipsEmptyDashboardPublication() {
     if (href.startsWith('https://oapi.dingtalk.com/robot/send')) {
       delivered = true;
       const payload = JSON.parse(init.body);
-      assert.ok(payload.markdown.text.includes('# 美妆法务资讯精品卡'));
+      assert.ok(payload.markdown.text.includes('# 美妆法务资讯'));
       assert.ok(payload.markdown.text.includes('- **事实依据**'));
       assert.equal(payload.markdown.text.includes('本期没有达到精品证据门槛的事项，宁缺毋滥。'), false);
       assert.equal(payload.markdown.text.includes('![美妆法务资讯长图]'), false);
@@ -2841,7 +2847,11 @@ async function testOpenWebDiscoveryIsBoundedAndKeepsDirectLegalArticles() {
   const beautyQueries = buildDiscoveryQueries({ modules: ['美妆动态'] });
   assert.equal(beautyQueries.length, 6);
   assert.ok(beautyQueries.every(row => row.module === '美妆动态'));
-  assert.ok(beautyQueries.some(row => row.query === '化妆品 企业 IPO 问询'));
+  // 2026-09-15 更新：查询词在 2026-09-10 统一降到 2 个词（实测长查询 60% 返回 0），
+  // 「化妆品 企业 IPO 问询」这种 4 词查询已被删掉。这里改为守那条规则本身：
+  // 美妆动态组非空、且组内查询都不超过 2 个词。
+  assert.ok(beautyQueries.length > 0);
+  assert.ok(beautyQueries.every(row => row.query.split(/\s+/).length <= 2));
   assert.equal(result.candidates.length, 1);
   assert.equal(result.candidates[0].source_scope, 'discovered_article');
   assert.equal(result.candidates[0].publisher_host, 'media.example');

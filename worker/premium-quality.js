@@ -299,17 +299,36 @@ function inferViolationBehavior(value) {
   ]);
 }
 
+// 「违法行为」抽到标题本身 = 标题倒灌：标题在 facts 里已单独占位，这里没有新增信息。
+function rejectTitleEcho(value, title) {
+  const norm = item => text(item).replace(/[\s。；;，,、：:！!？“”''「」（）()\-—|｜]+/g, '');
+  const act = norm(value);
+  const headline = norm(text(title).split(/\s+[—\-|]\s+/)[0]);
+  if (!act || !headline) return value;
+  return (act === headline || headline.startsWith(act) || act.startsWith(headline)) ? '' : value;
+}
+
 function inferConfiscationResult(value) {
   return firstMatch(value, [
     /((?:没收|罚没|销毁|责令下架|下架|停止销售|召回)[^。；;\n]{2,120})/,
   ]);
 }
 
+// 站点的「联系方式条」不是本文档的意见反馈渠道。实测中新网一条把页脚的
+// 「违法和不良信息举报平台 举报邮箱：jubao@chinanews.com.cn 举报受理和处置管理办法
+// 总机：86-10-87826688」当成反馈渠道，印进了「下一步观察建议」：
+// 「通过jubao@chinanews.com.cn 举报受理和处置管理办法 总机：86-10-87826688在截止日前提交…」。
+// 判据：带站点服务标记（举报/总机/客服/违法和不良信息/版权/广告服务/人才招聘/联系我们）
+// 或过长（>60 字，跨字段粘连）的一律不算。
+const SITE_CONTACT_STRIP_PATTERN = /举报|总机|客服|违法和不良信息|版权|广告服务|人才招聘|联系我们/;
 function inferFeedbackChannel(value) {
-  return firstMatch(value, [
+  const channel = firstMatch(value, [
     /(?:反馈渠道|反馈方式|意见反馈|提交方式|电子邮箱|邮箱|联系人|邮寄地址)[：:\s]*([^。；;\n]{4,120})/,
     /((?:电子邮箱|邮箱|邮寄地址|联系人)[：:\s]*[^。；;\n]{4,120})/,
   ]);
+  if (!channel) return ;
+  if (SITE_CONTACT_STRIP_PATTERN.test(channel) || channel.length > 60) return ;
+  return channel;
 }
 
 function inferPolicyProductOrRule(value) {
@@ -339,7 +358,8 @@ function withInferredHardFacts(hardFacts, card) {
     signal_type: hardFacts.signal_type || inferSignalType(source),
     risk_tier: hardFacts.risk_tier || inferRiskTier(source),
     affected_processes: hardFacts.affected_processes.length ? hardFacts.affected_processes : inferAffectedProcesses(source),
-    violation_behavior: hardFacts.violation_behavior || inferViolationBehavior(source),
+    // 两个来源都要过守卫：抽取层给的 violation_behavior 同样会复读标题（短路掉守卫）
+    violation_behavior: rejectTitleEcho(hardFacts.violation_behavior || inferViolationBehavior(source), card.title),
     confiscation_result: hardFacts.confiscation_result || inferConfiscationResult(source),
     feedback_channel: hardFacts.feedback_channel || inferFeedbackChannel(source),
   };
@@ -1559,8 +1579,12 @@ function alertFactLines(hardFacts = {}) {
   ].filter(Boolean);
 }
 
-function candidateLegalSignal(module, source, hardFacts = {}) {
+// evidenceSource：切掉标题、保留换行的正文。关键词判据仍看 source（含标题，行为不变），
+// 但**取证据句**的兜底必须用它——否则会抓到「{标题} 新京报 2026-09-07 09:10 {正文}」
+// 这种标题+页面元数据的粘连行（实测「地下工厂」系列把法务观察写成「因{整个标题}…」）。
+function candidateLegalSignal(module, source, hardFacts = {}, evidenceSource = '') {
   const hard = hardFacts || {};
+  const evidenceText = evidenceSource || source;
   const product = hardText(hard.product_or_batch);
   const deadline = hardText(hard.deadline || hard.action_deadline);
   const effective = hardText(hard.effective_date);
@@ -1629,14 +1653,14 @@ function candidateLegalSignal(module, source, hardFacts = {}) {
     // 只填到一个槽位时不要退回套话模板——「该事项存在合规关注价值，建议进一步
     // 核实原文细节」正好命中 GENERIC_PATTERNS，会把卡片判成空话拒掉。用证据句
     // 收尾，既具体又同样有信息量。（实测执法通报类稿全灭在这一步。）
-    const evidence = firstEvidenceSentence(source);
+    const evidence = firstEvidenceSentence(evidenceText);
     const tail = evidence ? evidence.replace(/[。；;]+$/g, '').slice(0, 90) : '';
     if (tail && !tail.includes(parts[0].slice(0, 8))) {
       return `${parts[0]}，${tail}，已形成公开执法或监管信号，需要法务团队评估合规影响。`;
     }
     return `${parts[0]}已形成公开执法或监管信号，需要法务团队评估合规影响。`;
   }
-  const sentence = firstEvidenceSentence(source);
+  const sentence = firstEvidenceSentence(evidenceText);
   return sentence
     ? `${sentence.replace(/[。；;]+$/g, '').slice(0, 100)}`
     : '原文未披露足够的结构化信息，建议直接查阅原文评估合规风险。';
@@ -1660,8 +1684,9 @@ function candidateBusinessImpact(module, hardFacts = {}, source = '') {
   return `影响中国市场美妆业务的${fallback}。`;
 }
 
-function candidateObservation(module, source = '', hardFacts = {}) {
+function candidateObservation(module, source = '', hardFacts = {}, evidenceSource = '') {
   const hard = hardFacts || {};
+  const evidenceText = evidenceSource || source;
   const product = hardText(hard.product_or_batch);
   const party = meaningfulInvolvedParty(hard.involved_party);
   const deadline = hardText(hard.deadline);
@@ -1695,7 +1720,7 @@ function candidateObservation(module, source = '', hardFacts = {}) {
     return `跟踪${party}相关事项的后续监管动态和公开进展。`;
   }
   // Extract a concrete observation from the first factual sentence
-  const firstFact = (Array.isArray(hard.affected_processes) ? '' : '') || firstEvidenceSentence(source, 120);
+  const firstFact = firstEvidenceSentence(evidenceText, 120);
   if (firstFact && firstFact.length > 20) {
     return `关注该事项的后续进展：${firstFact.replace(/[。；;]+$/g, '')}。`;
   }
@@ -1758,6 +1783,12 @@ export function premiumCardFromCandidate(candidate = {}) {
     title: cleanDisplayTitle(text(candidate.display_title_zh || candidate.title_zh || candidate.title)),
     source_candidate: true,
     module,
+    // 发现阶段判定的模块必须带进 card：assemble-cards 的 RE-MODULE 会调
+    // inferCandidateModule(card)，而它的兜底（标题/正文都分类不中时保留「声明模块」，
+    // 避免一切挤进美妆动态）读的就是这个字段。原先没带 → 兜底恒不触发 → 实测
+    // 5 张 EU Safety Gate 召回通报被记成「美妆动态」（非核心），报告分区错、
+    // 闸门 coreItems 少 5。
+    discovery_module: text(candidate.discovery_module || candidate.module || ''),
     source_url: text(candidate.source_url || candidate.url),
     source_name: sourceNameFromCanonicalSource(candidate),
     source_type: text(candidate.source_type),
@@ -1772,9 +1803,9 @@ export function premiumCardFromCandidate(candidate = {}) {
     published_at: candidateDisplayDate(candidate, { ...(candidate.hard_facts || {}), ...extractedFacts }, source),
     country: text(candidate.country || candidate.region || '未知'),
     facts: candidateFacts,
-    legal_signal: candidateLegalSignal(module, source, hardFacts),
+    legal_signal: candidateLegalSignal(module, source, hardFacts, bodySource || source),
     business_impact: '',
-    recommended_action: candidateObservation(module, source, hardFacts),
+    recommended_action: candidateObservation(module, source, hardFacts, bodySource || source),
     evidence_text: source,
   };
   return {

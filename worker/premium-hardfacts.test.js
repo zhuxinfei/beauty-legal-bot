@@ -112,7 +112,16 @@ function testCorroboratedMediaCandidateStillNeedsAndPassesPremiumHardFacts() {
     candidates: [{ ...candidate, evidence_grade: 'lead_only', verification_status: 'unverified', supporting_sources: candidate.supporting_sources.slice(0, 1), agreed_anchors: [] }],
     allowSourceOnlyFallback: true,
   });
-  assert.equal(single.audit.finalItems, 0);
+  // 2026-09-15 更新：旧期望是 0（单一来源且未核验一律不进）。但 source-only 兜底
+  // （allowSourceOnlyFallback，专为薄周补位设计）现在会把它作为 **watch 级兜底**收进来，
+  // 实测 single.audit = { finalItems: 1, sourceOnlyFallbackItems: 1, reportItems: 0 }。
+  // 这里改成守这条测试真正在意的性质：未核验的单一来源**不能冒充正文级事实**，
+  // 只能以兜底身份、降级进报。
+  // ⚠️ 如果你希望回到「单一来源一律不进」，要改的是 isSourceOnlyFallbackEligible
+  // （会增加薄周的开天窗风险），不要只把这个数字改回 0。
+  assert.equal(single.audit.finalItems, 1);
+  assert.equal(single.audit.sourceOnlyFallbackItems, 1);
+  assert.equal(single.audit.reportItems, 0);
   const verified = buildPremiumDingTalkDelivery({ period: { start: '2026-07-17', end: '2026-07-31' }, sections: [] }, {
     candidates: [candidate],
     allowSourceOnlyFallback: true,
@@ -227,7 +236,9 @@ function testPremiumDeliveryFallsBackInsteadOfSendingEmptyCard() {
   });
 
   assert.equal(messages.length, 1);
-  assert.match(messages[0].markdown, /本期精选 1 条/);
+  // 2026-09-15 更新：报告头从「本期精选 N 条」演进为
+  // 「本期共 N 条，覆盖 M 个模块。🔴 行动事项…」（见 buildPremiumDingTalkMarkdown）。
+  assert.match(messages[0].markdown, /本期共 1 条/);
   assert.match(messages[0].markdown, /化妆品标准新规征求意见/);
   assert.doesNotMatch(messages[0].markdown, /本期没有达到精品证据门槛/);
 }

@@ -48,14 +48,25 @@ function uniqueValues(values = []) {
   return result;
 }
 
+// 逐行归一空白、**保留换行**。原先是 text(value) 整篇压平，等于把下面所有抽取正则里
+// 的 `[^。；;\n]` 收口全部作废——那些字符类是特意排除换行的（防跨行抓取），压平之后
+// 就没有换行可排，chrome 于是混进硬事实：实测 Medicube 一条的「没收/处置」抓成
+// 「召回 2:10分钟 UH-OH! 难免有故障」（视频播放器报错条），儿童国标一条的
+// 「反馈渠道」抓成「jubao@chinanews.com.cn 举报受理和处置管理办法 总机：86-10-87826688」
+// （页脚联系方式）。逐行归一后，这些都在行末被切开。
 function stripMarkdown(value) {
-  return text(value)
+  return String(value || '')
+    .replace(/\r\n?/g, '\n')
     .replace(/!\[([^\]]*)\]\(([^)]+)\)/g, '$1')
     .replace(/\[([^\]]+)\]\(([^)]+)\)/g, '$1')
     .replace(/^#{1,6}\s+/gm, '')
     .replace(/^[-*+]\s+/gm, '')
     .replace(/\*\*/g, '')
     .replace(/`+/g, '')
+    .split('\n')
+    .map(line => line.replace(/\s+/g, ' ').trim())
+    .filter(Boolean)
+    .join('\n')
     .trim();
 }
 
@@ -71,7 +82,10 @@ function extractCompanyNames(value = '') {
 function extractAuthority(source, context = {}) {
   return firstMatch(source, [
     /(?:处罚机关|发布机关|发文机关|监管部门|执法机关)[：:]\s*([^。；;\n]{3,50})/,
-    /(国家药品监督管理局|国家市场监督管理总局|国家知识产权局|海关总署|[\u4e00-\u9fa5]{2,24}市场监督管理局|[\u4e00-\u9fa5]{2,24}市场监管局|[\u4e00-\u9fa5]{2,24}药品监督管理局|[\u4e00-\u9fa5]{2,24}海关)/,
+    // 地名前缀限长 10：原先 {2,24} 会把整句话吞进来——实测儿童化妆品国标一条抽成
+    // 「儿童化妆品应当在销售包装展示面标注国家药品监督管理局」（18 字前缀+机构名）。
+    // 合法机构名的地名部分最长是「广东汕头市潮阳区」(8)，10 够用、又挡得住句子。
+    /(国家药品监督管理局|国家市场监督管理总局|国家知识产权局|海关总署|[\u4e00-\u9fa5]{2,10}市场监督管理局|[\u4e00-\u9fa5]{2,10}市场监管局|[\u4e00-\u9fa5]{2,10}药品监督管理局|[\u4e00-\u9fa5]{2,10}海关)/,
   ]) || text(context.source_name);
 }
 

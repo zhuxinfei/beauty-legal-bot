@@ -310,7 +310,10 @@ async function aiReview(c) {
         { role: 'system', content: '判断文章是否与美妆/化妆品行业的法律合规事务实质相关。仅接受：法规标准与监管新规、行政处罚与虚假宣传、质量抽检不合格与召回、商标/专利/著作权侵权与诉讼、进出口与跨境电商监管执法、电商/直播/网售渠道合规处罚与平台治理、许可证注销与整改处罚、化妆品行业协会的合规治理/标准制定/国际合作动态、监管部门的专项检查/整治行动/飞行检查/核查处置动态、明确聚焦美妆品类的平台治理或电商乱象专项报道。明确拒绝：企业IPO/上市/融资/并购/破产清算等财经新闻、营销新品代言与业绩类报道、行业趋势分析、非化妆品主体（美发/美容院/综合商超/药品/医疗器械/综合电商平台）的法律事件、仅附带提及化妆品的综合新闻与泛行业盘点、政府或协会的栏目索引页/机构介绍页/网站地图/联系方式页、评论与观察类报道。海关/进出口类必须与化妆品直接相关（化妆品通关、准入、退运、跨境化妆品监管）；通用贸易便利化政策、非化妆品商品的口岸政策一律拒绝。主体必须是化妆品/美妆企业、产品或监管事件，附带提及不算。本报告面向美妆电商法务：判相关时必须确认该事件与美妆/化妆品的电商经营相关（平台店铺、直播带货、跨境电商、网售抽检、平台治理、店铺合规、达人素材、商品宣传、线上销售），或属于直接约束电商卖家的化妆品法规/标准/抽检/召回/处罚。药品、医疗器械、非化妆品品类，以及纯生产端/原料端且不影响电商经营的内容一律拒绝。另外，正文主体不是化妆品的一律拒绝，即使文中出现了「化妆品」字样：贸易关税/物流/口岸便利化等综合新闻（哪怕提到化妆品可能涨价）、行业日报/周报/综述/盘点（哪怕其中一条是化妆品）、媒体频道页或标签页/索引页/聚合页（正文是一串文章标题或摘要列表）、以及企业营收/收购/转型/趋势分析类稿件，全部判 false。判据是「换掉化妆品这个词，这条新闻还成立吗」——成立就说明化妆品只是附带提及，判 false。仅回复JSON：{"relevant":true或false,"reason":"一句话"}' },
         { role: 'user', content: `标题：${title}\n正文：${excerpt}` },
       ],
-      temperature: 0, maxTokens: 800, timeoutMs: 30000, maxAttempts: 1,
+      // 2000：实测 800 时三条长提示词稳定返回空/截断（推理吃满预算），1500 仍偶发，
+      // 2000 明显更稳。仍保留下面的空响应重试 + WARN 兜底——推理长度本身有波动，
+      // 预算只能降低概率、消不掉。
+      temperature: 0, maxTokens: 2000, timeoutMs: 60000, maxAttempts: 1,
     });
   try {
     let resp = await askOnce();
@@ -318,9 +321,12 @@ async function aiReview(c) {
     if (!String(resp || '').trim()) throw new Error('empty AI response');
     const j = JSON.parse(resp.replace(/```json\s*|\s*```/g, '').trim());
     return { relevant: Boolean(j.relevant), reason: j.reason || '' };
-  } catch (_) {
-    // 两次都拿不到内容才退回正则（此时至少是「已知的降级」，而不是静默的竞态）。
+  } catch (error) {
+    // 两次都拿不到内容才退回正则。**必须出声**：这条路径是 fail-open 的（权威源一律放行），
+    // 静默时「哪些卡进周报」就由 API 抖动决定（2026-09-14 排查过：同一证据包四次跑出
+    // 13/13/11/14 张）。日志里看得见，事后才能分辨「这期薄」和「AI 没答上」。
     const ok = fallbackRelevant();
+    console.warn(`  WARN [ai-review-fallback] ${String(error.message || error).slice(0, 40)} | ${title.slice(0, 30)}`);
     return { relevant: ok, reason: ok ? 'regex-fallback-authority' : 'regex-fallback' };
   }
 }
@@ -439,14 +445,50 @@ function normalizeTitleKey(title = '') {
     .replace(NOISE_PREFIX, '')
     .replace(/[^一-龥A-Za-z0-9]/g, '');
 }
+// 跨媒体改写标题的同一事件：归一化标题不同（上面那把锁锁不住），但**带单位的特征数字**
+// 相同。实测本周报告里「奉贤区化妆品出口+34.1%」被海关总署与科技日报各报一次，
+// 两张卡同时进了报告（normalizeTitleKey 之后一个是「…劲增34.1%图」、一个是
+// 「…一年增长34.1%」）。特征数字是改写标题时不会变的那部分。
+function distinctiveNumbers(title = '') {
+  // 只认带**强单位**的数字，且数值至少两位或带小数点——挡掉「3个」「5倍」这类
+  // 满篇都是、无法充当事件指纹的数字。
+  const matches = String(title).match(/\d+(?:\.\d+)?\s*(?:%|％|亿欧元|亿美元|亿元|万元|亿|万吨|吨)/g) || [];
+  return new Set(matches.map(item => item.replace(/\s+/g, '')).filter(item => /\d{2,}|\./.test(item)));
+}
+function shareDistinctiveNumber(a, b) {
+  const left = distinctiveNumbers(a);
+  if (!left.size) return false;
+  for (const token of distinctiveNumbers(b)) if (left.has(token)) return true;
+  return false;
+}
 const seenTitles = new Map();
+// 特征数字 → 已入选的同事件卡（只为跨媒体改写标题兜底，命中时保留分高者）
+const seenEventNumbers = new Map();
 const titleDeduped = [];
+const mergeSameEvent = (card, existing) => {
+  const idx = titleDeduped.indexOf(existing);
+  if (idx >= 0 && (card.score || 0) > (existing.score || 0)) {
+    titleDeduped[idx] = card;
+    console.log(`  DEDUP-EVENT keep-higher: ${existing.title.slice(0, 40)} → ${card.title.slice(0, 40)}`);
+    return card;
+  }
+  console.log(`  DEDUP-EVENT: ${card.title.slice(0, 40)}`);
+  return existing;
+};
 for (const card of cards) {
   const tk = normalizeTitleKey(card.title || '');
   if (!tk) { titleDeduped.push(card); continue; }
+  const eventTokens = distinctiveNumbers(card.title || '');
+  const eventMatch = [...eventTokens].map(token => seenEventNumbers.get(token)).find(Boolean);
+  if (eventMatch) {
+    const kept = mergeSameEvent(card, eventMatch);
+    for (const token of eventTokens) seenEventNumbers.set(token, kept);
+    continue;
+  }
   const existing = seenTitles.get(tk);
   if (!existing) {
     seenTitles.set(tk, card);
+    for (const token of eventTokens) seenEventNumbers.set(token, card);
     titleDeduped.push(card);
   } else if ((card.score || 0) > (existing.score || 0)) {
     const idx = titleDeduped.indexOf(existing);
