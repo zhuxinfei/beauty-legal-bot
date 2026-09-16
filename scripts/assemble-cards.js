@@ -15,6 +15,9 @@ import {
 } from '../worker/premium-quality.js';
 import { cleanArticleEvidence, isIncidentalBeautyMention } from '../worker/article-evidence.js';
 
+// 行内归一空白（脚本级，供翻译步等处使用；aiReview 里那个同名局部变量是抓正文的，别混）
+const flatten = value => String(value || '').replace(/\s+/g, ' ').trim();
+
 const inputPath = resolve(process.argv[2] || 'out/hydrated-authority.json');
 const outputPath = resolve(process.argv[3] || 'out/assembled-cards.json');
 const FINGERPRINTS_PATH = resolve('docs', 'quality', 'seen-cards.json');
@@ -117,6 +120,13 @@ const records = rawRecords
   .map(r => normalizeHydratedRecord(r))
   .filter(r => (r.article_text || '').length > 100);
 
+// AI 配置：步骤 2 之后的通报翻译步就要用，不能等到 AI 复核那一段才定义。
+const indexModule = await import('../worker/index.js');
+const { requestAiChat } = indexModule;
+const aiKey = process.env.AI_API_KEY;
+const aiBaseUrl = process.env.AI_API_BASE_URL || 'https://api.deepseek.com/v1';
+const aiModel = process.env.AI_MODEL || 'deepseek-chat';
+
 // Step 2: Pre-clean, extract hard facts, grade evidence
 console.log(`Extracting hard facts from ${records.length} records...`);
 const candidates = records.map(r => {
@@ -139,6 +149,70 @@ const candidates = records.map(r => {
   return { ...r, article_text: text, hard_facts: facts,
     evidence_grade: grade.evidence_grade, evidence_reason: grade.evidence_reason };
 });
+
+// Step 2.5: 通报类记录的英文翻译
+//
+// 官方 Safety Gate 通报的风险描述是整段英文（实测该字段 77-81% 是英文），而这份报告是
+// 给中文法务看的——客户只看懂中文。受控词表（风险类型/产品类别/国家）已在 premium-quality
+// 里用映射表确定性翻译，剩下的**自由文本**（风险描述、产品名）只能靠 AI，一次调用批量翻完。
+// 必须放在卡片生成**之前**：译文要同时喂给事实要点、法务观察、业务影响三处。
+// 失败即保留原文——绝不因为翻译问题挡住出报。
+async function translateAlertRecords(records = []) {
+  if (!aiKey) return;
+  const targets = records.filter(record => {
+    const description = String(record.hard_facts?.risk_description || '');
+    if (description.length < 20) return false;
+    const latin = (description.match(/[A-Za-z]/g) || []).length;
+    return latin >= description.length * 0.3;   // 本来就是中文的记录不动
+  });
+  if (!targets.length) return;
+  try {
+    // 长段中文自由文本用 JSON 承载太脆——实测一次 `Expected double-quoted property name
+    // in JSON at position 132`，整步回退成英文。改用分隔符行格式：不需要转义，
+    // 单行解析失败也只影响那一条。
+    const raw = await askAiRaw(() => requestAiChat({
+      apiKey: aiKey, baseUrl: aiBaseUrl, model: aiModel,
+      messages: [
+        {
+          role: 'system',
+          content: '把下面每条欧盟 Safety Gate 通报翻译成中文，读者是中国美妆法务。'
+            + '要求：① 风险描述逐句翻译，成分名、数值、法规名保留原文写法并在其后加中文括注；'
+            + '② 产品名翻成中文，品牌名保留原文；③ 不增删任何事实。'
+            + '输出格式：每条一行，三个字段用 ||| 分隔——编号|||产品名|||风险描述。'
+            + '不要 JSON、不要代码块、不要额外说明。',
+        },
+        {
+          role: 'user',
+          content: targets.map((record, index) => [
+            `编号${index + 1}`,
+            `品牌 ${String(record.hard_facts?.brand || '')}`,
+            `产品 ${String(record.hard_facts?.product_or_batch || '')}`,
+            `风险描述 ${String(record.hard_facts?.risk_description || '')}`,
+          ].join(' ')).join('\n'),
+        },
+      ],
+      temperature: 0, maxTokens: 8000, timeoutMs: 120000, maxAttempts: 1,
+    }));
+    let translated = 0;
+    for (const line of raw.split('\n')) {
+      const parts = line.split('|||');
+      if (parts.length < 3) continue;
+      const record = targets[Number(String(parts[0]).replace(/[^0-9]/g, '')) - 1];
+      if (!record) continue;
+      const product = flatten(parts[1]);
+      const description = flatten(parts.slice(2).join('|||'));
+      if (description) {
+        record.hard_facts.risk_description = description;
+        translated += 1;
+      }
+      if (product) record.hard_facts.product_or_batch = product;
+    }
+    console.log(`  TRANSLATE-ALERT ${translated}/${targets.length} 条通报的英文已翻成中文`);
+  } catch (error) {
+    console.warn(`  WARN [translate-alert] 保留原文：${String(error.message || error).slice(0, 60)}`);
+  }
+}
+await translateAlertRecords(candidates);
 
 // Step 3: Corroborate multi-source events
 const corroboration = corroborateEvidenceCandidates(candidates);
@@ -274,12 +348,6 @@ const preDedupPool = pool.filter(c => {
 console.log(`After cross-week dedup: ${preDedupPool.length} records`);
 
 // --- AI content review ---
-const indexModule = await import('../worker/index.js');
-const { requestAiChat } = indexModule;
-const aiKey = process.env.AI_API_KEY;
-const aiBaseUrl = process.env.AI_API_BASE_URL || 'https://api.deepseek.com/v1';
-const aiModel = process.env.AI_MODEL || 'deepseek-chat';
-
 // 「问一次 → 空就再问一次 → 仍然空就放弃 → 剥掉围栏 → parse」。
 // 空响应是本仓库踩过的坑（实测同一提示词 10 次 9 次返回空，见 aiReview 的注释），
 // 两处 AI 调用共用这一套，避免下次调预算/超时或改围栏剥离方式时只改一处——
@@ -289,6 +357,16 @@ async function askAiJson(askOnce) {
   const content = first || String(await askOnce() || '').trim();
   if (!content) throw new Error('empty AI response');
   return JSON.parse(content.replace(/```json\s*|\s*```/g, '').trim());
+}
+
+// 与 askAiJson 同一套空响应重试，但不做 JSON 解析——用于长中文自由文本（翻译）：
+// JSON 装载长中文时被模型写坏过（Expected double-quoted property name），
+// 分隔符行格式没有转义问题。
+async function askAiRaw(askOnce) {
+  const first = String(await askOnce() || '').trim();
+  const content = first || String(await askOnce() || '').trim();
+  if (!content) throw new Error('empty AI response');
+  return content;
 }
 
 // 兜底判据必须与前面那道 regex 预筛（preDedupPool）口径一致：预筛对权威源是豁免的
