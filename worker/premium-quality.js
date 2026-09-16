@@ -300,6 +300,13 @@ function inferViolationBehavior(value) {
 }
 
 // 「违法行为」抽到标题本身 = 标题倒灌：标题在 facts 里已单独占位，这里没有新增信息。
+// 「违法行为」抽到处罚措辞（「并处以罚款1万元」）说明它抓的是另一句里的处罚结果，
+// 不是违法事实——句子会读成「因并处以罚款1万元被公开处理」。
+const PENALTY_PHRASE_PATTERN = /^(?:并|且|同时|另)?(?:处以|被处以|予以|给予|处以)?(?:罚款|罚没|没收|罚款人民币)/;
+function rejectPenaltyPhrase(value) {
+  return PENALTY_PHRASE_PATTERN.test(text(value)) ? '' : value;
+}
+
 function rejectTitleEcho(value, title) {
   const norm = item => text(item).replace(/[\s。；;，,、：:！!？“”''「」（）()\-—|｜]+/g, '');
   const act = norm(value);
@@ -346,11 +353,19 @@ function withInferredHardFacts(hardFacts, card) {
     card.facts,
     card.business_impact,
   ].flat().join('。');
-  const companyNames = extractCompanyNames(source);
+  // 剔除与来源同名的公司：`extractCompanyNames` 会把页脚版权声明里的**出版方**收进来
+  // （实测「本文的内容与版权均归杭州瑞欧科技有限公司…」被当成当事人），而发布方不是当事人。
+  const sourceNameKey = text(card.source_name).replace(/[（(].*$/, '');
+  const companyNames = extractCompanyNames(source).filter(name => !sourceNameKey || !name.includes(sourceNameKey) && !sourceNameKey.includes(name));
   const needsPartyDisclosure = ['广告处罚案例', '知识产权保护或者侵权'].includes(normalizeModule(card.module));
-  const involvedParty = isVagueInvolvedParty(hardFacts.involved_party)
+  // 发布方不是当事人——过滤要作用在**两条来源**上：抽取层给的 involved_party 同样会
+  // 把页脚版权声明里的出版公司收进来（只挡 fallback 那条会被短路）。
+  const dropPublisher = value => text(value).split('、')
+    .filter(name => !sourceNameKey || !(name.includes(sourceNameKey) || sourceNameKey.includes(name)))
+    .join('、');
+  const involvedParty = dropPublisher(isVagueInvolvedParty(hardFacts.involved_party)
     ? (companyNames.length ? companyNames.join('、') : needsPartyDisclosure ? '原文未披露' : '')
-    : hardFacts.involved_party;
+    : hardFacts.involved_party);
   return {
     ...hardFacts,
     product_or_batch: hardFacts.product_or_batch || inferPolicyProductOrRule(source),
@@ -359,7 +374,7 @@ function withInferredHardFacts(hardFacts, card) {
     risk_tier: hardFacts.risk_tier || inferRiskTier(source),
     affected_processes: hardFacts.affected_processes.length ? hardFacts.affected_processes : inferAffectedProcesses(source),
     // 两个来源都要过守卫：抽取层给的 violation_behavior 同样会复读标题（短路掉守卫）
-    violation_behavior: rejectTitleEcho(hardFacts.violation_behavior || inferViolationBehavior(source), card.title),
+    violation_behavior: rejectPenaltyPhrase(rejectTitleEcho(hardFacts.violation_behavior || inferViolationBehavior(source), card.title)),
     confiscation_result: hardFacts.confiscation_result || inferConfiscationResult(source),
     feedback_channel: hardFacts.feedback_channel || inferFeedbackChannel(source),
   };
@@ -1582,13 +1597,21 @@ function alertFactLines(hardFacts = {}) {
 // evidenceSource：切掉标题、保留换行的正文。关键词判据仍看 source（含标题，行为不变），
 // 但**取证据句**的兜底必须用它——否则会抓到「{标题} 新京报 2026-09-07 09:10 {正文}」
 // 这种标题+页面元数据的粘连行（实测「地下工厂」系列把法务观察写成「因{整个标题}…」）。
+// 句子里的主体只列前两家：`extractCompanyNames` 会把长文里**所有**公司名都收进来
+// （实测贝泰妮一条列出 5 家、102 字，读不成句），而头条主体通常排在最先。
+function compactParty(value = '') {
+  return text(value)
+    .replace(/^(?:将|对|把)(?=[^\s])/, '')   // 句子主语前残留的连接词
+    .split('、').filter(Boolean).slice(0, 2).join('、');
+}
+
 function candidateLegalSignal(module, source, hardFacts = {}, evidenceSource = '') {
   const hard = hardFacts || {};
   const evidenceText = evidenceSource || source;
   const product = hardText(hard.product_or_batch);
   const deadline = hardText(hard.deadline || hard.action_deadline);
   const effective = hardText(hard.effective_date);
-  const party = meaningfulInvolvedParty(hard.involved_party);
+  const party = compactParty(meaningfulInvolvedParty(hard.involved_party));
   const act = hardText(hard.violation_behavior);
   const amount = hardText(hard.penalty_amount);
   const disposition = hardText(hard.confiscation_result);
@@ -1775,6 +1798,7 @@ export function premiumCardFromCandidate(candidate = {}) {
     title: text(candidate.title),
     module,
     evidence_text: source,
+    source_name: sourceNameFromCanonicalSource(candidate),   // 发布方守卫要用
     facts: evidenceFacts,
     business_impact: candidate.business_impact || '',
   });
