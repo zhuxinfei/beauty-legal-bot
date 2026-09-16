@@ -1,5 +1,5 @@
 import { extractHardFacts } from './hard-fact-extractor.js';
-import { cleanArticleEvidence, compactEvidenceText, firstEvidenceSentence as extractFirstEvidenceSentence } from './article-evidence.js';
+import { cleanArticleEvidence, compactEvidenceText, perLineText, firstEvidenceSentence as extractFirstEvidenceSentence } from './article-evidence.js';
 import { hasVerifiedCorroboration } from './evidence-corroboration.js';
 
 const UTF8_ENCODER = new TextEncoder();
@@ -50,17 +50,6 @@ const GOVERNMENT_FOOTER_PATTERN = /(?:中国政府网|国家政务服务平台|�
 
 function text(value) {
   return String(value || '').replace(/\s+/g, ' ').trim();
-}
-
-// 行内归一空白、保留换行。需要「把一行的多余空白收干净、但不许跨行粘连」时用它——
-// 正文的行结构是页面组件判据（article-evidence.js 的 stripNavigationBlocks）赖以工作的
-// 信号，任何一次全篇压平都会把已经洗好的结构重新弄脏。
-function perLineText(value) {
-  return String(value || '')
-    .split('\n')
-    .map(line => line.replace(/\s+/g, ' ').trim())
-    .filter(Boolean)
-    .join('\n');
 }
 
 function utf8Bytes(value) {
@@ -356,13 +345,12 @@ function withInferredHardFacts(hardFacts, card) {
   // 剔除与来源同名的公司：`extractCompanyNames` 会把页脚版权声明里的**出版方**收进来
   // （实测「本文的内容与版权均归杭州瑞欧科技有限公司…」被当成当事人），而发布方不是当事人。
   const sourceNameKey = text(card.source_name).replace(/[（(].*$/, '');
-  const companyNames = extractCompanyNames(source).filter(name => !sourceNameKey || !name.includes(sourceNameKey) && !sourceNameKey.includes(name));
+  const isPublisher = name => Boolean(sourceNameKey) && (name.includes(sourceNameKey) || sourceNameKey.includes(name));
+  const companyNames = extractCompanyNames(source).filter(name => !isPublisher(name));
   const needsPartyDisclosure = ['广告处罚案例', '知识产权保护或者侵权'].includes(normalizeModule(card.module));
   // 发布方不是当事人——过滤要作用在**两条来源**上：抽取层给的 involved_party 同样会
   // 把页脚版权声明里的出版公司收进来（只挡 fallback 那条会被短路）。
-  const dropPublisher = value => text(value).split('、')
-    .filter(name => !sourceNameKey || !(name.includes(sourceNameKey) || sourceNameKey.includes(name)))
-    .join('、');
+  const dropPublisher = value => text(value).split('、').filter(name => !isPublisher(name)).join('、');
   const involvedParty = dropPublisher(isVagueInvolvedParty(hardFacts.involved_party)
     ? (companyNames.length ? companyNames.join('、') : needsPartyDisclosure ? '原文未披露' : '')
     : hardFacts.involved_party);
@@ -1557,7 +1545,7 @@ const OPERATOR_LABELS = {
   Retailer: '零售商',
   Manufacturer: '制造商',
   Importer: '进口商',
-  Other: '其他经营者',
+  Other: '',   // 空串=不当前缀（原先靠比较译文串来判断，改中译名会静默改变行为）
 };
 const RISK_LEVEL_LABELS = {
   'Serious risk': '严重风险',
@@ -1578,12 +1566,14 @@ function alertFactLines(hardFacts = {}) {
   const hard = hardFacts || {};
   const riskDescription = hardText(hard.risk_description);
   if (!riskDescription) return [];
-  const identity = [
-    hardText(hard.notifying_country) && `通报国：${hardText(hard.notifying_country)}`,
-    hardText(hard.origin_country) && `原产国：${hardText(hard.origin_country)}`,
-    hardText(hard.brand) && `品牌：${hardText(hard.brand)}`,
-    hardText(hard.alert_reference) && `案号：${hardText(hard.alert_reference)}`,
-  ].filter(Boolean).join('；');
+  // 复用既有的 compactHardFacts（硬事实标签表的唯一拼装处），别再内联一套标签；
+  // 传进来的 hardFacts 已过 normalizeHardFacts，值都是干净的，无需再 hardText 一次。
+  const identity = compactHardFacts(hard, [
+    ['notifying_country', '通报国'],
+    ['origin_country', '原产国'],
+    ['brand', '品牌'],
+    ['alert_reference', '案号'],
+  ]).join('；');
   const measure = measureLabel(hard.measure_category);
   const disposal = measure
     ? `处置措施：${measure}${hardText(hard.measure_date) ? `（${hardText(hard.measure_date)} 生效）` : ''}`
@@ -1627,9 +1617,7 @@ function candidateLegalSignal(module, source, hardFacts = {}, evidenceSource = '
     const riskType = hardText(hard.risk_type);
     const measure = measureLabel(hard.measure_category);
     const operator = hardText(hard.measure_operator);
-    const operatorPrefix = operator && operator !== OPERATOR_LABELS.Other
-      ? OPERATOR_LABELS[operator] || operator
-      : '';
+    const operatorPrefix = OPERATOR_LABELS[operator] ?? operator;   // ?? 保留空串（Other），未知值回落原文
     const date = hardText(hard.measure_date);
     const market = /safety\s*gate|rapex/i.test(`${authority} ${source}`) ? '欧盟' : '该市场';
     const head = `${product || hardText(hard.brand) || '该产品'}因${riskType ? `${riskType} ` : ''}风险经${authority}通报为${level}`;
@@ -1689,19 +1677,21 @@ function candidateLegalSignal(module, source, hardFacts = {}, evidenceSource = '
     : '原文未披露足够的结构化信息，建议直接查阅原文评估合规风险。';
 }
 
+// 模块级业务链条：人工梳理，比关键词抽出来的进程完整（见下方注释）。模块常量，勿在函数内重建。
+const BUSINESS_IMPACT_DEFAULTS = {
+  '知识产权保护或者侵权': '商标授权、包装设计、达人素材、平台店铺',
+  '进出口': '进口申报、清关、原产地文件、供应链履约',
+  '产品质量/召回与安全风险': 'SKU/批次管理、库存隔离、渠道下架、消费者通知',
+  '广告处罚案例': '达人素材/广告宣传、平台店铺/渠道运营',
+  '新法律法规政策': '配方开发、备案资料、标签审核、存量SKU管理',
+};
+
 function candidateBusinessImpact(module, hardFacts = {}, source = '') {
   const processes = hardFacts.affected_processes?.length
     ? hardFacts.affected_processes
     : inferAffectedProcesses(hardFacts.product_or_batch ? `${source} ${hardFacts.product_or_batch}` : source, {}, { module });
   const labels = processes.length ? processes : inferAffectedProcesses(source, {}, { module });
-  // Module-specific fallbacks derived from actual business workflows
-  const defaults = {
-    '知识产权保护或者侵权': '商标授权、包装设计、达人素材、平台店铺',
-    '进出口': '进口申报、清关、原产地文件、供应链履约',
-    '产品质量/召回与安全风险': 'SKU/批次管理、库存隔离、渠道下架、消费者通知',
-    '广告处罚案例': '达人素材/广告宣传、平台店铺/渠道运营',
-    '新法律法规政策': '配方开发、备案资料、标签审核、存量SKU管理',
-  };
+  const defaults = BUSINESS_IMPACT_DEFAULTS;
   if (labels.length) return `影响中国市场美妆业务的${labels.join('、')}。`;
   const fallback = defaults[module] || '标签、备案注册、广告素材、平台上架';
   return `影响中国市场美妆业务的${fallback}。`;

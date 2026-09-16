@@ -280,6 +280,17 @@ const aiKey = process.env.AI_API_KEY;
 const aiBaseUrl = process.env.AI_API_BASE_URL || 'https://api.deepseek.com/v1';
 const aiModel = process.env.AI_MODEL || 'deepseek-chat';
 
+// 「问一次 → 空就再问一次 → 仍然空就放弃 → 剥掉围栏 → parse」。
+// 空响应是本仓库踩过的坑（实测同一提示词 10 次 9 次返回空，见 aiReview 的注释），
+// 两处 AI 调用共用这一套，避免下次调预算/超时或改围栏剥离方式时只改一处——
+// 那两处里有一处走的正是空响应兜底路径，漏改会表现为「AI 明明答了却被判成解析失败」。
+async function askAiJson(askOnce) {
+  const first = String(await askOnce() || '').trim();
+  const content = first || String(await askOnce() || '').trim();
+  if (!content) throw new Error('empty AI response');
+  return JSON.parse(content.replace(/```json\s*|\s*```/g, '').trim());
+}
+
 // 兜底判据必须与前面那道 regex 预筛（preDedupPool）口径一致：预筛对权威源是豁免的
 // （政务固定格式页面的标题常无美妆词），而 aiReview 原先无论来源一律套 isBeautyArticle，
 // 且只看正文前 1000 字——政务公文的美妆词大量落在页头元数据之后（实测兖州区一份
@@ -319,10 +330,7 @@ async function aiReview(c) {
       temperature: 0, maxTokens: 2000, timeoutMs: 60000, maxAttempts: 1,
     });
   try {
-    let resp = await askOnce();
-    if (!String(resp || '').trim()) resp = await askOnce();   // 空响应重试一次
-    if (!String(resp || '').trim()) throw new Error('empty AI response');
-    const j = JSON.parse(resp.replace(/```json\s*|\s*```/g, '').trim());
+    const j = await askAiJson(askOnce);
     return { relevant: Boolean(j.relevant), reason: j.reason || '' };
   } catch (error) {
     // 两次都拿不到内容才退回正则。**必须出声**：这条路径是 fail-open 的（权威源一律放行），
@@ -466,24 +474,20 @@ function distinctiveNumbers(title = '') {
   const matches = String(title).match(/\d+(?:\.\d+)?\s*(?:%|％|亿欧元|亿美元|亿元|万元|亿|万吨|吨)/g) || [];
   return new Set(matches.map(item => item.replace(/\s+/g, '')).filter(item => /\d{2,}|\./.test(item)));
 }
-function shareDistinctiveNumber(a, b) {
-  const left = distinctiveNumbers(a);
-  if (!left.size) return false;
-  for (const token of distinctiveNumbers(b)) if (left.has(token)) return true;
-  return false;
-}
 const seenTitles = new Map();
 // 特征数字 → 已入选的同事件卡（只为跨媒体改写标题兜底，命中时保留分高者）
 const seenEventNumbers = new Map();
 const titleDeduped = [];
-const mergeSameEvent = (card, existing) => {
-  const idx = titleDeduped.indexOf(existing);
-  if (idx >= 0 && (card.score || 0) > (existing.score || 0)) {
-    titleDeduped[idx] = card;
-    console.log(`  DEDUP-EVENT keep-higher: ${existing.title.slice(0, 40)} → ${card.title.slice(0, 40)}`);
+// 去重三层（归一标题 / 特征数字 / AI 事件归组）共用这一条「保留分高者」规则——
+// 原先三处各写一遍，将来要加 tie-break（同分优先权威源）必然漏改其中一处。
+const keepHigher = (card, existing, tag) => {
+  if ((card.score || 0) > (existing.score || 0)) {
+    const idx = titleDeduped.indexOf(existing);
+    if (idx >= 0) titleDeduped[idx] = card;
+    console.log(`  ${tag} keep-higher: ${existing.title.slice(0, 40)} → ${card.title.slice(0, 40)}`);
     return card;
   }
-  console.log(`  DEDUP-EVENT: ${card.title.slice(0, 40)}`);
+  console.log(`  ${tag}: ${card.title.slice(0, 40)}`);
   return existing;
 };
 for (const card of cards) {
@@ -492,7 +496,7 @@ for (const card of cards) {
   const eventTokens = distinctiveNumbers(card.title || '');
   const eventMatch = [...eventTokens].map(token => seenEventNumbers.get(token)).find(Boolean);
   if (eventMatch) {
-    const kept = mergeSameEvent(card, eventMatch);
+    const kept = keepHigher(card, eventMatch, 'DEDUP-EVENT');
     for (const token of eventTokens) seenEventNumbers.set(token, kept);
     continue;
   }
@@ -501,14 +505,9 @@ for (const card of cards) {
     seenTitles.set(tk, card);
     for (const token of eventTokens) seenEventNumbers.set(token, card);
     titleDeduped.push(card);
-  } else if ((card.score || 0) > (existing.score || 0)) {
-    const idx = titleDeduped.indexOf(existing);
-    titleDeduped[idx] = card;
-    seenTitles.set(tk, card);
-    console.log(`  DEDUP-TITLE keep-higher: ${existing.title.slice(0, 40)} → ${card.title.slice(0, 40)}`);
-  } else {
-    console.log(`  DEDUP-TITLE: ${card.title.slice(0, 40)}`);
+    continue;
   }
+  if (keepHigher(card, existing, 'DEDUP-TITLE') === card) seenTitles.set(tk, card);
 }
 
 // Step 5.5: AI 事件归组 —— 同一事件被多家媒体报道时只留一条
@@ -549,10 +548,7 @@ async function groupSameEventCards(cards = []) {
     temperature: 0, maxTokens: 8000, timeoutMs: 120000, maxAttempts: 1,
   });
   try {
-    let resp = await askOnce();
-    if (!String(resp || '').trim()) resp = await askOnce();   // 空响应重试一次（同 aiReview）
-    if (!String(resp || '').trim()) return null;
-    const parsed = JSON.parse(String(resp).replace(/```json\s*|\s*```/g, '').trim());
+    const parsed = await askAiJson(askOnce);
     const groups = Array.isArray(parsed.groups) ? parsed.groups : [];
     return groups
       .map(group => (Array.isArray(group) ? group.map(Number).filter(n => Number.isInteger(n) && n >= 1 && n <= cards.length) : []))
