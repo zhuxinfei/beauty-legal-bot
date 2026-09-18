@@ -1093,8 +1093,64 @@ function translateBriefText(value) {
     .replace(/Removal of the product listings/gi, '下架产品链接');
 }
 
+// --- 英文机关/机构名与专业名词的中文括注 ---
+// 客户只看中文，英文简称（RAPEX/FDA/OPSS/CBE…）必须带中文名。规则：**整串里每个词条
+// 只括注一次**（同一句里重复出现不重复加），已经跟着同一中文括注的不重复加。
+// 品牌名不在此表内——品牌不译是惯例。
+const TERM_LABELS = {
+  'EU Safety Gate (RAPEX)': '欧盟安全门快速预警系统',
+  'Safety Gate': '欧盟安全门快速预警系统',
+  'EU Safety Gate': '欧盟安全门快速预警系统',
+  RAPEX: '欧盟安全门快速预警系统',
+  FDA: '美国食品药品监督管理局',
+  FTC: '美国联邦贸易委员会',
+  OPSS: '英国产品安全与标准办公室',
+  MHRA: '英国药品和健康产品管理局',
+  HSA: '新加坡卫生科学局',
+  ACCC: '澳大利亚竞争与消费者委员会',
+  TGA: '澳大利亚药品管理局',
+  BPOM: '印度尼西亚国家食品药品监督管理局',
+  MFDS: '韩国食品药品安全部',
+  EUIPO: '欧盟知识产权局',
+  WIPO: '世界知识产权组织',
+  NMPA: '中国国家药品监督管理局',
+  SCCS: '欧盟消费者安全科学委员会',
+  CPNP: '欧盟化妆品产品通报门户',
+  IFRA: '国际日用香料协会',
+  CBE: '中国美容博览会',
+  PCHi: '中国国际化妆品个人及家庭护理用品原料展',
+  DSA: '欧盟数字服务法',
+  MoCRA: '美国化妆品法规现代化法案',
+  Sohu: '搜狐',
+  'thepaper.cn': '澎湃新闻',
+  BBC: '英国广播公司',
+  Reuters: '路透社',
+  Bloomberg: '彭博社',
+  '8world': '8视界新闻网',
+};
+
+function localizeTerms(value = '') {
+  let out = String(value || '');
+  if (!out) return out;
+  const glossed = new Set();
+  // 长词条优先：`EU Safety Gate (RAPEX)` 要先于 `RAPEX` 命中，否则会插在中间
+  const terms = Object.entries(TERM_LABELS).sort((a, b) => b[0].length - a[0].length);
+  for (const [term, label] of terms) {
+    if (glossed.has(label)) continue;
+    const index = out.indexOf(term);
+    if (index < 0) continue;
+    const after = out.slice(index + term.length);
+    if (after.startsWith(`（${label}）`)) { glossed.add(label); continue; }   // 已有同一括注
+    out = `${out.slice(0, index + term.length)}（${label}）${after}`;
+    glossed.add(label);
+  }
+  // 括注插在原英文名后面，会把「系统） 通报」这种西文空格留下——中文排版里多余
+  return out.replace(/）\s+(?=[\u4e00-\u9fa5])/g, '）');
+}
+
 function cleanBriefPart(value) {
-  return compactEvidenceText(translateBriefText(value), 220).replace(/[。；;,\s]+$/g, '');
+  // 括注放在截断**之后**：先截 220 字再加中文名，避免中文名被截掉
+  return localizeTerms(compactEvidenceText(translateBriefText(value), 220)).replace(/[。；;,\s]+$/g, '');
 }
 
 function briefParts(parts = []) {
@@ -1277,8 +1333,9 @@ export function buildPremiumDingTalkMarkdown({ period = {}, cards = [], preselec
       number += 1;
       lines.push(
         '',
-        `### ${number}. ${esc(displayTitle(card))}`,
-        `- **来源**：${esc(card.source_name)} / ${esc(card.country)} / ${esc(card.published_at)} / [原文](${card.source_url})`,
+        // 标题在此处也过一遍术语括注：card.title 是建卡时就烘好的，直接渲染会漏掉后来新增的词条
+        `### ${number}. ${esc(localizeTerms(displayTitle(card)))}`,
+        `- **来源**：${esc(localizeTerms(card.source_name))} / ${esc(card.country)} / ${esc(card.published_at)} / [原文](${card.source_url})`,
         ...renderFieldBlock('事实依据', renderFactLines(card)),
         ...renderFieldBlock('法务观察', renderJudgementLines(card)),
         ...renderFieldBlock('业务影响', renderImpactLines(card)),
@@ -1862,7 +1919,7 @@ export function premiumCardFromCandidate(candidate = {}) {
   // （「假，线上销售高频换店 民房制假，…」这种半截话）。
   // 显示标题算一次：facts 末位与 baseCard 共用。原先 facts 用的是**未本地化**的原始标题，
   // 于是 Safety Gate 卡的中文标题在卡片顶部、同一张卡的 facts 里又出现一次英文原标题。
-  const displayTitle = localizeAlertTitle(cleanDisplayTitle(text(candidate.display_title_zh || candidate.title_zh || candidate.title)));
+  const displayTitle = localizeTerms(localizeAlertTitle(cleanDisplayTitle(text(candidate.display_title_zh || candidate.title_zh || candidate.title))));
   const titleCore = text(candidate.title).split(/\s+[—\-|]\s+/)[0].replace(/\s+/g, '');
   const titleProbe = titleCore.slice(0, Math.min(20, titleCore.length));
   // 按标题串整体切除，而不是按行过滤：candidateEvidenceText 把多个字段用「。」
