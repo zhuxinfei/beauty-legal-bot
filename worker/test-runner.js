@@ -2244,7 +2244,6 @@ async function testPipelineSendsNativeMarkdownWithoutImageHooks() {
       // 所以两种格式都接受。
       assert.ok(
         payload.markdown.text.includes('- **事实依据**')
-        || payload.markdown.text.includes('- **事实依据**')
         || payload.markdown.text.includes('# 美妆法务资讯'),
       );
       assert.ok(
@@ -2311,7 +2310,6 @@ async function testPipelineIgnoresLegacyEditorialImageHooks() {
       const payload = JSON.parse(init.body);
       assert.ok(
         payload.markdown.text.includes('- **事实依据**')
-        || payload.markdown.text.includes('- **事实依据**')
         || payload.markdown.text.includes('# 美妆法务资讯'),
       );
       assert.ok(
@@ -2319,8 +2317,7 @@ async function testPipelineIgnoresLegacyEditorialImageHooks() {
         || payload.markdown.text.includes('- **来源**'),
       );
       assert.ok(
-        payload.markdown.text.includes('- **事实依据**')
-        || payload.markdown.text.includes('- **事实依据**'),
+        payload.markdown.text.includes('- **事实依据**'),
       );
       assert.equal(payload.markdown.text.includes('![美妆法务资讯长图]'), false);
       return new Response(JSON.stringify({ errcode: 0, errmsg: 'ok' }), { status: 200 });

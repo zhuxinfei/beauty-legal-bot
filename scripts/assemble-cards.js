@@ -15,6 +15,9 @@ import {
 } from '../worker/premium-quality.js';
 import { cleanArticleEvidence, isIncidentalBeautyMention } from '../worker/article-evidence.js';
 
+// 行内归一空白（脚本级，供翻译步等处使用；aiReview 里那个同名局部变量是抓正文的，别混）
+const flatten = value => String(value || '').replace(/\s+/g, ' ').trim();
+
 const inputPath = resolve(process.argv[2] || 'out/hydrated-authority.json');
 const outputPath = resolve(process.argv[3] || 'out/assembled-cards.json');
 const FINGERPRINTS_PATH = resolve('docs', 'quality', 'seen-cards.json');
@@ -80,6 +83,9 @@ const NEWS_CHROME = [
 ];
 const FORUM_HOSTS = /(?:wenxuecity\.com|\.tieba\.|\.zhihu\.|\.douban\.|\.weibo\.|vietnam\.vn|reach24h\.com|qianlong\.com|online\.sh\.cn)/i;
 const WEAK_TITLE_PATTERN = /(?:举办|召开|培训|会议|活动|论坛|调研|考察|检查指导|工作部署)/;
+// 只有媒体/机构名、没有事件信息的标题（页面标题没抓到）。与 WEAK_TITLE_PATTERN 同族，
+// 但这类不是"弱"，是"根本不是一篇文章"。
+const OUTLET_ONLY_TITLE = /^(?:澎湃新闻|腾讯新闻|网易新闻|新浪财经|新浪新闻|搜狐网|搜狐新闻|凤凰网|凤凰新闻|界面新闻|今日头条|百家号|微信公众号|中国新闻网|中新网|人民网|新华网|央视新闻|第一财经|每日经济新闻|证券时报|21世纪经济报道|经济观察报|虎嗅|钛媒体|36氪|亿邦动力|雨果跨境|东方财富|快科技|雷峰网|站长之家|阿视亚经济|8world|新京报|南方都市报|南方周末|法治日报|中国新闻周刊|财经网|观察者网)$/;
 const PORTAL_CHROME = [
   /化妆品审评\s*国家抽检管理\s*医疗器械标准与分类管理[^。]*/g,
   /访问我的专属空间[^。]*/g,
@@ -114,6 +120,13 @@ const records = rawRecords
   .map(r => normalizeHydratedRecord(r))
   .filter(r => (r.article_text || '').length > 100);
 
+// AI 配置：步骤 2 之后的通报翻译步就要用，不能等到 AI 复核那一段才定义。
+const indexModule = await import('../worker/index.js');
+const { requestAiChat } = indexModule;
+const aiKey = process.env.AI_API_KEY;
+const aiBaseUrl = process.env.AI_API_BASE_URL || 'https://api.deepseek.com/v1';
+const aiModel = process.env.AI_MODEL || 'deepseek-chat';
+
 // Step 2: Pre-clean, extract hard facts, grade evidence
 console.log(`Extracting hard facts from ${records.length} records...`);
 const candidates = records.map(r => {
@@ -136,6 +149,70 @@ const candidates = records.map(r => {
   return { ...r, article_text: text, hard_facts: facts,
     evidence_grade: grade.evidence_grade, evidence_reason: grade.evidence_reason };
 });
+
+// Step 2.5: 通报类记录的英文翻译
+//
+// 官方 Safety Gate 通报的风险描述是整段英文（实测该字段 77-81% 是英文），而这份报告是
+// 给中文法务看的——客户只看懂中文。受控词表（风险类型/产品类别/国家）已在 premium-quality
+// 里用映射表确定性翻译，剩下的**自由文本**（风险描述、产品名）只能靠 AI，一次调用批量翻完。
+// 必须放在卡片生成**之前**：译文要同时喂给事实要点、法务观察、业务影响三处。
+// 失败即保留原文——绝不因为翻译问题挡住出报。
+async function translateAlertRecords(records = []) {
+  if (!aiKey) return;
+  const targets = records.filter(record => {
+    const description = String(record.hard_facts?.risk_description || '');
+    if (description.length < 20) return false;
+    const latin = (description.match(/[A-Za-z]/g) || []).length;
+    return latin >= description.length * 0.3;   // 本来就是中文的记录不动
+  });
+  if (!targets.length) return;
+  try {
+    // 长段中文自由文本用 JSON 承载太脆——实测一次 `Expected double-quoted property name
+    // in JSON at position 132`，整步回退成英文。改用分隔符行格式：不需要转义，
+    // 单行解析失败也只影响那一条。
+    const raw = await askAiRaw(() => requestAiChat({
+      apiKey: aiKey, baseUrl: aiBaseUrl, model: aiModel,
+      messages: [
+        {
+          role: 'system',
+          content: '把下面每条欧盟 Safety Gate 通报翻译成中文，读者是中国美妆法务。'
+            + '要求：① 风险描述逐句翻译，成分名、数值、法规名保留原文写法并在其后加中文括注；'
+            + '② 产品名翻成中文，品牌名保留原文；③ 不增删任何事实。'
+            + '输出格式：每条一行，三个字段用 ||| 分隔——编号|||产品名|||风险描述。'
+            + '不要 JSON、不要代码块、不要额外说明。',
+        },
+        {
+          role: 'user',
+          content: targets.map((record, index) => [
+            `编号${index + 1}`,
+            `品牌 ${String(record.hard_facts?.brand || '')}`,
+            `产品 ${String(record.hard_facts?.product_or_batch || '')}`,
+            `风险描述 ${String(record.hard_facts?.risk_description || '')}`,
+          ].join(' ')).join('\n'),
+        },
+      ],
+      temperature: 0, maxTokens: 8000, timeoutMs: 120000, maxAttempts: 1,
+    }));
+    let translated = 0;
+    for (const line of raw.split('\n')) {
+      const parts = line.split('|||');
+      if (parts.length < 3) continue;
+      const record = targets[Number(String(parts[0]).replace(/[^0-9]/g, '')) - 1];
+      if (!record) continue;
+      const product = flatten(parts[1]);
+      const description = flatten(parts.slice(2).join('|||'));
+      if (description) {
+        record.hard_facts.risk_description = description;
+        translated += 1;
+      }
+      if (product) record.hard_facts.product_or_batch = product;
+    }
+    console.log(`  TRANSLATE-ALERT ${translated}/${targets.length} 条通报的英文已翻成中文`);
+  } catch (error) {
+    console.warn(`  WARN [translate-alert] 保留原文：${String(error.message || error).slice(0, 60)}`);
+  }
+}
+await translateAlertRecords(candidates);
 
 // Step 3: Corroborate multi-source events
 const corroboration = corroborateEvidenceCandidates(candidates);
@@ -271,11 +348,26 @@ const preDedupPool = pool.filter(c => {
 console.log(`After cross-week dedup: ${preDedupPool.length} records`);
 
 // --- AI content review ---
-const indexModule = await import('../worker/index.js');
-const { requestAiChat } = indexModule;
-const aiKey = process.env.AI_API_KEY;
-const aiBaseUrl = process.env.AI_API_BASE_URL || 'https://api.deepseek.com/v1';
-const aiModel = process.env.AI_MODEL || 'deepseek-chat';
+// 「问一次 → 空就再问一次 → 仍然空就放弃 → 剥掉围栏 → parse」。
+// 空响应是本仓库踩过的坑（实测同一提示词 10 次 9 次返回空，见 aiReview 的注释），
+// 两处 AI 调用共用这一套，避免下次调预算/超时或改围栏剥离方式时只改一处——
+// 那两处里有一处走的正是空响应兜底路径，漏改会表现为「AI 明明答了却被判成解析失败」。
+async function askAiJson(askOnce) {
+  const first = String(await askOnce() || '').trim();
+  const content = first || String(await askOnce() || '').trim();
+  if (!content) throw new Error('empty AI response');
+  return JSON.parse(content.replace(/```json\s*|\s*```/g, '').trim());
+}
+
+// 与 askAiJson 同一套空响应重试，但不做 JSON 解析——用于长中文自由文本（翻译）：
+// JSON 装载长中文时被模型写坏过（Expected double-quoted property name），
+// 分隔符行格式没有转义问题。
+async function askAiRaw(askOnce) {
+  const first = String(await askOnce() || '').trim();
+  const content = first || String(await askOnce() || '').trim();
+  if (!content) throw new Error('empty AI response');
+  return content;
+}
 
 // 兜底判据必须与前面那道 regex 预筛（preDedupPool）口径一致：预筛对权威源是豁免的
 // （政务固定格式页面的标题常无美妆词），而 aiReview 原先无论来源一律套 isBeautyArticle，
@@ -316,10 +408,7 @@ async function aiReview(c) {
       temperature: 0, maxTokens: 2000, timeoutMs: 60000, maxAttempts: 1,
     });
   try {
-    let resp = await askOnce();
-    if (!String(resp || '').trim()) resp = await askOnce();   // 空响应重试一次
-    if (!String(resp || '').trim()) throw new Error('empty AI response');
-    const j = JSON.parse(resp.replace(/```json\s*|\s*```/g, '').trim());
+    const j = await askAiJson(askOnce);
     return { relevant: Boolean(j.relevant), reason: j.reason || '' };
   } catch (error) {
     // 两次都拿不到内容才退回正则。**必须出声**：这条路径是 fail-open 的（权威源一律放行），
@@ -390,6 +479,14 @@ for (const { c, relevant, reason } of reviews) {
     }
   }
 
+  // 标题就是媒体/机构名本身 —— 页面没抓到真标题（crawl 残渣），不是一篇稿子。
+  // 实测「澎湃新闻」一条以 outlet 名当标题、混进了知产模块（source_url 是 thepaper 的
+  // 正文详情页，说明正文在、标题没取到）。这类稿子没有可交付的信息，直接丢。
+  if (OUTLET_ONLY_TITLE.test(titleText.trim())) {
+    console.log(`  SKIP [outlet-only-title]: ${titleText.slice(0, 50)}`);
+    continue;
+  }
+
   // Skip weak cards
   if (WEAK_TITLE_PATTERN.test(titleText) && !/(?:处罚|罚款|召回|不合格|通告|公告|标准|法规|办法)/.test(titleText)) {
     console.log(`  SKIP [weak-content]: ${card.title.slice(0, 50)}`);
@@ -455,24 +552,20 @@ function distinctiveNumbers(title = '') {
   const matches = String(title).match(/\d+(?:\.\d+)?\s*(?:%|％|亿欧元|亿美元|亿元|万元|亿|万吨|吨)/g) || [];
   return new Set(matches.map(item => item.replace(/\s+/g, '')).filter(item => /\d{2,}|\./.test(item)));
 }
-function shareDistinctiveNumber(a, b) {
-  const left = distinctiveNumbers(a);
-  if (!left.size) return false;
-  for (const token of distinctiveNumbers(b)) if (left.has(token)) return true;
-  return false;
-}
 const seenTitles = new Map();
 // 特征数字 → 已入选的同事件卡（只为跨媒体改写标题兜底，命中时保留分高者）
 const seenEventNumbers = new Map();
 const titleDeduped = [];
-const mergeSameEvent = (card, existing) => {
-  const idx = titleDeduped.indexOf(existing);
-  if (idx >= 0 && (card.score || 0) > (existing.score || 0)) {
-    titleDeduped[idx] = card;
-    console.log(`  DEDUP-EVENT keep-higher: ${existing.title.slice(0, 40)} → ${card.title.slice(0, 40)}`);
+// 去重三层（归一标题 / 特征数字 / AI 事件归组）共用这一条「保留分高者」规则——
+// 原先三处各写一遍，将来要加 tie-break（同分优先权威源）必然漏改其中一处。
+const keepHigher = (card, existing, tag) => {
+  if ((card.score || 0) > (existing.score || 0)) {
+    const idx = titleDeduped.indexOf(existing);
+    if (idx >= 0) titleDeduped[idx] = card;
+    console.log(`  ${tag} keep-higher: ${existing.title.slice(0, 40)} → ${card.title.slice(0, 40)}`);
     return card;
   }
-  console.log(`  DEDUP-EVENT: ${card.title.slice(0, 40)}`);
+  console.log(`  ${tag}: ${card.title.slice(0, 40)}`);
   return existing;
 };
 for (const card of cards) {
@@ -481,7 +574,7 @@ for (const card of cards) {
   const eventTokens = distinctiveNumbers(card.title || '');
   const eventMatch = [...eventTokens].map(token => seenEventNumbers.get(token)).find(Boolean);
   if (eventMatch) {
-    const kept = mergeSameEvent(card, eventMatch);
+    const kept = keepHigher(card, eventMatch, 'DEDUP-EVENT');
     for (const token of eventTokens) seenEventNumbers.set(token, kept);
     continue;
   }
@@ -490,20 +583,79 @@ for (const card of cards) {
     seenTitles.set(tk, card);
     for (const token of eventTokens) seenEventNumbers.set(token, card);
     titleDeduped.push(card);
-  } else if ((card.score || 0) > (existing.score || 0)) {
-    const idx = titleDeduped.indexOf(existing);
-    titleDeduped[idx] = card;
-    seenTitles.set(tk, card);
-    console.log(`  DEDUP-TITLE keep-higher: ${existing.title.slice(0, 40)} → ${card.title.slice(0, 40)}`);
-  } else {
-    console.log(`  DEDUP-TITLE: ${card.title.slice(0, 40)}`);
+    continue;
   }
+  if (keepHigher(card, existing, 'DEDUP-TITLE') === card) seenTitles.set(tk, card);
+}
+
+// Step 5.5: AI 事件归组 —— 同一事件被多家媒体报道时只留一条
+//
+// 为什么必须用 AI：三种确定性判据都实测失败（都在同一个 pack 上量过）——
+//   ① 特征数字：汕头打假四条标题里没有任何数字，抓不到；
+//   ② 标题 2-gram 相似度：得分最高的反而是 5 条 Safety Gate（0.41–0.60，模板相同、
+//      事件不同），真正同一事件的汕头四条只有 0.25 —— 按阈值合并会把召回通报全并掉、
+//      却漏掉汕头；
+//   ③ 最长公共中文串（≥6 字）：会被「国家药监局关于」这类**模板前缀**误命中，
+//      7 个命中里只有 2 个是同一事件。
+// 而「这四条讲的是不是同一件事」恰恰是 AI 擅长的，也是代码库历史上做过的
+// （见 5b94b78「dual dedup — AI eventSig + hard-fact anchors」）。
+//
+// 必要性：这条重复原先被一个 bug 意外压住——模块分区修好前，这类稿子全被
+// RE-MODULE 丢进「美妆动态」，而该模块被 Safety Gate 占满、上限 5 把它们挤掉了；
+// 分区归位后它们进「知识产权」并占满上限，重复就露出来了（实测一期 4 张同一事件）。
+//
+// 预算必须给足：这个任务模型要两两比对（16 条 = 120 对），reasoning_effort:'high' 下
+// 实测 2000/4000 全部烧在推理上（finish_reason=length、content 为空），8000 才出结果
+// （29s、推理 5449 tokens）。每周只调一次，这点开销可接受；给不足就等于这个功能不存在。
+// 失败即跳过（保持现状），绝不因此少发卡。
+async function groupSameEventCards(cards = []) {
+  if (!aiKey || cards.length < 3) return null;
+  const numbered = cards.map((card, index) => `${index + 1}. ${card.title}`).join('\n');
+  const askOnce = () => requestAiChat({
+    apiKey: aiKey, baseUrl: aiBaseUrl, model: aiModel,
+    messages: [
+      {
+        role: 'system',
+        content: '下面是一份周报的候选卡片标题。请找出其中**报道同一件事**的多条（同一执法行动、同一次召回、同一份判决、同一份公告被多家媒体分别报道），每组列出全部编号。'
+          + '注意区分「同一事件的多家报道」与「同一主题的不同事件」：不同产品的召回、不同法规的公告、不同企业的处罚，各自是不同事件，不要合并；'
+          + '标题共用的模板前缀（如「国家药监局关于…」）不代表同一事件。'
+          + '只回复 JSON：{"groups":[[编号,编号],[编号]]}，没有重复则回复 {"groups":[]}。',
+      },
+      { role: 'user', content: numbered },
+    ],
+    temperature: 0, maxTokens: 8000, timeoutMs: 120000, maxAttempts: 1,
+  });
+  try {
+    const parsed = await askAiJson(askOnce);
+    const groups = Array.isArray(parsed.groups) ? parsed.groups : [];
+    return groups
+      .map(group => (Array.isArray(group) ? group.map(Number).filter(n => Number.isInteger(n) && n >= 1 && n <= cards.length) : []))
+      .filter(group => new Set(group).size >= 2);
+  } catch (error) {
+    console.warn(`  WARN [ai-event-dedup] 跳过：${String(error.message || error).slice(0, 60)}`);
+    return null;
+  }
+}
+
+const eventGroups = await groupSameEventCards(titleDeduped);
+let eventDeduped = titleDeduped;
+if (eventGroups?.length) {
+  const drop = new Set();
+  for (const group of eventGroups) {
+    const members = group.map(n => titleDeduped[n - 1]).filter(Boolean);
+    if (members.length < 2) continue;
+    // 组内保留分最高的那条（同分保留先出现的）
+    const keep = members.reduce((best, card) => ((card.score || 0) > (best.score || 0) ? card : best), members[0]);
+    for (const card of members) if (card !== keep) drop.add(card);
+    console.log(`  DEDUP-AI-EVENT 保留「${keep.title.slice(0, 30)}」，合并 ${members.length - 1} 条同事件报道`);
+  }
+  eventDeduped = titleDeduped.filter(card => !drop.has(card));
 }
 
 // Step 6: Select balanced portfolio
 // Official/authority sources fill slots first; portal/self-media cards only
 // backfill module gaps. Same scoring within each tier.
-const sorted = titleDeduped.sort((a, b) => {
+const sorted = eventDeduped.sort((a, b) => {
   const aa = isAuthoritySource(a) ? 1 : 0;
   const bb = isAuthoritySource(b) ? 1 : 0;
   if (aa !== bb) return bb - aa;

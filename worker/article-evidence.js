@@ -222,6 +222,18 @@ function stripHeadBeforeTitle(lines, title) {
   return lines.slice(index);
 }
 
+// 逐行归一空白、**保留换行**。任何一次全篇压平都会把已经洗好的行结构重新弄脏
+// （页面组件判据、硬事实里的 [^。；;\n] 收口都依赖行边界）。三个消费方共用这一份，
+// 免得各写一套之后在"要不要保留空行 / 要不要处理 \r\n"上悄悄分叉。
+export function perLineText(value) {
+  return String(value || '')
+    .replace(/\r\n?/g, '\n')
+    .split('\n')
+    .map(line => line.replace(/\s+/g, ' ').trim())
+    .filter(Boolean)
+    .join('\n');
+}
+
 export function cleanArticleEvidence(value, { title = '' } = {}) {
   // 先按链接形状剥掉导航/页脚，再压成纯文本：plainText 会把 [标签](url)
   // 拍平成标签，菜单的结构信号随之消失，之后就再也分不出导航和正文了。
@@ -324,11 +336,17 @@ export function firstEvidenceSentence(value, maxLength = 220) {
     .split(/\n+|(?<=[。！？!?；;])\s*/)
     .map(sentence => sentence.trim())
     .filter(sentence => sentence.length >= 16);
-  const selected = sentences.find(sentence =>
-    EVENT_EVIDENCE_PATTERN.test(sentence) && !GENERIC_INTRO_PATTERN.test(sentence) && SENTENCE_LIKE(sentence)
-  )
-    || sentences.find(sentence => EVENT_EVIDENCE_PATTERN.test(sentence) && SENTENCE_LIKE(sentence))
-    || sentences.find(SENTENCE_LIKE)
+  // 三档筛选共用一次谓词求值：SENTENCE_LIKE 现在带标签计数与英文句判定（都会分配数组），
+  // 用 find 链会让落选句被重复求值最多三次。
+  const scored = sentences.map(sentence => ({
+    sentence,
+    like: SENTENCE_LIKE(sentence),
+    event: EVENT_EVIDENCE_PATTERN.test(sentence),
+    generic: GENERIC_INTRO_PATTERN.test(sentence),
+  }));
+  const selected = (scored.find(row => row.event && !row.generic && row.like)
+    || scored.find(row => row.event && row.like)
+    || scored.find(row => row.like))?.sentence
     // 找不到像句子的内容就返回空：调用方会退回标题，总好过把页面组件当事实印出去。
     || '';
   return selected ? compactEvidenceText(selected, maxLength) : '';

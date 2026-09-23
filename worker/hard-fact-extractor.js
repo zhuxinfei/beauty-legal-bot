@@ -1,3 +1,5 @@
+import { perLineText } from './article-evidence.js';
+
 function text(value) {
   return String(value || '').replace(/\s+/g, ' ').trim();
 }
@@ -55,19 +57,13 @@ function uniqueValues(values = []) {
 // 「反馈渠道」抓成「jubao@chinanews.com.cn 举报受理和处置管理办法 总机：86-10-87826688」
 // （页脚联系方式）。逐行归一后，这些都在行末被切开。
 function stripMarkdown(value) {
-  return String(value || '')
-    .replace(/\r\n?/g, '\n')
+  return perLineText(String(value || '')
     .replace(/!\[([^\]]*)\]\(([^)]+)\)/g, '$1')
     .replace(/\[([^\]]+)\]\(([^)]+)\)/g, '$1')
     .replace(/^#{1,6}\s+/gm, '')
     .replace(/^[-*+]\s+/gm, '')
     .replace(/\*\*/g, '')
-    .replace(/`+/g, '')
-    .split('\n')
-    .map(line => line.replace(/\s+/g, ' ').trim())
-    .filter(Boolean)
-    .join('\n')
-    .trim();
+    .replace(/`+/g, ''));
 }
 
 function extractCompanyNames(value = '') {
@@ -246,19 +242,26 @@ const STRUCTURED_ALERT_DECISIVE = ['风险描述', '风险等级', '风险类型
 const STRUCTURED_ALERT_VALUE_PATTERN = '[\\s\\S]{0,1200}?';
 const STRUCTURED_ALERT_MIN_LABELS = 3;
 
+// 预编译：extractHardFacts 每轮要跑数百次（source-hydration 每条一次 + assemble 每条一次
+// + 每张卡再抽一次），而标签表与值模板都是模块级常量——原实现每次调用都 filter+join 拼
+// alternation 再 new RegExp（15 个标签 × 每次），isStructuredAlert 还对 15 个标签各构造一次。
+const STRUCTURED_ALERT_FIELD_RES = new Map([...STRUCTURED_ALERT_LABELS]
+  .sort((a, b) => b.length - a.length)   // 长标签优先，避免前缀互相遮蔽
+  .map(label => {
+    const others = STRUCTURED_ALERT_LABELS.filter(item => item !== label).join('|');
+    return [label, new RegExp(`${label}\\s*[:：]\\s*(${STRUCTURED_ALERT_VALUE_PATTERN})(?=\\s*(?:${others})\\s*[:：]|[。]|$)`)];
+  }));
+const STRUCTURED_ALERT_LABEL_RE = new RegExp(`(${[...STRUCTURED_ALERT_LABELS].sort((a, b) => b.length - a.length).join('|')})\\s*[:：]`, 'g');
+
 function structuredAlertField(source, label) {
-  const others = STRUCTURED_ALERT_LABELS.filter(item => item !== label).join('|');
-  const match = String(source || '').match(
-    new RegExp(`${label}\\s*[:：]\\s*(${STRUCTURED_ALERT_VALUE_PATTERN})(?=\\s*(?:${others})\\s*[:：]|[。]|$)`),
-  );
+  const match = String(source || '').match(STRUCTURED_ALERT_FIELD_RES.get(label));
   return match ? clean(match[1]) : '';
 }
 
 function isStructuredAlert(source) {
-  const value = String(source || '');
-  const hits = STRUCTURED_ALERT_LABELS.filter(label => new RegExp(`${label}\\s*[:：]`).test(value));
-  return hits.length >= STRUCTURED_ALERT_MIN_LABELS
-    && hits.some(label => STRUCTURED_ALERT_DECISIVE.includes(label));
+  const hits = new Set([...String(source || '').matchAll(STRUCTURED_ALERT_LABEL_RE)].map(match => match[1]));
+  return hits.size >= STRUCTURED_ALERT_MIN_LABELS
+    && [...hits].some(label => STRUCTURED_ALERT_DECISIVE.includes(label));
 }
 
 // 处置措施是三个子字段拼在一行的（发出对象 / 措施类别 / 生效日），分开取。

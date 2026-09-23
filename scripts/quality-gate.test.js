@@ -1,5 +1,45 @@
 import assert from 'node:assert/strict';
-import { assertReportQualityGate } from './quality-gate.js';
+import { assertReportQualityGate, assertCiReportGate } from './quality-gate.js';
+
+// --- CI 硬门槛（assertCiReportGate）---
+// 这个函数决定客户最终收不收得到报告（返回即渲染 PDF + 推钉钉，抛错则整期不推送），
+// 原先没有单测覆盖。2026-09-15 把硬门槛从「核心类目」改成「总量下限」后补上。
+const ciCard = (module, index) => ({
+  module,
+  title: `测试卡片 ${index}`,
+  source_url: `https://example.com/${index}`,
+  legal_signal: '测试法务观察内容足够长以通过最小长度校验。',
+  business_impact: '测试业务影响内容足够长以通过最小长度校验。',
+  recommended_action: '测试行动建议内容足够长以通过最小长度校验。',
+  facts: ['测试事实要点一', '测试事实要点二'],
+});
+const ciCards = count => Array.from({ length: count }, (_, index) => ciCard(
+  index % 2 === 0 ? '新法律法规政策' : '产品质量/召回与安全风险',
+  index,
+));
+
+// 低于硬下限 → 必须抛错（否则会推一份空壳报告给客户）
+assert.throws(
+  () => assertCiReportGate({ cards: ciCards(5) }, { minItems: 8, warnItems: 15, minLegalItems: 2, minCoreItems: 8 }),
+  /items=5 < 8/,
+);
+// 低于目标值但高于硬下限 → 放行 + low-supply 告警
+const thin = assertCiReportGate({ cards: ciCards(10) }, { minItems: 8, warnItems: 15, minLegalItems: 2, minCoreItems: 8 });
+assert.equal(thin.pass, true);
+assert.ok(thin.warnings.some(w => w.includes('low-supply')));
+assert.equal(thin.warnItems, 15);
+// 核心类目不足只告警、不再抛错（2026-09-15 起 core 降为参考）：
+// 9 张全在非核心模块（美妆动态）→ core 0 < 8，但 items 9 ≥ 硬下限 8，必须放行。
+const lowCore = assertCiReportGate(
+  { cards: Array.from({ length: 9 }, (_, index) => ciCard('美妆动态', index)) },
+  { minItems: 8, warnItems: 15, minLegalItems: 2, minCoreItems: 8 },
+);
+assert.equal(lowCore.pass, true);
+assert.ok(lowCore.warnings.some(w => w.includes('core-items')));
+// 达到目标值 → 无 low-supply 告警
+const full = assertCiReportGate({ cards: ciCards(16) }, { minItems: 8, warnItems: 15, minLegalItems: 2, minCoreItems: 8 });
+assert.equal(full.pass, true);
+assert.equal(full.warnings.some(w => w.includes('low-supply')), false);
 
 assert.throws(
   () => assertReportQualityGate({ period: { start: '2026-07-21', end: '2026-08-04' }, sections: [] }),

@@ -1,5 +1,5 @@
 import { extractHardFacts } from './hard-fact-extractor.js';
-import { cleanArticleEvidence, compactEvidenceText, firstEvidenceSentence as extractFirstEvidenceSentence } from './article-evidence.js';
+import { cleanArticleEvidence, compactEvidenceText, perLineText, firstEvidenceSentence as extractFirstEvidenceSentence } from './article-evidence.js';
 import { hasVerifiedCorroboration } from './evidence-corroboration.js';
 
 const UTF8_ENCODER = new TextEncoder();
@@ -50,17 +50,6 @@ const GOVERNMENT_FOOTER_PATTERN = /(?:中国政府网|国家政务服务平台|�
 
 function text(value) {
   return String(value || '').replace(/\s+/g, ' ').trim();
-}
-
-// 行内归一空白、保留换行。需要「把一行的多余空白收干净、但不许跨行粘连」时用它——
-// 正文的行结构是页面组件判据（article-evidence.js 的 stripNavigationBlocks）赖以工作的
-// 信号，任何一次全篇压平都会把已经洗好的结构重新弄脏。
-function perLineText(value) {
-  return String(value || '')
-    .split('\n')
-    .map(line => line.replace(/\s+/g, ' ').trim())
-    .filter(Boolean)
-    .join('\n');
 }
 
 function utf8Bytes(value) {
@@ -204,7 +193,9 @@ function inferAffectedProcesses(value) {
     [/备案|注册|备案资料|注册资料/i, '备案/注册'],
     [/进口申报|报关|清关|口岸|海关|检验检疫|原产地/i, '进口申报/清关'],
     [/达人|直播|脚本|种草|短视频|广告素材|详情页|功效宣称|宣传/i, '达人素材/广告宣传'],
-    [/商标|授权|品牌授权|包装装潢|礼盒/i, '商标授权/包装设计'],
+    // 与抽取层同一判据：只认权利受侵害的**事件词**。「商标」「礼盒」这类话题词会把
+    // 约束性表述与产品描述误判成 IP 事件（抽取层那份已改，这条是漏网的第二份实现）。
+    [/爱马仕|假冒|冒用|仿冒|山寨|傍名牌|商标权|商标侵权|不正当竞争|包装装潢/i, '商标授权/包装设计'],
     [/SKU|批次|召回|下架|停止销售|抽检|不合格/i, 'SKU/批次管理'],
     [/配方|成分|禁用|限用|标准|检验|质量放行/i, '配方/检验标准'],
     [/平台店铺|电商|跨境|渠道|天猫|抖音|小红书|亚马逊/i, '平台店铺/渠道运营'],
@@ -300,6 +291,13 @@ function inferViolationBehavior(value) {
 }
 
 // 「违法行为」抽到标题本身 = 标题倒灌：标题在 facts 里已单独占位，这里没有新增信息。
+// 「违法行为」抽到处罚措辞（「并处以罚款1万元」）说明它抓的是另一句里的处罚结果，
+// 不是违法事实——句子会读成「因并处以罚款1万元被公开处理」。
+const PENALTY_PHRASE_PATTERN = /^(?:并|且|同时|另)?(?:处以|被处以|予以|给予|处以)?(?:罚款|罚没|没收|罚款人民币)/;
+function rejectPenaltyPhrase(value) {
+  return PENALTY_PHRASE_PATTERN.test(text(value)) ? '' : value;
+}
+
 function rejectTitleEcho(value, title) {
   const norm = item => text(item).replace(/[\s。；;，,、：:！!？“”''「」（）()\-—|｜]+/g, '');
   const act = norm(value);
@@ -346,11 +344,18 @@ function withInferredHardFacts(hardFacts, card) {
     card.facts,
     card.business_impact,
   ].flat().join('。');
-  const companyNames = extractCompanyNames(source);
+  // 剔除与来源同名的公司：`extractCompanyNames` 会把页脚版权声明里的**出版方**收进来
+  // （实测「本文的内容与版权均归杭州瑞欧科技有限公司…」被当成当事人），而发布方不是当事人。
+  const sourceNameKey = text(card.source_name).replace(/[（(].*$/, '');
+  const isPublisher = name => Boolean(sourceNameKey) && (name.includes(sourceNameKey) || sourceNameKey.includes(name));
+  const companyNames = extractCompanyNames(source).filter(name => !isPublisher(name));
   const needsPartyDisclosure = ['广告处罚案例', '知识产权保护或者侵权'].includes(normalizeModule(card.module));
-  const involvedParty = isVagueInvolvedParty(hardFacts.involved_party)
+  // 发布方不是当事人——过滤要作用在**两条来源**上：抽取层给的 involved_party 同样会
+  // 把页脚版权声明里的出版公司收进来（只挡 fallback 那条会被短路）。
+  const dropPublisher = value => text(value).split('、').filter(name => !isPublisher(name)).join('、');
+  const involvedParty = dropPublisher(isVagueInvolvedParty(hardFacts.involved_party)
     ? (companyNames.length ? companyNames.join('、') : needsPartyDisclosure ? '原文未披露' : '')
-    : hardFacts.involved_party;
+    : hardFacts.involved_party);
   return {
     ...hardFacts,
     product_or_batch: hardFacts.product_or_batch || inferPolicyProductOrRule(source),
@@ -359,7 +364,7 @@ function withInferredHardFacts(hardFacts, card) {
     risk_tier: hardFacts.risk_tier || inferRiskTier(source),
     affected_processes: hardFacts.affected_processes.length ? hardFacts.affected_processes : inferAffectedProcesses(source),
     // 两个来源都要过守卫：抽取层给的 violation_behavior 同样会复读标题（短路掉守卫）
-    violation_behavior: rejectTitleEcho(hardFacts.violation_behavior || inferViolationBehavior(source), card.title),
+    violation_behavior: rejectPenaltyPhrase(rejectTitleEcho(hardFacts.violation_behavior || inferViolationBehavior(source), card.title)),
     confiscation_result: hardFacts.confiscation_result || inferConfiscationResult(source),
     feedback_channel: hardFacts.feedback_channel || inferFeedbackChannel(source),
   };
@@ -1088,8 +1093,64 @@ function translateBriefText(value) {
     .replace(/Removal of the product listings/gi, '下架产品链接');
 }
 
+// --- 英文机关/机构名与专业名词的中文括注 ---
+// 客户只看中文，英文简称（RAPEX/FDA/OPSS/CBE…）必须带中文名。规则：**整串里每个词条
+// 只括注一次**（同一句里重复出现不重复加），已经跟着同一中文括注的不重复加。
+// 品牌名不在此表内——品牌不译是惯例。
+const TERM_LABELS = {
+  'EU Safety Gate (RAPEX)': '欧盟安全门快速预警系统',
+  'Safety Gate': '欧盟安全门快速预警系统',
+  'EU Safety Gate': '欧盟安全门快速预警系统',
+  RAPEX: '欧盟安全门快速预警系统',
+  FDA: '美国食品药品监督管理局',
+  FTC: '美国联邦贸易委员会',
+  OPSS: '英国产品安全与标准办公室',
+  MHRA: '英国药品和健康产品管理局',
+  HSA: '新加坡卫生科学局',
+  ACCC: '澳大利亚竞争与消费者委员会',
+  TGA: '澳大利亚药品管理局',
+  BPOM: '印度尼西亚国家食品药品监督管理局',
+  MFDS: '韩国食品药品安全部',
+  EUIPO: '欧盟知识产权局',
+  WIPO: '世界知识产权组织',
+  NMPA: '中国国家药品监督管理局',
+  SCCS: '欧盟消费者安全科学委员会',
+  CPNP: '欧盟化妆品产品通报门户',
+  IFRA: '国际日用香料协会',
+  CBE: '中国美容博览会',
+  PCHi: '中国国际化妆品个人及家庭护理用品原料展',
+  DSA: '欧盟数字服务法',
+  MoCRA: '美国化妆品法规现代化法案',
+  Sohu: '搜狐',
+  'thepaper.cn': '澎湃新闻',
+  BBC: '英国广播公司',
+  Reuters: '路透社',
+  Bloomberg: '彭博社',
+  '8world': '8视界新闻网',
+};
+
+function localizeTerms(value = '') {
+  let out = String(value || '');
+  if (!out) return out;
+  const glossed = new Set();
+  // 长词条优先：`EU Safety Gate (RAPEX)` 要先于 `RAPEX` 命中，否则会插在中间
+  const terms = Object.entries(TERM_LABELS).sort((a, b) => b[0].length - a[0].length);
+  for (const [term, label] of terms) {
+    if (glossed.has(label)) continue;
+    const index = out.indexOf(term);
+    if (index < 0) continue;
+    const after = out.slice(index + term.length);
+    if (after.startsWith(`（${label}）`)) { glossed.add(label); continue; }   // 已有同一括注
+    out = `${out.slice(0, index + term.length)}（${label}）${after}`;
+    glossed.add(label);
+  }
+  // 括注插在原英文名后面，会把「系统） 通报」这种西文空格留下——中文排版里多余
+  return out.replace(/）\s+(?=[\u4e00-\u9fa5])/g, '）');
+}
+
 function cleanBriefPart(value) {
-  return compactEvidenceText(translateBriefText(value), 220).replace(/[。；;,\s]+$/g, '');
+  // 括注放在截断**之后**：先截 220 字再加中文名，避免中文名被截掉
+  return localizeTerms(compactEvidenceText(translateBriefText(value), 220)).replace(/[。；;,\s]+$/g, '');
 }
 
 function briefParts(parts = []) {
@@ -1272,8 +1333,9 @@ export function buildPremiumDingTalkMarkdown({ period = {}, cards = [], preselec
       number += 1;
       lines.push(
         '',
-        `### ${number}. ${esc(displayTitle(card))}`,
-        `- **来源**：${esc(card.source_name)} / ${esc(card.country)} / ${esc(card.published_at)} / [原文](${card.source_url})`,
+        // 标题在此处也过一遍术语括注：card.title 是建卡时就烘好的，直接渲染会漏掉后来新增的词条
+        `### ${number}. ${esc(localizeTerms(displayTitle(card)))}`,
+        `- **来源**：${esc(localizeTerms(card.source_name))} / ${esc(card.country)} / ${esc(card.published_at)} / [原文](${card.source_url})`,
         ...renderFieldBlock('事实依据', renderFactLines(card)),
         ...renderFieldBlock('法务观察', renderJudgementLines(card)),
         ...renderFieldBlock('业务影响', renderImpactLines(card)),
@@ -1530,7 +1592,7 @@ function firstEvidenceSentence(value = '') {
 // 判断」，没收录的保持原文——不臆造、不扩写。
 const MEASURE_LABELS = {
   'Withdrawal of the product from the market': '撤出市场',
-  'Recall of the product from end users': '从消费者端召回',
+  'Recall of the product from end users': '从终端用户召回',   // 与 translateBriefText 的既有译法保持一致
   'Ban on the marketing of the product and any accompanying measures': '禁售并采取配套措施',
   'Stop of sales': '停止销售',
   'Removal of this product listing by the online marketplace': '电商平台下架商品链接',
@@ -1542,7 +1604,7 @@ const OPERATOR_LABELS = {
   Retailer: '零售商',
   Manufacturer: '制造商',
   Importer: '进口商',
-  Other: '其他经营者',
+  Other: '',   // 空串=不当前缀（原先靠比较译文串来判断，改中译名会静默改变行为）
 };
 const RISK_LEVEL_LABELS = {
   'Serious risk': '严重风险',
@@ -1550,6 +1612,110 @@ const RISK_LEVEL_LABELS = {
   'Medium risk': '中等风险',
   'Low risk': '低风险',
 };
+
+// --- EU Safety Gate 受控词表（风险类型 / 产品类别 / 国家）---
+// 这些值是官方通报里的固定词表，量小且稳定。整份报告是中文，受控词表部分必须落中文——
+// 标题是客户最先看到的一行，原先「欧盟 Safety Gate 通报：Tesori d'Oriente Perfume
+// （Chemical・Serious risk）」整行 77% 是英文。**没收录的保持原文，不臆造。**
+// 风险描述的**自由文本**不在词表内，由 assemble-cards 的 AI 翻译步处理。
+const ALERT_RISK_TYPE_LABELS = {
+  Chemical: '化学',
+  Microbiological: '微生物',
+  'Health risk': '健康风险',
+  'Health risk / other': '健康风险',
+  Other: '其他',
+  Choking: '窒息',
+  Suffocation: '窒息',
+  Strangulation: '勒颈',
+  Burns: '烧伤',
+  Injury: '伤害',
+  Electric: '电气',
+  'Damage to hearing': '听力损害',
+  'Damage to sight': '视力损害',
+  'Chemical risk': '化学风险',
+};
+const ALERT_CATEGORY_LABELS = {
+  Perfume: '香水',
+  'Perfumed water': '香氛水',
+  'Liquid soap': '液体皂',
+  'Skin-lightening product': '美白产品',
+  'Teeth whitening pen': '牙齿美白笔',
+  'Teeth whitening product': '牙齿美白产品',
+  'Sun screen': '防晒霜',
+  'Sun protection cream': '防晒霜',
+  'Eyelash serum': '睫毛精华',
+  'Hair dye': '染发剂',
+  'Body lotion': '身体乳',
+  'Face cream': '面霜',
+  'Make-up': '彩妆',
+  'Nail polish': '指甲油',
+  Shampoo: '洗发水',
+  'Bath product': '沐浴产品',
+  'Cosmetic product': '化妆品',
+  Deodorant: '除臭剂',
+  'Hair product': '护发产品',
+  'Oral hygiene product': '口腔护理产品',
+};
+const ALERT_COUNTRY_LABELS = {
+  Greece: '希腊', Italy: '意大利', France: '法国', Germany: '德国', Spain: '西班牙',
+  Portugal: '葡萄牙', Poland: '波兰', Netherlands: '荷兰', Belgium: '比利时',
+  Sweden: '瑞典', Denmark: '丹麦', Finland: '芬兰', Austria: '奥地利', Ireland: '爱尔兰',
+  Czechia: '捷克', 'Czech Republic': '捷克', Hungary: '匈牙利', Romania: '罗马尼亚',
+  Bulgaria: '保加利亚', Croatia: '克罗地亚', Slovakia: '斯洛伐克', Slovenia: '斯洛文尼亚',
+  Lithuania: '立陶宛', Latvia: '拉脱维亚', Estonia: '爱沙尼亚', Cyprus: '塞浦路斯',
+  Malta: '马耳他', Luxembourg: '卢森堡', Norway: '挪威', Iceland: '冰岛',
+  Switzerland: '瑞士', Türkiye: '土耳其', Turkey: '土耳其',
+  "People's Republic of China": '中国', China: '中国', 'Ivory Coast': '科特迪瓦',
+  India: '印度', Vietnam: '越南', Thailand: '泰国', Indonesia: '印度尼西亚',
+  Malaysia: '马来西亚', Japan: '日本', 'South Korea': '韩国', 'Republic of Korea': '韩国',
+  'United States': '美国', USA: '美国', 'United Kingdom': '英国', Brazil: '巴西',
+  Mexico: '墨西哥', Egypt: '埃及', Morocco: '摩洛哥', Tunisia: '突尼斯',
+  Pakistan: '巴基斯坦', Bangladesh: '孟加拉国', Nigeria: '尼日利亚',
+  'United Arab Emirates': '阿联酋', 'Saudi Arabia': '沙特阿拉伯', Israel: '以色列',
+  Russia: '俄罗斯', Ukraine: '乌克兰', Belarus: '白俄罗斯', Serbia: '塞尔维亚',
+  Albania: '阿尔巴尼亚', Georgia: '格鲁吉亚', Armenia: '亚美尼亚', Peru: '秘鲁',
+  Colombia: '哥伦比亚', Argentina: '阿根廷', Chile: '智利', Ecuador: '厄瓜多尔',
+  'Dominican Republic': '多米尼加', Guatemala: '危地马拉', Honduras: '洪都拉斯',
+  Panama: '巴拿马', 'Costa Rica': '哥斯达黎加', Senegal: '塞内加尔',
+  'South Africa': '南非', Kenya: '肯尼亚', Ethiopia: '埃塞俄比亚', Ghana: '加纳',
+  'Sri Lanka': '斯里兰卡', Nepal: '尼泊尔', Philippines: '菲律宾',
+  Cambodia: '柬埔寨', Myanmar: '缅甸', Mongolia: '蒙古', Australia: '澳大利亚',
+  'New Zealand': '新西兰', Canada: '加拿大', 'Hong Kong': '中国香港',
+};
+
+function alertCountryLabel(value = '') {
+  const source = text(value);
+  return ALERT_COUNTRY_LABELS[source] || source;
+}
+
+function alertRiskTypeLabel(value = '') {
+  const source = text(value);
+  return ALERT_RISK_TYPE_LABELS[source] || source;
+}
+
+// 标题里的「品牌 + 类别」：整段是类别就直接换；是「品牌 类别」就只换类别那一段。
+// 官方数据里类别偶尔被截断（`Teeth whitening p`），所以再兜一层「类别以它为前缀」。
+function alertSubjectLabel(value = '') {
+  const source = text(value);
+  if (!source) return source;
+  for (const [en, zh] of Object.entries(ALERT_CATEGORY_LABELS)) {
+    if (source === en) return zh;
+    if (source.endsWith(` ${en}`)) return `${source.slice(0, -(en.length + 1))} ${zh}`;
+  }
+  const truncated = Object.keys(ALERT_CATEGORY_LABELS).find(en => en.startsWith(source) && en !== source);
+  return truncated ? ALERT_CATEGORY_LABELS[truncated] : source;
+}
+
+// 「欧盟 Safety Gate 通报：Tesori d'Oriente Perfume（Chemical・Serious risk）」
+// →「欧盟 Safety Gate 通报：Tesori d'Oriente 香水（化学・严重风险）」
+function localizeAlertTitle(value = '') {
+  const source = text(value);
+  const match = source.match(/^(欧盟 Safety Gate 通报：)(.+?)（([^・）]*)・([^）]*)）$/);
+  if (!match) return source;
+  const [, prefix, subject, riskType, riskLevel] = match;
+  const level = RISK_LEVEL_LABELS[text(riskLevel)] || text(riskLevel);
+  return `${prefix}${alertSubjectLabel(subject)}（${alertRiskTypeLabel(riskType)}・${level}）`;
+}
 
 function measureLabel(value = '') {
   const source = hardText(value);
@@ -1563,12 +1729,18 @@ function alertFactLines(hardFacts = {}) {
   const hard = hardFacts || {};
   const riskDescription = hardText(hard.risk_description);
   if (!riskDescription) return [];
-  const identity = [
-    hardText(hard.notifying_country) && `通报国：${hardText(hard.notifying_country)}`,
-    hardText(hard.origin_country) && `原产国：${hardText(hard.origin_country)}`,
-    hardText(hard.brand) && `品牌：${hardText(hard.brand)}`,
-    hardText(hard.alert_reference) && `案号：${hardText(hard.alert_reference)}`,
-  ].filter(Boolean).join('；');
+  // 复用既有的 compactHardFacts（硬事实标签表的唯一拼装处），别再内联一套标签；
+  // 传进来的 hardFacts 已过 normalizeHardFacts，值都是干净的，无需再 hardText 一次。
+  const identity = compactHardFacts({
+    ...hard,
+    notifying_country: alertCountryLabel(hard.notifying_country),
+    origin_country: alertCountryLabel(hard.origin_country),
+  }, [
+    ['notifying_country', '通报国'],
+    ['origin_country', '原产国'],
+    ['brand', '品牌'],          // 品牌名不译
+    ['alert_reference', '案号'],
+  ]).join('；');
   const measure = measureLabel(hard.measure_category);
   const disposal = measure
     ? `处置措施：${measure}${hardText(hard.measure_date) ? `（${hardText(hard.measure_date)} 生效）` : ''}`
@@ -1582,13 +1754,21 @@ function alertFactLines(hardFacts = {}) {
 // evidenceSource：切掉标题、保留换行的正文。关键词判据仍看 source（含标题，行为不变），
 // 但**取证据句**的兜底必须用它——否则会抓到「{标题} 新京报 2026-09-07 09:10 {正文}」
 // 这种标题+页面元数据的粘连行（实测「地下工厂」系列把法务观察写成「因{整个标题}…」）。
+// 句子里的主体只列前两家：`extractCompanyNames` 会把长文里**所有**公司名都收进来
+// （实测贝泰妮一条列出 5 家、102 字，读不成句），而头条主体通常排在最先。
+function compactParty(value = '') {
+  return text(value)
+    .replace(/^(?:将|对|把)(?=[^\s])/, '')   // 句子主语前残留的连接词
+    .split('、').filter(Boolean).slice(0, 2).join('、');
+}
+
 function candidateLegalSignal(module, source, hardFacts = {}, evidenceSource = '') {
   const hard = hardFacts || {};
   const evidenceText = evidenceSource || source;
   const product = hardText(hard.product_or_batch);
   const deadline = hardText(hard.deadline || hard.action_deadline);
   const effective = hardText(hard.effective_date);
-  const party = meaningfulInvolvedParty(hard.involved_party);
+  const party = compactParty(meaningfulInvolvedParty(hard.involved_party));
   const act = hardText(hard.violation_behavior);
   const amount = hardText(hard.penalty_amount);
   const disposition = hardText(hard.confiscation_result);
@@ -1601,15 +1781,15 @@ function candidateLegalSignal(module, source, hardFacts = {}, evidenceSource = '
   if (riskDescription) {
     const authority = hardText(hard.authority) || '官方';
     const level = RISK_LEVEL_LABELS[hardText(hard.risk_level)] || hardText(hard.risk_level);
-    const riskType = hardText(hard.risk_type);
+    const riskType = alertRiskTypeLabel(hardText(hard.risk_type));
     const measure = measureLabel(hard.measure_category);
     const operator = hardText(hard.measure_operator);
-    const operatorPrefix = operator && operator !== OPERATOR_LABELS.Other
-      ? OPERATOR_LABELS[operator] || operator
-      : '';
+    const operatorPrefix = OPERATOR_LABELS[operator] ?? operator;   // ?? 保留空串（Other），未知值回落原文
     const date = hardText(hard.measure_date);
     const market = /safety\s*gate|rapex/i.test(`${authority} ${source}`) ? '欧盟' : '该市场';
-    const head = `${product || hardText(hard.brand) || '该产品'}因${riskType ? `${riskType} ` : ''}风险经${authority}通报为${level}`;
+    // 风险类型已翻成中文时不要空格（原模板是 `Chemical 风险` 这种英文写法）
+    const riskTypePart = riskType ? (/[A-Za-z]/.test(riskType) ? `${riskType} ` : riskType) : '';
+    const head = `${product || hardText(hard.brand) || '该产品'}因${riskTypePart}风险经${authority}通报为${level}`;
     const disposal = measure ? `，处置措施为${operatorPrefix}${measure}${date ? `（${date} 生效）` : ''}` : '';
     return `${head}${disposal}；同类出口${market}的化妆品需按同一口径复核成分与标签一致性，并预置下架与召回应对。`;
   }
@@ -1666,19 +1846,21 @@ function candidateLegalSignal(module, source, hardFacts = {}, evidenceSource = '
     : '原文未披露足够的结构化信息，建议直接查阅原文评估合规风险。';
 }
 
+// 模块级业务链条：人工梳理，比关键词抽出来的进程完整（见下方注释）。模块常量，勿在函数内重建。
+const BUSINESS_IMPACT_DEFAULTS = {
+  '知识产权保护或者侵权': '商标授权、包装设计、达人素材、平台店铺',
+  '进出口': '进口申报、清关、原产地文件、供应链履约',
+  '产品质量/召回与安全风险': 'SKU/批次管理、库存隔离、渠道下架、消费者通知',
+  '广告处罚案例': '达人素材/广告宣传、平台店铺/渠道运营',
+  '新法律法规政策': '配方开发、备案资料、标签审核、存量SKU管理',
+};
+
 function candidateBusinessImpact(module, hardFacts = {}, source = '') {
   const processes = hardFacts.affected_processes?.length
     ? hardFacts.affected_processes
     : inferAffectedProcesses(hardFacts.product_or_batch ? `${source} ${hardFacts.product_or_batch}` : source, {}, { module });
   const labels = processes.length ? processes : inferAffectedProcesses(source, {}, { module });
-  // Module-specific fallbacks derived from actual business workflows
-  const defaults = {
-    '知识产权保护或者侵权': '商标授权、包装设计、达人素材、平台店铺',
-    '进出口': '进口申报、清关、原产地文件、供应链履约',
-    '产品质量/召回与安全风险': 'SKU/批次管理、库存隔离、渠道下架、消费者通知',
-    '广告处罚案例': '达人素材/广告宣传、平台店铺/渠道运营',
-    '新法律法规政策': '配方开发、备案资料、标签审核、存量SKU管理',
-  };
+  const defaults = BUSINESS_IMPACT_DEFAULTS;
   if (labels.length) return `影响中国市场美妆业务的${labels.join('、')}。`;
   const fallback = defaults[module] || '标签、备案注册、广告素材、平台上架';
   return `影响中国市场美妆业务的${fallback}。`;
@@ -1735,6 +1917,9 @@ export function premiumCardFromCandidate(candidate = {}) {
   // （实测执法通报类稿——汕头化妆品制假售假系列约 10 条——全灭在这）。
   // 去掉「标题 — 媒体名」的尾巴后再切：只切前 20 字会在正文里留下标题残尾
   // （「假，线上销售高频换店 民房制假，…」这种半截话）。
+  // 显示标题算一次：facts 末位与 baseCard 共用。原先 facts 用的是**未本地化**的原始标题，
+  // 于是 Safety Gate 卡的中文标题在卡片顶部、同一张卡的 facts 里又出现一次英文原标题。
+  const displayTitle = localizeTerms(localizeAlertTitle(cleanDisplayTitle(text(candidate.display_title_zh || candidate.title_zh || candidate.title))));
   const titleCore = text(candidate.title).split(/\s+[—\-|]\s+/)[0].replace(/\s+/g, '');
   const titleProbe = titleCore.slice(0, Math.min(20, titleCore.length));
   // 按标题串整体切除，而不是按行过滤：candidateEvidenceText 把多个字段用「。」
@@ -1769,18 +1954,22 @@ export function premiumCardFromCandidate(candidate = {}) {
   // 「库存隔离、渠道下架、消费者通知」挤掉（Caro White、Sun screen 三条实测）。
   // 证据句在「一行一个字段」的通报正文里取不到东西，所以通报类的事实要点
   // 由它自己的结构化字段提供（alertFactLines）。
-  const evidenceFacts = uniqueValues([firstEvidenceSentence(bodySource || source), text(candidate.title)]).filter(Boolean);
+  // 末位用**显示标题**（已本地化），不要用原始标题：原先 Safety Gate 卡的中文标题在卡片
+  // 顶部、同一张卡的 facts 里又出现一次英文原标题。bodySource 的标题切除仍按原始标题做
+  // （那是为了从正文里定位标题串），两者互不影响。
+  const evidenceFacts = uniqueValues([firstEvidenceSentence(bodySource || source), displayTitle]).filter(Boolean);
   const normalizedHardFacts = normalizeCandidateHardFacts(candidate, mergedHardFacts);
   const hardFacts = withInferredHardFacts(normalizedHardFacts, {
     title: text(candidate.title),
     module,
     evidence_text: source,
+    source_name: sourceNameFromCanonicalSource(candidate),   // 发布方守卫要用
     facts: evidenceFacts,
     business_impact: candidate.business_impact || '',
   });
   const candidateFacts = uniqueValues([...alertFactLines(hardFacts), ...evidenceFacts]).filter(Boolean);
   const baseCard = {
-    title: cleanDisplayTitle(text(candidate.display_title_zh || candidate.title_zh || candidate.title)),
+    title: displayTitle,
     source_candidate: true,
     module,
     // 发现阶段判定的模块必须带进 card：assemble-cards 的 RE-MODULE 会调
