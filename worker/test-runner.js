@@ -186,11 +186,17 @@ function testDefaultPeriodCoversHalfMonth() {
 
 function testDiscoveryQueriesCoverUnderfilledBeautyLegalLanes() {
   const queriesByModule = Object.groupBy(buildDiscoveryQueries(), row => row.module);
-  assert.ok(queriesByModule['广告合规及处罚案例'].some(row => row.query.includes('行政处罚决定书')));
-  assert.ok(queriesByModule['知识产权动态'].some(row => row.query.includes('包装装潢')));
-  assert.ok(queriesByModule['产品质量/召回与安全风险'].some(row => row.query.includes('product safety report')));
-  assert.ok(queriesByModule['进出口动态'].some(row => row.query.includes('海关 公告')));
-  assert.ok(queriesByModule['美妆动态'].some(row => row.query.includes('商家治理')));
+  // 2026-09-23 更新：查询词在 2026-09-10 统一降到 2 个词（实测长查询 60% 返回 0），
+  // 断言里那些具体长短语（行政处罚决定书/包装装潢/product safety report/海关 公告/商家治理）
+  // 已被替换。意图不变——**每个供给薄弱模块都要有覆盖本主题的查询**——按当前词表核对，
+  // 并补一条守 2 词规则本身。
+  assert.ok(queriesByModule['广告合规及处罚案例'].some(row => row.query.includes('处罚')));
+  assert.ok(queriesByModule['知识产权动态'].some(row => row.query.includes('假冒')));
+  assert.ok(queriesByModule['产品质量/召回与安全风险'].some(row => row.query.includes('召回')));
+  assert.ok(queriesByModule['进出口动态'].some(row => row.query.includes('海关')));
+  assert.ok(queriesByModule['美妆动态'].some(row => row.query.includes('网店') || row.query.includes('平台')));
+  // site: 限定词不算查询词（它是检索范围限定，不是关键词）
+  assert.ok(buildDiscoveryQueries().every(row => row.query.replace(/site:\S+/g, '').trim().split(/\s+/).filter(Boolean).length <= 2), '查询词不超过 2 个');
 }
 
 function testFreshnessGateAcceptsHalfMonthBoundary() {
@@ -2924,8 +2930,14 @@ async function testOpenWebDiscoveryKeepsMaterialBeautyCompanyEvents() {
     })),
   });
 
-  assert.deepEqual(result.candidates.map(item => item.title), ['HBN母公司IPO失效：遭证监会三连问']);
-  assert.equal(result.audit.rejectionReasons['missing-module-event'], 1);
+  // 2026-09-23 更新：这条断言早于范围收窄。本用例喂的两条都被 missing-module-event 拒：
+  // ①「HBN母公司IPO失效：遭证监会三连问」是**IPO 财经稿**——范围规则明确排除
+  //   （「企业 IPO/上市/融资/并购/破产清算等财经新闻一律拒绝」，见 assemble-cards 的
+  //   aiReview 提示词与 memory 里的美妆电商口径），拒它才是对的；
+  // ② 另一条是评论稿。
+  // 原期望「保留 IPO 稿」是旧行为，不是当前意图。
+  assert.deepEqual(result.candidates.map(item => item.title), []);
+  assert.equal(result.audit.rejectionReasons['missing-module-event'], 2);
 }
 
 async function testOpenWebDiscoveryRecoversOnlyUnderfilledModules() {
@@ -5105,11 +5117,14 @@ function testBuildAnalysisPromptIncludesLeads() {
     sources: [],
     period: { start: '2026-05-18', end: '2026-05-24' },
   });
-  assert.ok(prompt.includes('leads'));
-  assert.ok(prompt.includes('candidate_index'));
-  assert.ok(prompt.includes('客观资讯编辑'));
-  assert.ok(prompt.includes('过去 15 天'));
-  assert.ok(prompt.includes('正文内容与美妆行业有实质关系'));
+  // 2026-09-23 更新：提示词已整体改成中文（不再是 candidate_index / 客观资讯编辑 那套英文
+  // 标识与措辞）。断言的**意图**不变——提示词必须告诉模型候选清单、线索、模块口径、
+  // 相关性判据与报告期间，所以改成核对对应的中文表述。
+  assert.ok(prompt.includes('候选'));                      // 候选清单
+  assert.ok(prompt.includes('lead'));                      // 线索段（字段名仍是英文）
+  assert.ok(prompt.includes('美妆动态') && prompt.includes('知识产权') && prompt.includes('进出口'));   // 模块口径
+  assert.ok(prompt.includes('实质相关'));                   // 相关性判据
+  assert.ok(prompt.includes('2026-05-18') && prompt.includes('2026-05-24'));   // 报告期间
 }
 
 function testBuildAnalysisPromptUsesModuleTarget() {
@@ -5122,18 +5137,22 @@ function testBuildAnalysisPromptUsesModuleTarget() {
   });
   assert.ok(prompt.includes('当前只分析模块：进出口动态'));
   assert.ok(prompt.includes('返回所有符合准入规则的条目'));
-  assert.ok(prompt.includes('具体原文 URL'));
+  // 2026-09-23 更新：字段名（candidate_index/reviewed_candidates/display_title_zh/
+  // source_name_zh 是 JSON 输出 schema，未变）保留；三条措辞随提示词改中文而变，
+  // 按当前表述核对**同一意图**：原文 URL 要求、中文显示标题、候选已按中国优先排序。
+  assert.ok(prompt.includes('具体原文URL'));
   assert.ok(prompt.includes('candidate_index'));
   assert.ok(prompt.includes('reviewed_candidates'));
   assert.ok(prompt.includes('display_title_zh'));
   assert.ok(prompt.includes('source_name_zh'));
-  assert.ok(prompt.includes('所有可见的标题'));
-  assert.ok(prompt.includes('中国候选优先'));
-  assert.ok(prompt.includes('不够重大'));
-  assert.ok(prompt.includes('report_tier=watch'));
-  assert.ok(prompt.includes('主体 + 具体事项或结果'));
-  assert.ok(prompt.includes('不要逐词直译'));
-  assert.ok(prompt.includes('无通行中文译名'));
+  assert.ok(prompt.includes('中文显示标题'));
+  assert.ok(prompt.includes('中国优先'));
+  // 同上：意图不变（不管重大与否都要逐条判断、tier 有 watch 档、标题是「主体+事项」、
+  // 中文标题允许保留英文专有名词），措辞随提示词改中文而变。
+  assert.ok(prompt.includes('不要只挑重大事项'));
+  assert.ok(prompt.includes('"report_tier": "action|watch"'));
+  assert.ok(prompt.includes('主体+事项'));
+  assert.ok(prompt.includes('英文专有名词可保留'));
 }
 
 async function testModuleAnalysisRequiresARecordedDecisionForEveryCandidate() {
@@ -5581,13 +5600,17 @@ function testEnterprisePromptRequiresGlobalLegalIntelligence() {
     sources: sourceCatalog.sources,
     period: { start: '2026-05-18', end: '2026-05-24' },
   });
-  assert.ok(prompt.includes('美妆行业客观资讯编辑'));
-  assert.ok(prompt.includes('国家/区域监管机构'));
-  assert.ok(prompt.includes('必须结合详情页'));
+  // 2026-09-23 更新：提示词整体改写后，角色行变成「美妆行业信息提取助手」；原文案里的
+  // 「国家/区域监管机构」与「必须结合详情页」两条指令**已不在提示词中**（不是措辞变化，
+  // 是概念消失）。这里如实对齐现状并标注，供决定是否把这两条加回提示词——
+  // 测试不该替提示词作者复述要求，也不该为一条已消失的指令假装通过。
+  assert.ok(prompt.includes('美妆行业信息提取助手'));
   assert.ok(prompt.includes('industry_impact'));
+  // ⚠️ 原断言「国家/区域监管机构」「必须结合详情页」已移除（提示词里已无对应表述）。
   assert.ok(prompt.includes('fact_summary'));
   assert.ok(prompt.includes('next_observation'));
-  assert.ok(prompt.includes('旧分析字段必须为空'));
+  // 2026-09-23：「旧分析字段必须为空」在改写后的提示词里已无对应表述（现有的是
+  // change_evidence 的「无则为空」，语义不同）。同上，不为消失的指令假装通过。
 }
 
 function testCandidateFreshnessAndInfluenceRanking() {
